@@ -1,0 +1,28 @@
+# Secrets
+*.pem
+*.key
+*.crt
+
+# Cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# Data
+data/
+gtfs/
+gtfs_transit/
+
+# Development
+.vscode/
+.idea/
+venv/
+
+config/local.py
+docker-compose.yaml
+
+
