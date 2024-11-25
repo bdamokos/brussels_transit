@@ -27,4 +27,7 @@ venv/
 config/local.py
 docker-compose.yaml
 
+cache/
 
+# Random things
+.DS_Store
