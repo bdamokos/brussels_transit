@@ -14,6 +14,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 from config import get_config
 from logging.config import dictConfig
+import asyncio
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +23,7 @@ DELIJN_API_KEY = get_config('DELIJN_API_KEY')
 DELIJN_GTFS_STATIC_API_KEY = get_config('DELIJN_GTFS_STATIC_API_KEY')
 DELIJN_GTFS_REALTIME_API_KEY = get_config('DELIJN_GTFS_REALTIME_API_KEY')
 BASE_URL = API_CONFIG['DELIJN_API_URL']
+RATE_LIMIT_DELAY = get_config('RATE_LIMIT_DELAY')
 
 # Configuration
 STOP_ID = get_config('DELIJN_STOP_IDS')
@@ -41,6 +43,9 @@ SHAPES_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 GTFS_URL = API_CONFIG['DELIJN_GTFS_URL']
 GTFS_DIR = get_config('DELIJN_GTFS_DIR')
 GTFS_CACHE_DURATION = get_config('GTFS_CACHE_DURATION')
+
+# Add this near the top of the file with other global variables
+last_api_call = datetime.now(timezone.utc)
 
 class CacheEntry(TypedDict):
     data: Any
@@ -228,6 +233,17 @@ async def get_line_colors() -> Dict[str, str]:
             return color_map
         return {}
 
+async def rate_limit() -> None:
+    """Enforce rate limiting between API calls"""
+    global last_api_call
+    now = datetime.now(timezone.utc)
+    elapsed = (now - last_api_call).total_seconds()
+    if elapsed < RATE_LIMIT_DELAY:
+        delay = RATE_LIMIT_DELAY - elapsed
+        logger.debug(f"Rate limiting: waiting {delay:.2f} seconds")
+        await asyncio.sleep(delay)
+    last_api_call = datetime.now(timezone.utc)
+
 async def get_line_color(line_number: str) -> Optional[Dict[str, str]]:
     """Get color information for a specific line with caching"""
     cache_key = f"line_color_{line_number}"
@@ -241,6 +257,7 @@ async def get_line_color(line_number: str) -> Optional[Dict[str, str]]:
     
     try:
         async with httpx.AsyncClient() as client:
+            await rate_limit()  # Add rate limiting
             logger.debug(f"Fetching color info for line {line_number}")
             response = await client.get(
                 f"{BASE_URL}/lijnen/3/{line_number}/lijnkleuren",
@@ -326,6 +343,9 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
     try:
         async with httpx.AsyncClient() as client:
             for stop_id in stop_ids:
+                # Rate limit before each API call
+                await rate_limit()
+                
                 # Get basic stop info
                 logger.debug(f"Fetching stop info for {stop_id}")
                 stop_response = await client.get(f"{BASE_URL}/haltes/3/{stop_id}", headers=headers)
@@ -340,6 +360,9 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
                 stop_data = stop_response.json()
                 stop_info = await parse_stop_info(stop_data)
                 logger.debug(f"Parsed stop info for {stop_id}: {stop_info}")
+                
+                # Rate limit before getting realtime arrivals
+                await rate_limit()
                 
                 # Get realtime arrivals
                 logger.debug(f"Fetching realtime arrivals for {stop_id}")
@@ -697,6 +720,7 @@ async def get_service_messages() -> List[Dict]:
             # Get messages for our monitored stops
             for stop_id in STOP_ID:  # Now iterates over all monitored stops
                 for endpoint in ['storingen', 'omleidingen']:
+                    await rate_limit()  # Add rate limiting
                     stop_response = await client.get(
                         f"{BASE_URL}/haltes/{3}/{stop_id}/{endpoint}",
                         headers=headers
@@ -709,6 +733,7 @@ async def get_service_messages() -> List[Dict]:
             for line in MONITORED_LINES:
                 for direction in ['HEEN', 'TERUG']:
                     for endpoint in ['storingen', 'omleidingen']:
+                        await rate_limit()  # Add rate limiting
                         line_response = await client.get(
                             f"{BASE_URL}/lijnen/{3}/{line}/lijnrichtingen/{direction}/{endpoint}",
                             headers=headers
