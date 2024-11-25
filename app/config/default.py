@@ -1,0 +1,160 @@
+"""
+Default configuration settings.
+These are the base settings that can be overridden by local.py
+"""
+
+import dotenv
+import os
+from datetime import timedelta
+from pathlib import Path
+
+dotenv.load_dotenv()
+
+# Port
+PORT = 5001
+
+# API Keys
+STIB_API_KEY = os.getenv('STIB_API_KEY')
+DELIJN_API_KEY = os.getenv('DELIJN_API_KEY')
+DELIJN_GTFS_STATIC_API_KEY = os.getenv('DELIJN_GTFS_STATIC_API_KEY')
+DELIJN_GTFS_REALTIME_API_KEY = os.getenv('DELIJN_GTFS_REALTIME_API_KEY')
+
+# Logging Configuration
+LOGGING_CONFIG = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        },
+        'simple': {
+            'format': '%(levelname)s - %(message)s'
+        }
+    },
+    'handlers': {
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': 'logs/app.log',
+            'maxBytes': 1024 * 1024,  # 1MB
+            'backupCount': 5,
+            'formatter': 'standard',
+            'level': 'DEBUG'
+        },
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+            'level': 'INFO'
+        }
+    },
+    'loggers': {
+        '': {  # Root logger
+            'handlers': ['console', 'file'],
+            'level': 'INFO'
+        },
+        'main': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'main.time': {
+            'level': 'DEBUG',
+            'propagate': True
+        },
+        'main.api': {
+            'level': 'WARNING',
+            'propagate': True
+        },
+        'main.vehicles': {
+            'level': 'INFO',
+            'propagate': True
+        },
+        'delijn': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'stops': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'locate_vehicles': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'routes': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'utils': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'validate_stops': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False
+        }
+    },
+    'log_dir': Path('logs')
+}
+
+# Map default settings
+MAP_CONFIG = {
+    "center": {
+        "lat": 50.85,
+        "lon": 4.35
+    },
+    "zoom": 15,
+    "min_zoom": 11,
+    "max_zoom": 19
+}
+
+# STIB/MIVB Configuration
+STIB_STOPS = [
+    {
+        'id': '8122',  # Example stop - ROODEBEEK
+        'name': 'ROODEBEEK',
+        'lines': {
+            '1': ['STOCKEL', "GARE DE L'OUEST"],
+            '5': ['STOCKEL', "GARE DE L'OUEST"]
+        },
+        "direction": "Suburb"  # or "City"
+    }
+]
+
+# De Lijn Configuration
+DELIJN_STOP_IDS = ["307795"]  # Example stop IDs - Brussel Haren Border Station
+DELIJN_MONITORED_LINES = ["270", "271", "272", "470", "620"]  # Example line numbers
+DELIJN_GTFS_DIR = Path("gtfs_transit")
+
+# API Configuration
+API_CONFIG = {
+    "STIB_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
+    "STIB_STOPS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/stop-details-production/records",
+    "DELIJN_API_URL": "https://api.delijn.be/DLKernOpenData/api/v1",
+    "DELIJN_GTFS_URL": "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip"
+}
+
+# Cache Configuration
+CACHE_DIR = Path("cache")
+STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
+CACHE_DURATION = timedelta(days=30)
+GTFS_CACHE_DURATION = timedelta(days=30)
+REALTIME_CACHE_DURATION = 30  # seconds
+
+# Refresh intervals
+REFRESH_INTERVAL = 60  # seconds
+LOCATION_UPDATE_INTERVAL = 300  # seconds (5 minutes)
+
+# Walking speed for distance calculations
+WALKING_SPEED = 1.4  # meters per second (5 km/h)
+
+# Timezone
+TIMEZONE = "Europe/Brussels"
+
+# Rate limiting for outside API calls
+RATE_LIMIT_DELAY = 1.0  # Delay in seconds between API calls

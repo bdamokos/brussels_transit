@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Documentation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+        
+        .category {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .category h2 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        
+        .endpoint {
+            border-left: 4px solid #3498db;
+            margin: 15px 0;
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .endpoint h3 {
+            color: #2980b9;
+            margin: 0 0 10px 0;
+        }
+        
+        .method {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .get {
+            background-color: #2ecc71;
+            color: white;
+        }
+        
+        .post {
+            background-color: #e67e22;
+            color: white;
+        }
+        
+        .description {
+            color: #666;
+            margin: 10px 0;
+        }
+        
+        .parameters, .returns {
+            margin: 10px 0;
+        }
+        
+        .parameters h4, .returns h4 {
+            color: #34495e;
+            margin: 5px 0;
+        }
+        
+        pre {
+            background: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        code {
+            font-family: monospace;
+            background: #f1f1f1;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .toc {
+            position: sticky;
+            top: 20px;
+            float: right;
+            width: 250px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-left: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .toc h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .toc ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        
+        .toc li {
+            margin: 5px 0;
+        }
+        
+        .toc a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 1200px) {
+            .toc {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>API Documentation</h1>
+    
+    <div class="toc">
+        <h3>Contents</h3>
+        <ul>
+            {% for category, endpoints in api_spec.endpoints.items() %}
+            <li><a href="#{{ category|lower|replace(' ', '-') }}">{{ category }}</a></li>
+            {% endfor %}
+        </ul>
+    </div>
+    
+    {% for category, endpoints in api_spec.endpoints.items() %}
+    <div class="category" id="{{ category|lower|replace(' ', '-') }}">
+        <h2>{{ category }}</h2>
+        {% for path, details in endpoints.items() %}
+        <div class="endpoint">
+            <h3>
+                <span class="method {{ details.method|lower }}">{{ details.method }}</span>
+                <a href="{{ path }}"><code>{{ path }}</code></a>
+            </h3>
+            
+            <div class="description">
+                {{ details.description }}
+            </div>
+            
+            {% if details.parameters %}
+            <div class="parameters">
+                <h4>Parameters:</h4>
+                <ul>
+                    {% for param, desc in details.parameters.items() %}
+                    <li><code>{{ param }}</code>: {{ desc }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            
+            {% if details.body %}
+            <div class="parameters">
+                <h4>Request Body:</h4>
+                <p>{{ details.body }}</p>
+            </div>
+            {% endif %}
+            
+            <div class="returns">
+                <h4>Returns:</h4>
+                <pre>{{ details.returns|tojson(indent=2) }}</pre>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</body>
+</html> 

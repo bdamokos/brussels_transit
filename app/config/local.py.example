@@ -1,0 +1,41 @@
+"""
+Local configuration settings.
+Copy this file to local.py and adjust the values.
+Never commit local.py to version control.
+
+If you want to override any settings, do so in local.py.
+"""
+
+# API Keys
+STIB_API_KEY = "your-stib-api-key"
+DELIJN_API_KEY = "your-delijn-api-key"
+DELIJN_GTFS_STATIC_API_KEY = "your-delijn-gtfs-static-key"
+DELIJN_GTFS_REALTIME_API_KEY = "your-delijn-gtfs-realtime-key"
+
+# Override any default settings here
+MAP_CONFIG = {
+    "center": {
+        "lat": 50.845539,  # Change to your preferred center
+        "lon": 4.357179
+    },
+    "zoom": 13,  # Change to your preferred zoom level
+    "min_zoom": 11,
+    "max_zoom": 19
+}
+
+# Your monitored stops
+STIB_STOPS = [
+    {
+        'id': '1234',
+        'name': 'Your Stop Name',
+        'lines': {
+            '1': ['DESTINATION1', 'DESTINATION2']
+        },
+        "direction": "City"
+    }
+]
+
+DELIJN_STOP_IDS = ["your-stop-id"]
+DELIJN_MONITORED_LINES = ["your-line-number"]
+
+# Add any other overrides here
