@@ -8,15 +8,12 @@ A real-time display system showing waiting times for STIB/MIVB and De Lijn publi
 - Real-time waiting times for De Lijn buses
 - Configurable display of multiple stops
 - Auto-refresh of waiting times
-- Clean, easy to read interface
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.8+
 - API keys for STIB and De Lijn (see below)
-- Modern web browser
 
 ### Installation
 
@@ -95,21 +92,11 @@ Either:
 - `config/local.py`: Your local settings (edit this)
 - `.env`: Environment variables and API keys
 
-## Stops Configuration
-
-Configure your monitored stops in `config/local.py`:
-
 ## Known Issues and Limitations
 
 - The De Lijn setup is not yet fully set up for multiple monitored lines.
 - SNCB and TEC are not yet supported.
 - Where the API provides multiple languages, English and French are taken as the default, depending on the API. (E.g. Station names for STIB in French, service messages for STIB in English)
 - Timetables are not yet supported. (This information is available in the GTFS data of both STIB and De Lijn)
-
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-## License
 
 
