@@ -36,7 +36,6 @@ GTFS_URL = provider_config.get('GTFS_URL')
 
 GTFS_DIR = provider_config.get('GTFS_DIR')
 
-# Create directories
 GTFS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = provider_config.get('CACHE_DIR')
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,6 +67,9 @@ GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
 
 # Add this near the top of the file with other global variables
 last_api_call = datetime.now(timezone.utc)
+
+# Add this near the top with other constants
+SERVICE_MESSAGE_CACHE_DURATION = 300  # 5 minutes in seconds
 
 class CacheEntry(TypedDict):
     data: Any
@@ -458,7 +460,7 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
                     formatted_data["stops"][stop_id]["lines"][line][destination].append(arrival_data)
                     logger.debug(f"Added arrival data for {stop_id}, line {line}: {arrival_data}")
             
-            logger.info(f"Final formatted data: {json.dumps(formatted_data, indent=2, default=str)}")
+            logger.debug(f"Final formatted data: {json.dumps(formatted_data, indent=2, default=str)}")
             return formatted_data
             
     except Exception as e:
@@ -726,8 +728,19 @@ def message_is_duplicate(msg1: dict, msg2: dict) -> bool:
     
     return True
 
+service_messages_cache = {}
+
+
 async def get_service_messages() -> List[Dict]:
-    """Get service messages for monitored stops and lines"""
+    """Get service messages for monitored stops and lines with caching"""
+    cache_key = "service_messages"
+    
+    # Try to get from cache first
+    cached_data = await cache_get(cache_key)
+    if cached_data is not None:
+        logger.debug("Returning cached service messages")
+        return cached_data
+        
     headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
     messages = []
     global STOP_ID
@@ -856,6 +869,11 @@ async def get_service_messages() -> List[Dict]:
                     logger.error(f"Error processing message: {str(e)}", exc_info=True)
                     continue
 
+        # Before returning, cache the filtered messages
+        cache_until = datetime.now(timezone.utc) + timedelta(seconds=SERVICE_MESSAGE_CACHE_DURATION)
+        await cache_set(cache_key, filtered_messages, cache_until)
+        logger.debug(f"Cached {len(filtered_messages)} service messages until {cache_until}")
+        
         return filtered_messages
 
     except Exception as e:
