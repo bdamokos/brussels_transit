@@ -8,7 +8,7 @@ import csv
 import math
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from dataclasses import dataclass, asdict
 import logging
 from logging.config import dictConfig
@@ -28,6 +28,7 @@ class Stop:
     lon: float
     location_type: Optional[str] = None
     parent_station: Optional[str] = None
+    line_ids: Optional[List[Union[str, Tuple[str, str]]]] = None
 
 def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
     """Ingest GTFS stops.txt into a dictionary of Stop objects."""

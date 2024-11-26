@@ -8,6 +8,7 @@ import logging
 from logging.config import dictConfig
 import asyncio
 from pathlib import Path
+from dataclasses import asdict
 
 import pytz
 from utils import RateLimiter, get_client
@@ -568,14 +569,34 @@ async def find_nearest_stops(lat: float, lon: float, limit: int = 5, max_distanc
     
     return get_nearest_stops(stops, (lat, lon), limit, max_distance)
 
-def get_stop_by_name(name: str, limit: int = 5) -> Optional[List[Stop]]:
-    """Get stops by name search."""
-    stops = get_cached_stops(CACHE_DIR / 'stops.json')
-    if not stops:
-        logger.error("No stops data available")
-        return None
+async def get_stop_by_name(name: str, limit: int = 5) -> List[Dict]:
+    """Search for stops by name using the generic function.
     
-    return generic_get_stop_by_name(stops, name, limit)
+    Args:
+        name (str): The name or partial name to search for
+        limit (int, optional): Maximum number of results to return. Defaults to 5.
+        
+    Returns:
+        List[Dict]: List of matching stops with their details
+    """
+    try:
+        # Ensure GTFS data is available
+        await ensure_gtfs_data()
+        
+        # Get all stops
+        stops = ingest_gtfs_stops(GTFS_DIR)
+        
+        # Use the generic function
+        matching_stops = generic_get_stop_by_name(stops, name, limit)
+        
+        # Convert Stop objects to dictionaries
+        return [asdict(stop) for stop in matching_stops] if matching_stops else []
+        
+    except Exception as e:
+        logger.error(f"Error in get_stop_by_name: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
 
 def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
     """Get nearest stop to coordinates."""

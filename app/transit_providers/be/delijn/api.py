@@ -17,6 +17,7 @@ from logging.config import dictConfig
 import asyncio
 from transit_providers.config import get_provider_config
 import pytz
+from dataclasses import asdict
 from transit_providers.nearest_stop import (
     ingest_gtfs_stops, get_nearest_stops, cache_stops, 
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
@@ -1036,14 +1037,34 @@ def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
     stops = asyncio.run(find_nearest_stops(lat, lon, limit=1))
     return stops[0] if stops else {}
 
-def get_stop_by_name(name: str, limit: int = 5) -> Optional[List[Stop]]:
-    """Get stops by name search."""
-    stops = get_cached_stops(CACHE_DIR / 'stops.json')
-    if not stops:
-        logger.error("No stops data available")
-        return None
+async def get_stop_by_name(name: str, limit: int = 5) -> List[Dict]:
+    """Search for stops by name using the generic function.
     
-    return generic_get_stop_by_name(stops, name, limit)
+    Args:
+        name (str): The name or partial name to search for
+        limit (int, optional): Maximum number of results to return. Defaults to 5.
+        
+    Returns:
+        List[Dict]: List of matching stops with their details
+    """
+    try:
+        # Get cached stops
+        stops = get_cached_stops(CACHE_DIR / 'stops.json')
+        if not stops:
+            logger.error("No stops data available")
+            return []
+            
+        # Use the generic function
+        matching_stops = generic_get_stop_by_name(stops, name, limit)
+        
+        # Convert Stop objects to dictionaries
+        return [asdict(stop) for stop in matching_stops] if matching_stops else []
+        
+    except Exception as e:
+        logger.error(f"Error in get_stop_by_name: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
 
 if __name__ == "__main__":
     import asyncio

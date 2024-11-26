@@ -91,6 +91,12 @@ async def download_gtfs_data():
         logger.error(traceback.format_exc())
         return False
 
+def ensure_gtfs_data():
+    '''Ensures the GTFS data is downloaded and available.'''
+    if not (GTFS_DIR / 'stops.txt').exists():
+        return download_gtfs_data()
+    return True
+
 if __name__ == "__main__":
     import asyncio
     asyncio.run(download_gtfs_data())

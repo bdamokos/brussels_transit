@@ -4,11 +4,12 @@
 from . import config
 
 from dataclasses import dataclass
-from typing import Dict, Any, Callable, Awaitable
+from typing import Dict, Any, Callable, Awaitable, List
 from transit_providers.config import get_provider_config
 from config import get_config
 import logging
 from transit_providers import TransitProvider
+from .gtfs import ensure_gtfs_data
 
 from .api import (
     get_waiting_times,
@@ -20,7 +21,13 @@ from .api import (
     get_stop_by_name
 )
 
+from transit_providers.nearest_stop import get_stop_by_name as generic_get_stop_by_name, ingest_gtfs_stops
+from dataclasses import asdict
+
 logger = logging.getLogger('stib')
+
+provider_config = get_provider_config('stib')
+GTFS_DIR = provider_config.get('GTFS_DIR')
 
 class StibProvider(TransitProvider):
     """STIB/MIVB transit provider"""
@@ -50,7 +57,7 @@ class StibProvider(TransitProvider):
             'messages': get_service_messages, # Not working yet
             'waiting_times': get_waiting_times, # Not working yet
              
-            'get_stop_by_name': get_stop_by_name, 
+            'get_stop_by_name': self.get_stop_by_name,
             'get_nearest_stops': self.get_nearest_stops,
             'search_stops': self.search_stops,
         }
@@ -146,6 +153,25 @@ class StibProvider(TransitProvider):
     async def search_stops(self, query: str, limit: int = 5):
         """Search for STIB stops by name."""
         return get_stop_by_name(query, limit)
+
+    async def get_stop_by_name(self, name: str, limit: int = 5) -> List[Dict]:
+        """Search for stops by name using the generic function."""
+        try:
+            # Get all stops
+            stops = ingest_gtfs_stops(GTFS_DIR)
+            if not stops:
+                logger.error("No stops data available")
+                return []
+            
+            # Use the generic function
+            matching_stops = generic_get_stop_by_name(stops, name, limit)
+            
+            # Convert Stop objects to dictionaries
+            return [asdict(stop) for stop in matching_stops] if matching_stops else []
+            
+        except Exception as e:
+            logger.error(f"Error in get_stop_by_name: {e}")
+            return []
 
 # Create provider instance and register if enabled
 if 'stib' in get_config('ENABLED_PROVIDERS', []):
