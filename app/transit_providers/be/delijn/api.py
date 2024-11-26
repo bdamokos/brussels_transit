@@ -15,14 +15,40 @@ import sys
 from config import get_config
 from logging.config import dictConfig
 import asyncio
+from transit_providers.config import get_provider_config
 
-# Load environment variables
-API_CONFIG = get_config('API_CONFIG')
-DELIJN_API_KEY = get_config('DELIJN_API_KEY')
-DELIJN_GTFS_STATIC_API_KEY = get_config('DELIJN_GTFS_STATIC_API_KEY')
-DELIJN_GTFS_REALTIME_API_KEY = get_config('DELIJN_GTFS_REALTIME_API_KEY')
-BASE_URL = API_CONFIG['DELIJN_API_URL']
-RATE_LIMIT_DELAY = get_config('RATE_LIMIT_DELAY')
+
+# Setup logging using configuration
+logging_config = get_config('LOGGING_CONFIG')
+logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
+dictConfig(logging_config)
+
+# Get logger
+logger = logging.getLogger('delijn')
+
+# Get provider configuration
+provider_config = get_provider_config('delijn')
+logger.info(f"Provider config: {provider_config}")
+
+# API configuration
+API_URL = provider_config.get('API_URL')
+GTFS_URL = provider_config.get('GTFS_URL')
+
+GTFS_DIR = provider_config.get('GTFS_DIR')
+
+# Create directories
+GTFS_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = provider_config.get('CACHE_DIR')
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+logger.debug(f"GTFS_DIR: {GTFS_DIR}, CACHE_DIR: {CACHE_DIR}")
+RATE_LIMIT_DELAY = provider_config.get('RATE_LIMIT_DELAY')
+GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
+BASE_URL = provider_config.get('API_URL')
+
+# API keys
+DELIJN_API_KEY = provider_config.get('API_KEY')
+DELIJN_GTFS_STATIC_API_KEY = provider_config.get('GTFS_STATIC_API_KEY')
+DELIJN_GTFS_REALTIME_API_KEY = provider_config.get('GTFS_REALTIME_API_KEY')
 
 # Configuration
 STOP_ID = get_config('DELIJN_STOP_IDS')
@@ -38,10 +64,7 @@ DEFAULT_CACHE_DURATION = get_config('CACHE_DURATION')
 SHAPES_CACHE_DIR = get_config('CACHE_DIR') / "delijn/shapes"
 SHAPES_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Add these configuration constants
-GTFS_URL = API_CONFIG['DELIJN_GTFS_URL']
-GTFS_DIR = get_config('DELIJN_GTFS_DIR')
-GTFS_CACHE_DURATION = get_config('GTFS_CACHE_DURATION')
+GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
 
 # Add this near the top of the file with other global variables
 last_api_call = datetime.now(timezone.utc)
@@ -65,13 +88,6 @@ class PassingTime(TypedDict):
     realtime: bool
     message: Optional[str]
 
-# Setup logging using configuration
-logging_config = get_config('LOGGING_CONFIG')
-logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
-dictConfig(logging_config)
-
-# Get logger
-logger = logging.getLogger('delijn')
 
 async def cache_get(cache_key: str) -> Optional[Any]:
     """Get data from cache if it exists and is valid"""
@@ -501,7 +517,7 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
         routes_file = GTFS_DIR / "routes.txt"
         if routes_file.exists():
             mtime = datetime.fromtimestamp(routes_file.stat().st_mtime, tz=timezone.utc)
-            if datetime.now(timezone.utc) - mtime < GTFS_CACHE_DURATION:
+            if datetime.now(timezone.utc) - mtime < timedelta(seconds=GTFS_CACHE_DURATION):
                 gtfs_needs_update = False
     
     if gtfs_needs_update:
@@ -573,11 +589,12 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
         logger.info(f"Fetching vehicle positions for line {line_number}")
         
         # First get the route ID from GTFS data
-        try:
-            routes_df = pd.read_csv(GTFS_DIR / 'routes.txt')
-        except FileNotFoundError:
+        
+        routes_file = GTFS_DIR / 'routes.txt'
+        if not routes_file.exists():
             await download_and_extract_gtfs()
-            routes_df = pd.read_csv(GTFS_DIR / 'routes.txt')
+        routes_df = pd.read_csv(routes_file)
+
         route = routes_df[routes_df['route_short_name'] == str(line_number)]
         if route.empty:
             logger.warning(f"Route {line_number} not found in GTFS data")

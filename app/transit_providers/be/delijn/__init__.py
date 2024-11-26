@@ -1,15 +1,20 @@
+"""De Lijn transit provider"""
+
+# First import the config to ensure defaults are registered
+from . import config
+
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable
+from transit_providers.config import get_provider_config
+from config import get_config
+
 from .api import (
     get_formatted_arrivals,
     get_line_shape,
     get_line_color,
     get_vehicle_positions,
-    get_service_messages,
-    MONITORED_LINES,
-    STOP_ID
+    get_service_messages
 )
-from transit_providers import register_provider
 
 @dataclass
 class DeLijnProvider:
@@ -19,10 +24,12 @@ class DeLijnProvider:
     stop_ids: list = None
 
     def __post_init__(self):
-        self.monitored_lines = MONITORED_LINES
-        self.stop_ids = STOP_ID if isinstance(STOP_ID, list) else [STOP_ID]
+        # Get merged configuration
+        config = get_provider_config('delijn')
+        self.monitored_lines = config['MONITORED_LINES']
+        self.stop_ids = config['STOP_IDS'] if isinstance(config['STOP_IDS'], list) else [config['STOP_IDS']]
 
-        # Define all endpoints that were previously in main.py
+        # Define all endpoints
         self.endpoints = {
             'config': self.get_config,
             'data': self.get_data,
@@ -102,8 +109,8 @@ class DeLijnProvider:
 
         return stop_details
 
-# Create provider instance
-provider = DeLijnProvider()
-
-# Register the provider
-register_provider('delijn', provider.endpoints)
+# Only create and register provider if it's enabled
+if 'delijn' in get_config('ENABLED_PROVIDERS', []):
+    provider = DeLijnProvider()
+    from transit_providers import register_provider
+    register_provider('delijn', provider.endpoints)

@@ -10,14 +10,18 @@ from pathlib import Path
 
 dotenv.load_dotenv()
 
+# Provider Configuration
+ENABLED_PROVIDERS = [
+    'delijn',  # List of enabled transit providers
+    'stib',
+    'bkk'
+]
+
 # Port
 PORT = os.getenv('PORT', 5001) # If changed, the Dockerfile and docker-compose.yaml need to be updated manually
 
 # API Keys
 STIB_API_KEY = os.getenv('STIB_API_KEY')
-DELIJN_API_KEY = os.getenv('DELIJN_API_KEY')
-DELIJN_GTFS_STATIC_API_KEY = os.getenv('DELIJN_GTFS_STATIC_API_KEY')
-DELIJN_GTFS_REALTIME_API_KEY = os.getenv('DELIJN_GTFS_REALTIME_API_KEY')
 BKK_API_KEY = os.getenv('BKK_API_KEY')
 
 # Logging Configuration
@@ -100,6 +104,11 @@ LOGGING_CONFIG = {
             'propagate': False
         },
         'bkk': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False
+        },
+        'transit_providers.config': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False

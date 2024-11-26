@@ -35,7 +35,4 @@ STIB_STOPS = [
     }
 ]
 
-DELIJN_STOP_IDS = ["your-stop-id"]
-DELIJN_MONITORED_LINES = ["your-line-number"]
-
 # Add any other overrides here
