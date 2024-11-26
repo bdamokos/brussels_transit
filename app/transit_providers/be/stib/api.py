@@ -388,3 +388,122 @@ async def get_vehicle_positions():
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         return {}
+
+async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
+    """Get real-time waiting times for STIB stops
+    
+    Args:
+        stop_id: Optional stop ID to filter results
+        
+    Returns:
+        Dictionary containing waiting times data in the format:
+        {
+            "stops": {
+                "stop_id": {
+                    "name": "Stop Name",
+                    "coordinates": {"lat": 50.8, "lon": 4.3},
+                    "lines": {
+                        "line_number": {
+                            "destination": [{
+                                "minutes": 5,
+                                "message": "",
+                                "formatted_time": "14:30"
+                            }]
+                        }
+                    }
+                }
+            }
+        }
+    """
+    try:
+        params = {
+            'apikey': API_KEY,
+            'limit': 100
+        }
+        
+        if stop_id:
+            params['where'] = f'pointid="{stop_id}"'
+            
+        async with await get_client() as client:
+            response = await client.get(API_URL, params=params)
+            rate_limiter.update_from_headers(response.headers)
+            
+            data = response.json()
+            formatted_data = {"stops": {}}
+            
+            for record in data.get('results', []):
+                try:
+                    stop_id = str(record.get('pointid'))
+                    line = str(record.get('lineid'))
+                    
+                    # Initialize stop data if needed
+                    if stop_id not in formatted_data["stops"]:
+                        stop_names = get_stop_names([stop_id])
+                        formatted_data["stops"][stop_id] = {
+                            "name": stop_names.get(stop_id, {}).get('name', stop_id),
+                            "coordinates": stop_names.get(stop_id, {}).get('coordinates', {}),
+                            "lines": {}
+                        }
+                    
+                    # Process passing times
+                    passing_times = json.loads(record.get('passingtimes', '[]'))
+                    
+                    for passing_time in passing_times:
+                        destination = passing_time.get('destination', {}).get('fr', 'Unknown')
+                        
+                        # Initialize line data if needed
+                        if line not in formatted_data["stops"][stop_id]["lines"]:
+                            formatted_data["stops"][stop_id]["lines"][line] = {}
+                        
+                        if destination not in formatted_data["stops"][stop_id]["lines"][line]:
+                            formatted_data["stops"][stop_id]["lines"][line][destination] = []
+                        
+                        # Calculate minutes until arrival
+                        expected_time = passing_time.get('expectedArrivalTime')
+                        if expected_time:
+                            arrival_dt = datetime.fromisoformat(expected_time)
+                            if arrival_dt.tzinfo is None:
+                                arrival_dt = TIMEZONE.localize(arrival_dt)
+                            
+                            now = datetime.now(TIMEZONE)
+                            minutes = int((arrival_dt - now).total_seconds() // 60)
+                            formatted_time = arrival_dt.strftime('%H:%M')
+                            
+                            formatted_data["stops"][stop_id]["lines"][line][destination].append({
+                                "minutes": minutes,
+                                "message": passing_time.get('message', {}).get('en', ''),
+                                "formatted_time": formatted_time
+                            })
+                
+                except Exception as e:
+                    logger.error(f"Error processing record: {e}")
+                    continue
+            
+            return formatted_data
+            
+    except Exception as e:
+        logger.error(f"Error fetching waiting times: {e}")
+        return {"stops": {}}
+
+async def get_route_data(line: str) -> Dict[str, Any]:
+    """Get route data for a specific line
+    
+    Args:
+        line: Line number
+        
+    Returns:
+        Dictionary containing route variants with stops and shapes
+    """
+    try:
+        # Get route variants from validate_stops
+        from validate_stops import validate_line_stops
+        route_variants = await validate_line_stops(line)
+        
+        if not route_variants:
+            return None
+            
+        return {line: route_variants}
+        
+    except Exception as e:
+        logger.error(f"Error getting route data: {e}")
+        return None
