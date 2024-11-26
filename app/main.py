@@ -1,32 +1,21 @@
 from flask import Flask, render_template, request, jsonify
-import requests
 import json
-from datetime import datetime, timedelta, timezone, date
-from dateutil import parser
+from datetime import datetime, timedelta
 import pytz
 from collections import defaultdict
-import os
-from dotenv import load_dotenv
-from pathlib import Path
-from get_stop_names import load_cached_stops
 from get_stop_names import get_stop_names
 from routes import get_route_shape, get_stops_for_line, match_stops_to_variants, get_route_data
-from asgiref.wsgi import WsgiToAsgi
 import asyncio
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
-import httpx
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Dict, Any
 from locate_vehicles import process_vehicle_positions, interpolate_position
 from validate_stops import validate_line_stops, load_stops_data
 from locate_vehicles import process_vehicle_positions
 from collections import defaultdict
 import logging
-from logging.handlers import RotatingFileHandler
-from flask.logging import default_handler
 from logging.config import dictConfig
-import time
 from utils import RateLimiter, get_client
 from flask import jsonify
 from transit_providers import PROVIDERS
@@ -474,6 +463,7 @@ async def get_next_buses():
     monitored_stops_config = {stop['id']: stop.get('lines', {}) for stop in STIB_STOPS}
     
     try:
+        
         # Get De Lijn data
         delijn_data = await delijn_provider.endpoints['data']()
         if delijn_data and delijn_data.get('stops'):
