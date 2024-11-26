@@ -178,10 +178,24 @@
             </div>
             {% endif %}
             
+            {% if details.config %}
+            <div class="configuration">
+                <h4>Default Configuration:</h4>
+                <pre>{{ details.config|tojson(indent=2) }}</pre>
+            </div>
+            {% endif %}
+            
             <div class="returns">
                 <h4>Returns:</h4>
                 <pre>{{ details.returns|tojson(indent=2) }}</pre>
             </div>
+            
+            {% if details.example_response %}
+            <div class="example">
+                <h4>Example Response:</h4>
+                <pre>{{ details.example_response|tojson(indent=2) }}</pre>
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>

@@ -17,7 +17,9 @@ from hypercorn.asyncio import serve
 from hypercorn.config import Config
 import httpx
 from dataclasses import dataclass, asdict
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from inspect import signature, Parameter
+import inspect
 from locate_vehicles import process_vehicle_positions, interpolate_position
 from validate_stops import validate_line_stops, load_stops_data
 from locate_vehicles import process_vehicle_positions
@@ -1079,152 +1081,123 @@ def health_check():
     """Health check endpoint for Docker container."""
     return jsonify({"status": "healthy"}), 200
 
-@app.route('/api/docs')
-async def api_docs():
-    """Documentation endpoint that describes all available API endpoints"""
+@app.route('/api/docs/v2')
+async def api_docs_v2():
+    """Enhanced documentation endpoint that dynamically discovers all provider endpoints"""
+    
+    # Get provider documentation
+    provider_docs = await get_provider_docs()
+
+    provider_name = next(iter(provider_docs))
     
     api_spec = {
-        "version": "1.0.0",
+        "version": "2.0.0",
         "base_url": "/api",
         "endpoints": {
-            "STIB Endpoints": {
-                "/api/data": {
-                    "method": "GET",
-                    "description": "Get real-time data for all monitored STIB stops",
-                    "returns": {
-                        "stops_data": "Dictionary of stop data with arrival times",
-                        "messages": "Service messages",
-                        "processed_vehicles": "List of vehicle positions",
-                        "errors": "List of any errors encountered"
-                    }
-                },
-                "/api/static_data": {
-                    "method": "GET",
-                    "description": "Get static data like routes, stops, and colors",
-                    "returns": {
-                        "display_stops": "List of monitored stops configuration",
-                        "shapes": "Route shape data",
-                        "route_colors": "Color codes for each route",
-                        "errors": "List of any errors encountered"
-                    }
-                },
-                "/api/stop_coordinates/<stop_id>": {
-                    "method": "GET",
-                    "description": "Get coordinates for a specific stop",
-                    "parameters": {
-                        "stop_id": "ID of the stop (string)"
-                    },
-                    "returns": {
-                        "coordinates": {
-                            "lat": "Latitude (float)",
-                            "lon": "Longitude (float)"
-                        }
-                    }
-                },
-                "/api/stop_names": {
-                    "method": "POST",
-                    "description": "Get names for multiple stops",
-                    "body": "Array of stop IDs",
-                    "returns": {
-                        "stops": "Dictionary mapping stop IDs to stop names"
-                    }
-                }
-            },
-            "De Lijn Endpoints": {
-                "/api/delijn/config": {
-                    "method": "GET",
-                    "description": "Get De Lijn configuration including monitored stops and lines",
-                    "returns": {
-                        "stops": "List of monitored stops",
-                        "monitored_lines": "List of monitored line numbers"
-                    }
-                },
-                "/api/delijn/data": {
-                    "method": "GET",
-                    "description": "Get real-time data for all monitored De Lijn stops",
-                    "returns": {
-                        "stops": "Dictionary of stop data with arrival times",
-                        "colors": "Line color information"
-                    }
-                },
-                "/api/delijn/stops/<stop_id>": {
-                    "method": "GET",
-                    "description": "Get details for a specific De Lijn stop",
-                    "parameters": {
-                        "stop_id": "ID of the stop (string)"
-                    },
-                    "returns": {
-                        "id": "Stop ID",
-                        "name": "Stop name",
-                        "coordinates": "Stop coordinates",
-                        "lines": "Lines serving this stop"
-                    }
-                },
-                "/api/delijn/lines/<line>/route": {
-                    "method": "GET",
-                    "description": "Get route shape for a De Lijn line",
-                    "parameters": {
-                        "line": "Line number (string)"
-                    },
-                    "returns": {
-                        "variants": "List of route variants with coordinates"
-                    }
-                },
-                "/api/delijn/lines/<line>/colors": {
-                    "method": "GET",
-                    "description": "Get colors for a De Lijn line",
-                    "parameters": {
-                        "line": "Line number (string)"
-                    },
-                    "returns": {
-                        "text": "Text color",
-                        "background": "Background color",
-                        "text_border": "Text border color",
-                        "background_border": "Background border color"
-                    }
-                },
-                "/api/delijn/messages": {
-                    "method": "GET",
-                    "description": "Get service messages for De Lijn stops/lines",
-                    "returns": {
-                        "messages": "List of service messages"
-                    }
-                },
-                "/api/delijn/vehicles/<line>": {
-                    "method": "GET",
-                    "description": "Get vehicle positions for a De Lijn line",
-                    "parameters": {
-                        "line": "Line number (string)",
-                        "direction": "Optional query parameter: HEEN or TERUG"
-                    },
-                    "returns": {
-                        "vehicles": "List of vehicle positions and details"
-                    }
-                }
-            },
-            "System Endpoints": {
-                "/api/docs": {
-                    "method": "GET",
-                    "description": "This documentation endpoint",
-                    "returns": "API specification and documentation"
-                },
-                "/health": {
-                    "method": "GET",
-                    "description": "Health check endpoint",
-                    "returns": {
-                        "status": "Current system status"
-                    }
-                }
+            f"{provider_name.upper()} Endpoints": {
+                f"/api/{provider_name}/{endpoint_name}": asdict(endpoint_doc)
+                for provider_name, endpoints in provider_docs.items()
+                for endpoint_name, endpoint_doc in endpoints.items()
             }
         }
     }
     
-    # If the request wants HTML (browser), render a template
+    # Add system endpoints
+    api_spec["endpoints"]["System Endpoints"] = {
+        "/api/docs/v2": {
+            "method": "GET",
+            "description": "Enhanced API documentation with dynamic provider discovery",
+            "returns": "Complete API specification with examples"
+        },
+        "/health": {
+            "method": "GET",
+            "description": "Health check endpoint",
+            "returns": {"status": "Current system status"}
+        }
+    }
+    
+    # If the request wants HTML (browser), render the template
     if request.headers.get('Accept', '').find('text/html') != -1:
         return render_template('api_docs.html', api_spec=api_spec)
     
     # Otherwise return JSON
     return jsonify(api_spec)
+
+@dataclass
+class EndpointDoc:
+    method: str
+    description: str
+    parameters: Optional[Dict[str, str]] = None
+    returns: Optional[Dict[str, Any]] = None
+    body: Optional[str] = None
+    example_response: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None
+
+async def get_provider_docs() -> Dict[str, Dict[str, EndpointDoc]]:
+    """Dynamically generate documentation for all registered providers"""
+    docs = {}
+    
+    for provider_name, provider in PROVIDERS.items():
+        provider_docs = {}
+        
+        # Get provider configuration
+        provider_config = {}
+        if hasattr(provider, 'config'):
+            provider_config = await provider.config() if inspect.iscoroutinefunction(provider.config) else provider.config()
+        
+        for endpoint_name, endpoint_func in provider.endpoints.items():
+            try:
+                # Get function signature
+                sig = signature(endpoint_func)
+                params = {}
+                
+                for param_name, param in sig.parameters.items():
+                    if param.name != 'self':  # Skip self parameter
+                        param_doc = str(param.annotation) if param.annotation != Parameter.empty else "any"
+                        default = f" (default: {param.default})" if param.default != Parameter.empty else ""
+                        params[param_name] = f"{param_doc}{default}"
+                
+                # Get function docstring
+                doc = endpoint_func.__doc__ or "No description available"
+                
+                # Try to get an example response
+                example_response = None
+                try:
+                    if inspect.iscoroutinefunction(endpoint_func):
+                        # For async functions that need parameters, try to use defaults or config values
+                        if params:
+                            # Try to get parameters from config
+                            kwargs = {}
+                            if 'line' in params and hasattr(provider, 'monitored_lines'):
+                                kwargs['line'] = next(iter(provider.monitored_lines))
+                            if 'stop_id' in params and hasattr(provider, 'stop_ids'):
+                                kwargs['stop_id'] = next(iter(provider.stop_ids))
+                            if kwargs:
+                                example_response = await endpoint_func(**kwargs)
+                        else:
+                            example_response = await endpoint_func()
+                    else:
+                        example_response = endpoint_func()
+                except Exception as e:
+                    logger.warning(f"Could not get example response for {provider_name}/{endpoint_name}: {e}")
+                    example_response = {"error": "Could not generate example response"}
+                
+                provider_docs[endpoint_name] = EndpointDoc(
+                    method="GET",
+                    description=doc,
+                    parameters=params if params else None,
+                    returns={"response": "JSON response format will be documented here"},
+                    example_response=example_response,
+                    config=provider_config.get(endpoint_name) if provider_config else None
+                )
+                
+            except Exception as e:
+                logger.error(f"Error documenting endpoint {endpoint_name}: {e}")
+                continue
+        
+        docs[provider_name] = provider_docs
+    
+    return docs
 
 if __name__ == '__main__':
     app.debug = True
