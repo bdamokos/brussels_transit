@@ -14,3 +14,18 @@ dictConfig(logging_config)
 
 # Get logger
 logger = logging.getLogger('bkk')
+
+def bkk_waiting_times():
+    pass
+
+def bkk_vehicle_positions():
+    pass
+
+def bkk_service_alerts():
+    pass
+
+def bkk_static_data():
+    pass
+
+def bkk_config():
+    pass

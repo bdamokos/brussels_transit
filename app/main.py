@@ -39,8 +39,7 @@ from delijn import (
     STOP_ID as DELIJN_STOP_IDS
 )
 import sys
-
-from config import get_config, get_required_config
+from transit_providers import PROVIDERS
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -1160,6 +1159,56 @@ async def delijn_data():
                 } for stop_id in DELIJN_STOP_IDS
             }
         })
+    
+
+@app.route('/api/<provider>/<endpoint>')
+async def provider_endpoint(provider, endpoint):
+    """Generic endpoint for accessing transit provider data"""
+    logger.debug(f"Provider endpoint called: {provider}/{endpoint}")
+    
+    try:
+        # Check if provider exists
+        if provider not in PROVIDERS:
+            return jsonify({'error': f'Provider {provider} not found'}), 404
+            
+        provider_data = PROVIDERS[provider]
+        
+        # Check if endpoint exists for provider
+        if endpoint not in provider_data.endpoints:
+            return jsonify({'error': f'Endpoint {endpoint} not found for provider {provider}'}), 404
+
+        # Get the function to call
+        func = provider_data.endpoints[endpoint]
+
+        # Special handling for functions that need parameters
+        if endpoint == 'vehicles':
+            line = request.args.get('line')
+            direction = request.args.get('direction')
+            if line:
+                result = await func(line, direction) if direction else await func(line)
+            else:
+                result = await func()
+        elif endpoint == 'waiting_times':
+            # For waiting times, pass stop IDs if provider needs them
+            if provider == 'delijn':
+                result = await func(DELIJN_STOP_IDS)
+            else:
+                result = await func()
+        else:
+            # Call the function (handle both async and sync functions)
+            if asyncio.iscoroutinefunction(func):
+                result = await func()
+            else:
+                result = func()
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error in provider endpoint {provider}/{endpoint}: {e}")
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/health')
 def health_check():
