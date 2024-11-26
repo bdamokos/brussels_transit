@@ -17,7 +17,6 @@ from logging.config import dictConfig
 import asyncio
 
 # Load environment variables
-load_dotenv()
 API_CONFIG = get_config('API_CONFIG')
 DELIJN_API_KEY = get_config('DELIJN_API_KEY')
 DELIJN_GTFS_STATIC_API_KEY = get_config('DELIJN_GTFS_STATIC_API_KEY')

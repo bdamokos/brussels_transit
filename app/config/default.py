@@ -18,6 +18,7 @@ STIB_API_KEY = os.getenv('STIB_API_KEY')
 DELIJN_API_KEY = os.getenv('DELIJN_API_KEY')
 DELIJN_GTFS_STATIC_API_KEY = os.getenv('DELIJN_GTFS_STATIC_API_KEY')
 DELIJN_GTFS_REALTIME_API_KEY = os.getenv('DELIJN_GTFS_REALTIME_API_KEY')
+BKK_API_KEY = os.getenv('BKK_API_KEY')
 
 # Logging Configuration
 LOGGING_CONFIG = {
@@ -96,6 +97,11 @@ LOGGING_CONFIG = {
         'validate_stops': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
+            'propagate': False
+        },
+        'bkk': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
             'propagate': False
         }
     },
