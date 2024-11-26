@@ -3,7 +3,7 @@ import json
 import httpx
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
-from typing import Dict, List, Optional, TypedDict, Any, Union
+from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
 from pathlib import Path
 import pandas as pd
 import zipfile
@@ -19,7 +19,7 @@ from transit_providers.config import get_provider_config
 import pytz
 from transit_providers.nearest_stop import (
     ingest_gtfs_stops, get_nearest_stops, cache_stops, 
-    get_cached_stops, Stop
+    get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
 
 # Setup logging using configuration
@@ -1030,9 +1030,20 @@ async def main():
     return delijn_data
 
 
-def get_nearest_stop(stops: dict, point: tuple) -> dict:
-    """Get the nearest stop to a given point from a list of GTFS stops."""
-    pass
+def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
+    """Get nearest stop to coordinates."""
+    lat, lon = coordinates
+    stops = asyncio.run(find_nearest_stops(lat, lon, limit=1))
+    return stops[0] if stops else {}
+
+def get_stop_by_name(name: str, limit: int = 5) -> Optional[List[Stop]]:
+    """Get stops by name search."""
+    stops = get_cached_stops(CACHE_DIR / 'stops.json')
+    if not stops:
+        logger.error("No stops data available")
+        return None
+    
+    return generic_get_stop_by_name(stops, name, limit)
 
 if __name__ == "__main__":
     import asyncio

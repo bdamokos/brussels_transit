@@ -25,11 +25,12 @@ from .api import (
     get_vehicle_positions,
     get_service_messages,
     get_nearest_stop,
-    find_nearest_stops
+    find_nearest_stops,
+    get_stop_by_name,
 )
 
 @dataclass
-class DeLijnProvider:
+class DelijnProvider:
     name: str = "De Lijn"
     endpoints: Dict[str, Callable[..., Awaitable[Any]]] = None
     monitored_lines: list = None
@@ -140,6 +141,6 @@ class DeLijnProvider:
 
 # Only create and register provider if it's enabled
 if 'delijn' in get_config('ENABLED_PROVIDERS', []):
-    provider = DeLijnProvider()
+    provider = DelijnProvider()
     from transit_providers import register_provider
     register_provider('delijn', provider.endpoints)

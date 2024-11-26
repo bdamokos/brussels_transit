@@ -15,12 +15,14 @@ from .api import (
     get_vehicle_positions,
     get_service_messages,
     get_route_colors,
-    get_route_data
+    get_route_data,
+    find_nearest_stops,
+    get_stop_by_name
 )
 
 logger = logging.getLogger('stib')
 
-class STIBProvider(TransitProvider):
+class StibProvider(TransitProvider):
     """STIB/MIVB transit provider"""
     
     def __init__(self):
@@ -39,14 +41,18 @@ class STIBProvider(TransitProvider):
 
         # Define all endpoints
         self.endpoints = {
-            'config': self.get_config,
-            'data': self.get_data,
-            'stops': self.get_stop_details,
-            'route': get_route_data,
-            'colors': get_route_colors,
-            'vehicles': get_vehicle_positions,
-            'messages': get_service_messages,
-            'waiting_times': get_waiting_times,
+            'config': self.get_config, # Working
+            'data': self.get_data, # Working
+            'stops': self.get_stop_details, # Working
+            'route': get_route_data, # ??
+            'colors': get_route_colors, # Working
+            'vehicles': get_vehicle_positions, # Not working yet
+            'messages': get_service_messages, # Not working yet
+            'waiting_times': get_waiting_times, # Not working yet
+             
+            'get_stop_by_name': get_stop_by_name, 
+            'get_nearest_stops': self.get_nearest_stops,
+            'search_stops': self.search_stops,
         }
         logger.info(f"STIB provider initialized with endpoints: {list(self.endpoints.keys())}")
 
@@ -133,10 +139,18 @@ class STIBProvider(TransitProvider):
                 "error": str(e)
             }
 
+    async def get_nearest_stops(self, lat: float, lon: float, limit: int = 5, max_distance: float = 2.0):
+        """Get nearest STIB stops to coordinates."""
+        return await find_nearest_stops(lat, lon, limit, max_distance)
+        
+    async def search_stops(self, query: str, limit: int = 5):
+        """Search for STIB stops by name."""
+        return get_stop_by_name(query, limit)
+
 # Create provider instance and register if enabled
 if 'stib' in get_config('ENABLED_PROVIDERS', []):
     try:
-        provider = STIBProvider()
+        provider = StibProvider()
         from transit_providers import register_provider
         register_provider('stib', provider)  # Register the provider instance
         logger.info("STIB provider registered successfully")

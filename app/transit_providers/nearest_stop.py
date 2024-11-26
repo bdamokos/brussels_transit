@@ -132,3 +132,12 @@ def get_cached_stops(cache_path: Path) -> Optional[Dict[str, Stop]]:
     except Exception as e:
         logger.error(f"Error loading cached stops: {e}")
         return None
+
+def get_stop_by_name(stops: dict, name: str, limit: int = 5) -> Optional[List[Stop]]:
+    """Get a stop by its name in a search query."""
+    results = []
+    for stop in stops.values():
+        if name.lower() in stop.name.lower():
+            results.append(stop)
+    return results[:limit]
+

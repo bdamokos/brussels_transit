@@ -2,10 +2,12 @@ import os
 from config import get_config
 import json
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple, Optional
 import pytz
 import logging
 from logging.config import dictConfig
+import asyncio
+from pathlib import Path
 
 import pytz
 from utils import RateLimiter, get_client
@@ -13,6 +15,11 @@ from dataclasses import dataclass
 from collections import defaultdict
 from get_stop_names import get_stop_names
 from transit_providers.config import get_provider_config
+from .gtfs import download_gtfs_data
+from transit_providers.nearest_stop import (
+    ingest_gtfs_stops, get_nearest_stops, cache_stops, 
+    get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
+)
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
@@ -524,3 +531,54 @@ async def get_route_data(line: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting route data: {e}")
         return None
+
+async def ensure_gtfs_data() -> Optional[Path]:
+    """Ensure GTFS data is downloaded and return path to GTFS directory."""
+    if not GTFS_DIR.exists() or not (GTFS_DIR / 'stops.txt').exists():
+        logger.info("GTFS data not found, downloading...")
+        await download_gtfs_data()
+    return GTFS_DIR
+
+async def get_stops() -> Dict[str, Stop]:
+    """Get all stops from GTFS data or cache."""
+    cache_path = CACHE_DIR / 'stops_gtfs.json'
+    
+    # Try to get from cache first
+    cached_stops = get_cached_stops(cache_path)
+    if cached_stops is not None:
+        return cached_stops
+    
+    # If not in cache, ensure GTFS data and load stops
+    gtfs_dir = await ensure_gtfs_data()
+    if gtfs_dir is None:
+        logger.error("Could not get GTFS data")
+        return {}
+    
+    stops = ingest_gtfs_stops(gtfs_dir)
+    if stops:
+        cache_stops(stops, cache_path)
+    return stops
+
+async def find_nearest_stops(lat: float, lon: float, limit: int = 5, max_distance: float = 2.0) -> List[Dict]:
+    """Find nearest stops to given coordinates."""
+    stops = await get_stops()
+    if not stops:
+        logger.error("No stops data available")
+        return []
+    
+    return get_nearest_stops(stops, (lat, lon), limit, max_distance)
+
+def get_stop_by_name(name: str, limit: int = 5) -> Optional[List[Stop]]:
+    """Get stops by name search."""
+    stops = get_cached_stops(CACHE_DIR / 'stops.json')
+    if not stops:
+        logger.error("No stops data available")
+        return None
+    
+    return generic_get_stop_by_name(stops, name, limit)
+
+def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
+    """Get nearest stop to coordinates."""
+    lat, lon = coordinates
+    stops = asyncio.run(find_nearest_stops(lat, lon, limit=1))
+    return stops[0] if stops else {}
