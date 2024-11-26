@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import pytz
 from collections import defaultdict
 from get_stop_names import get_stop_names
-from routes import get_route_shape, get_stops_for_line, match_stops_to_variants, get_route_data
+from routes import  get_route_data
 import asyncio
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 from inspect import signature, Parameter
 import inspect
 from locate_vehicles import process_vehicle_positions, interpolate_position
-from validate_stops import validate_line_stops, load_stops_data
+from validate_stops import validate_line_stops
 from locate_vehicles import process_vehicle_positions
 from collections import defaultdict
 import logging
@@ -22,7 +22,7 @@ from utils import RateLimiter, get_client
 from flask import jsonify
 from transit_providers import PROVIDERS
 from config import get_config, get_required_config
-from transit_providers.be.delijn import get_formatted_arrivals as get_delijn_arrivals
+from dataclasses import asdict
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
