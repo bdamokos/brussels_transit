@@ -254,50 +254,46 @@
             position: absolute;
             display: flex;
             align-items: center;
+            justify-content: center;
             border-radius: 4px;
             padding: 2px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
             transform: rotate(var(--bearing));
             width: 20px;
+            height: 20px;
+        }
+        
+        .line-number,
+        .delijn-line-number {
+            display: block;
+            font-size: 11px;
+            text-align: center;
+            border-radius: 4px;
+            padding: 1px 2px;
+            min-width: 16px;
+            max-width: fit-content;
+            overflow: hidden;
         }
         
         .line-number {
-            display: block;
-            font-size: 11px;
-            
-         
-            text-align: center;
-            border-radius: 4px;
             background-color: var(--bg-color);
             color: var(--text-color);
         }
         
         .delijn-line-number {
-            display: inline-block;
-            padding: 2px 8px;
-            margin-right: 8px;
-            border-radius: 4px;
-            font-weight: bold;
-            min-width: 30px;
-            max-width: fit-content;
-            text-align: center;
             color: var(--text-color);
             background-color: var(--bg-color);
+            border: 1px solid var(--text-border-color, transparent);
+            box-shadow: 0 0 0 1px var(--bg-border-color, transparent);
         }
         
-        .delijn-line-number::after {
-            display: none;
-        }
-        
-        .affected-lines .delijn-line-number {
+        /* For non-vehicle markers (like in popups and lists) */
+        .line-info:not(.vehicle-marker-content) .line-number,
+        .line-info:not(.vehicle-marker-content) .delijn-line-number {
             display: inline-block;
-            padding: 2px 8px;
-            margin-right: 8px;
-            border-radius: 4px;
-            font-weight: bold;
+            padding: 2px 6px;
             min-width: 30px;
-            max-width: fit-content;
-            text-align: center;
+            max-width: none;
         }
         
         .vehicle-arrow {
