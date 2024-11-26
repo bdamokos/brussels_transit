@@ -29,18 +29,9 @@ from logging.config import dictConfig
 import time
 from utils import RateLimiter, get_client
 from flask import jsonify
-from delijn import (
-    get_formatted_arrivals as get_delijn_arrivals,
-    get_line_shape as get_delijn_line_shape,
-    get_line_color as get_delijn_line_color,
-    get_vehicle_positions as get_delijn_vehicles,
-    get_service_messages as get_delijn_service_messages,
-    MONITORED_LINES as DELIJN_MONITORED_LINES,
-    STOP_ID as DELIJN_STOP_IDS
-)
-import sys
 from transit_providers import PROVIDERS
 from config import get_config, get_required_config
+from transit_providers.be.delijn import get_formatted_arrivals as get_delijn_arrivals
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -66,10 +57,6 @@ MAP_CONFIG = get_config('MAP_CONFIG')
 REFRESH_INTERVAL = get_config('REFRESH_INTERVAL')
 LOCATION_UPDATE_INTERVAL = get_config('LOCATION_UPDATE_INTERVAL')
 WALKING_SPEED = get_config('WALKING_SPEED')
-
-# DELIJN variables
-DELIJN_MONITORED_LINES = get_config('DELIJN_MONITORED_LINES')
-DELIJN_STOP_IDS = get_config('DELIJN_STOP_IDS')
 
 # Update API URLs
 API_CONFIG = get_config('API_CONFIG')
@@ -487,7 +474,7 @@ async def get_next_buses():
     
     try:
         # Get De Lijn data
-        delijn_data = await get_delijn_arrivals()
+        delijn_data = await delijn_provider.endpoints['data']()
         if delijn_data and delijn_data.get('stops'):
             # Add each De Lijn stop to all_stops_data
             for stop_id, stop_data in delijn_data['stops'].items():
@@ -832,11 +819,14 @@ async def index():
         except Exception as e:
             logger.error(f"Error loading cached route colors: {e}")
 
+        # Get De Lijn config for stop IDs
+        delijn_config = await delijn_provider.endpoints['config']()
+
         return render_template('index.html',
             stops=STIB_STOPS,
             initial_load=True,
             route_colors=route_colors,
-            DELIJN_STOP_IDS=DELIJN_STOP_IDS,
+            DELIJN_STOP_IDS=delijn_config['stops'],
             map_config=MAP_CONFIG,
             refresh_interval=REFRESH_INTERVAL,
             location_update_interval=LOCATION_UPDATE_INTERVAL,
@@ -1010,160 +1000,12 @@ async def get_static_data():
 
 # Add these routes after your existing routes
 
-@app.route('/api/delijn/config')
-async def delijn_config():
-    """Get De Lijn monitored stops and lines configuration"""
-    try:
-        # Get formatted data for all monitored stops
-        delijn_data = await get_delijn_arrivals()
-        
-        # Extract stop information from the response
-        stops_config = []
-        for stop_id in DELIJN_STOP_IDS:
-            stop_data = delijn_data.get('stops', {}).get(stop_id, {})
-            
-            stop_info = {
-                "id": stop_id,
-                "name": stop_data.get('name', 'Unknown Stop'),
-                "coordinates": stop_data.get('coordinates', {
-                    "lat": 50.867969,
-                    "lon": 4.380751
-                }),
-                "lines": {line: [] for line in DELIJN_MONITORED_LINES}  # Empty list means all destinations
-            }
-            stops_config.append(stop_info)
-
-        config = {
-            "stops": stops_config,
-            "monitored_lines": DELIJN_MONITORED_LINES
-        }
-        return jsonify(config)
-    except Exception as e:
-        logger.error(f"Error getting De Lijn config: {e}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/stops/<stop_id>')
-async def delijn_stop_details(stop_id):
-    """Get details for a specific De Lijn stop"""
-    try:
-        # Get arrivals data which includes stop details
-        arrivals = await get_delijn_arrivals([stop_id])
-        
-        stop_details = {
-            "id": stop_id,
-            "name": arrivals["stops"][stop_id]["name"],
-            "coordinates": arrivals["stops"][stop_id]["coordinates"],
-            "lines": {}
-        }
-        
-        # Extract unique lines and their destinations
-        for line, destinations in arrivals.get("lines", {}).items():
-            stop_details["lines"][line] = list(destinations.keys())
-        
-        return jsonify(stop_details)
-    except Exception as e:
-        import traceback
-        logger.error(f"Error getting De Lijn stop details: {e}")
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        if arrivals:
-            logger.error(f"Arrivals data: {arrivals}")
-        if stop_details:
-            logger.error(f"Stop details: {stop_details}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/lines/<line>/route')
-async def delijn_line_route(line):
-    """Get route shape for a De Lijn line"""
-    try:
-        shape = await get_delijn_line_shape(line)
-        if shape:
-            return jsonify(shape)
-        return {"error": "Route not found"}, 404
-    except Exception as e:
-        logger.error(f"Error getting De Lijn line route: {e}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/lines/<line>/colors')
-async def delijn_line_colors(line):
-    """Get colors for a De Lijn line"""
-    try:
-        colors = await get_delijn_line_color(line)
-        if colors:
-            return jsonify(colors)
-        return {"error": "Colors not found"}, 404
-    except Exception as e:
-        logger.error(f"Error getting De Lijn line colors: {e}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/messages')
-async def delijn_messages():
-    """Get service messages for De Lijn stops/lines"""
-    try:
-        # Get messages for our monitored stop
-        messages = await get_delijn_service_messages()
-        
-        # For now, return an empty list as we haven't implemented message handling yet
-        # messages = {
-        #     "messages": []
-        # }
-        return jsonify(messages)
-    except Exception as e:
-        logger.error(f"Error getting De Lijn messages: {e}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/vehicles/<line>')
-async def delijn_vehicles(line):
-    """Get vehicle positions for a De Lijn line"""
-    try:
-        direction = request.args.get('direction', 'TERUG')  # Default to TERUG direction
-        vehicles = await get_delijn_vehicles(line, direction)
-        return jsonify({"vehicles": vehicles})
-    except Exception as e:
-        logger.error(f"Error getting De Lijn vehicles: {e}")
-        return {"error": str(e)}, 500
-
-@app.route('/api/delijn/data')
-async def delijn_data():
-    """Get all real-time data for monitored De Lijn stops/lines"""
-    try:
-        # Get formatted data in STIB-like format for all monitored stops
-        data = await get_delijn_arrivals(DELIJN_STOP_IDS)  # Pass the list of stop IDs
-        if not data:
-            logger.error("No data returned from get_delijn_arrivals")
-            return jsonify({
-                "stops": {
-                    stop_id: {
-                        "name": "Unknown Stop",
-                        "coordinates": {
-                            "lat": 50.867969,
-                            "lon": 4.380751
-                        },
-                        "lines": {}
-                    } for stop_id in DELIJN_STOP_IDS
-                }
-            })
-        return jsonify(data)
-    except Exception as e:
-        logger.error(f"Error getting De Lijn data: {e}")
-        import traceback
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        # Return empty data structure instead of error
-        return jsonify({
-            "stops": {
-                stop_id: {
-                    "name": "Unknown Stop",
-                    "coordinates": {
-                        "lat": 50.867969,
-                        "lon": 4.380751
-                    },
-                    "lines": {}
-                } for stop_id in DELIJN_STOP_IDS
-            }
-        })
-    
+# Get the registered provider
+delijn_provider = PROVIDERS['delijn']
 
 @app.route('/api/<provider>/<endpoint>')
-async def provider_endpoint(provider, endpoint):
+@app.route('/api/<provider>/<endpoint>/<line>')
+async def provider_endpoint(provider, endpoint, line=None):
     """Generic endpoint for accessing transit provider data"""
     logger.debug(f"Provider endpoint called: {provider}/{endpoint}")
     
@@ -1183,16 +1025,30 @@ async def provider_endpoint(provider, endpoint):
 
         # Special handling for functions that need parameters
         if endpoint == 'vehicles':
-            line = request.args.get('line')
+            # Get line from either path parameter or query parameter
+            line_number = line or request.args.get('line')
             direction = request.args.get('direction')
-            if line:
-                result = await func(line, direction) if direction else await func(line)
+            if line_number:
+                result = await func(line_number, direction) if direction else await func(line_number)
             else:
                 result = await func()
+        elif endpoint == 'stops':
+            stop_id = request.view_args.get('stop_id')  # Get stop_id from URL path
+            if stop_id:
+                result = await func(stop_id)
+            else:
+                result = await func()
+        elif endpoint in ['route', 'colors']:
+            # Handle line-specific endpoints
+            line_number = line or request.view_args.get('line') or request.args.get('line')
+            if line_number:
+                result = await func(line_number)
+            else:
+                return jsonify({'error': f'Line number required for {endpoint} endpoint'}), 400
         elif endpoint == 'waiting_times':
             # For waiting times, pass stop IDs if provider needs them
             if provider == 'delijn':
-                result = await func(DELIJN_STOP_IDS)
+                result = await func(PROVIDERS['delijn'].stop_ids)
             else:
                 result = await func()
         else:
@@ -1210,6 +1066,12 @@ async def provider_endpoint(provider, endpoint):
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/<provider>/lines/<line>/<endpoint>')
+async def provider_line_endpoint(provider, line, endpoint):
+    """Route handler for line-specific endpoints"""
+    logger.debug(f"Line-specific endpoint called: {provider}/lines/{line}/{endpoint}")
+    return await provider_endpoint(provider, endpoint, line)
 
 @app.route('/health')
 def health_check():
