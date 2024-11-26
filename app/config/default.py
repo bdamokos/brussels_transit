@@ -11,7 +11,7 @@ from pathlib import Path
 dotenv.load_dotenv()
 
 # Port
-PORT = 5001
+PORT = os.getenv('PORT', 5001) # If changed, the Dockerfile and docker-compose.yaml need to be updated manually
 
 # API Keys
 STIB_API_KEY = os.getenv('STIB_API_KEY')
