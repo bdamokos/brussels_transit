@@ -23,7 +23,9 @@ from .api import (
     get_line_shape,
     get_line_color,
     get_vehicle_positions,
-    get_service_messages
+    get_service_messages,
+    get_nearest_stop,
+    find_nearest_stops
 )
 
 @dataclass
@@ -49,6 +51,7 @@ class DeLijnProvider:
             'vehicles': get_vehicle_positions,
             'messages': get_service_messages,
             'waiting_times': get_formatted_arrivals,
+            'nearest_stop': get_nearest_stop,
         }
         logger.info(f"De Lijn provider initialized with endpoints: {list(self.endpoints.keys())}")
 
@@ -119,6 +122,21 @@ class DeLijnProvider:
             stop_details["lines"][line] = list(destinations.keys())
 
         return stop_details
+
+    async def get_nearest_stops(self, lat: float, lon: float, limit: int = 5, max_distance: float = 2.0):
+        """
+        Get nearest De Lijn stops to the given coordinates.
+        
+        Args:
+            lat: Latitude
+            lon: Longitude
+            limit: Maximum number of stops to return
+            max_distance: Maximum distance in kilometers to consider
+            
+        Returns:
+            List of dictionaries containing stop information and distance
+        """
+        return await find_nearest_stops(lat, lon, limit, max_distance)
 
 # Only create and register provider if it's enabled
 if 'delijn' in get_config('ENABLED_PROVIDERS', []):

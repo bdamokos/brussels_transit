@@ -17,6 +17,10 @@ from logging.config import dictConfig
 import asyncio
 from transit_providers.config import get_provider_config
 import pytz
+from transit_providers.nearest_stop import (
+    ingest_gtfs_stops, get_nearest_stops, cache_stops, 
+    get_cached_stops, Stop
+)
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -34,6 +38,7 @@ logger.debug(f"Provider config: {provider_config}")
 API_URL = provider_config.get('API_URL')
 GTFS_URL = provider_config.get('GTFS_URL')
 
+
 GTFS_DIR = provider_config.get('GTFS_DIR')
 
 GTFS_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,6 +47,7 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 logger.debug(f"GTFS_DIR: {GTFS_DIR}, CACHE_DIR: {CACHE_DIR}")
 RATE_LIMIT_DELAY = provider_config.get('RATE_LIMIT_DELAY')
 GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
+GTFS_USED_FILES = provider_config.get('GTFS_USED_FILES')
 BASE_URL = provider_config.get('API_URL')
 
 # API keys
@@ -491,6 +497,7 @@ async def download_and_extract_gtfs() -> bool:
         
         # Download the file
         req = urllib.request.Request(GTFS_URL, headers=headers)
+        logger.info(f"Downloading GTFS data from {GTFS_URL}")
         with urllib.request.urlopen(req) as response:
             logger.debug("Saving GTFS zip file")
             with open('gtfs_transit.zip', 'wb') as f:
@@ -504,6 +511,12 @@ async def download_and_extract_gtfs() -> bool:
         
         # Clean up zip file
         Path('gtfs_transit.zip').unlink()
+
+        # Clean up unused files
+        for file in GTFS_DIR.glob('*'):
+            if file.name not in GTFS_USED_FILES:
+                file.unlink()
+                logger.debug(f"Deleted unused GTFS file: {file.name}")
         
         logger.info("GTFS data updated successfully")
         return True
@@ -883,6 +896,44 @@ async def get_service_messages() -> List[Dict]:
         logger.error(f"Error getting service messages: {str(e)}", exc_info=True)
         return []
 
+async def ensure_gtfs_data() -> Optional[Path]:
+    """Ensure GTFS data is downloaded and return path to GTFS directory."""
+    if not GTFS_DIR.exists() or not (GTFS_DIR / 'stops.txt').exists():
+        logger.info("GTFS data not found, downloading...")
+        success = await download_and_extract_gtfs()
+        if not success:
+            logger.error("Failed to download GTFS data")
+            return None
+    return GTFS_DIR
+
+async def get_stops() -> Dict[str, Stop]:
+    """Get all stops from GTFS data or cache."""
+    cache_path = CACHE_DIR / 'stops.json'
+    
+    # Try to get from cache first
+    cached_stops = get_cached_stops(cache_path)
+    if cached_stops is not None:
+        return cached_stops
+    
+    # If not in cache, ensure GTFS data and load stops
+    gtfs_dir = await ensure_gtfs_data()
+    if gtfs_dir is None:
+        logger.error("Could not get GTFS data")
+        return {}
+    
+    stops = ingest_gtfs_stops(gtfs_dir)
+    if stops:
+        cache_stops(stops, cache_path)
+    return stops
+
+async def find_nearest_stops(lat: float, lon: float, limit: int = 5, max_distance: float = 2.0) -> List[Dict]:
+    """Find nearest stops to given coordinates."""
+    stops = await get_stops()
+    if not stops:
+        logger.error("No stops data available")
+        return []
+    
+    return get_nearest_stops(stops, (lat, lon), limit, max_distance)
 
 async def main():
     # Get formatted arrivals for all monitored stops
@@ -977,6 +1028,11 @@ async def main():
         delijn_data["errors"].append(str(e))
     
     return delijn_data
+
+
+def get_nearest_stop(stops: dict, point: tuple) -> dict:
+    """Get the nearest stop to a given point from a list of GTFS stops."""
+    pass
 
 if __name__ == "__main__":
     import asyncio
