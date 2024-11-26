@@ -40,6 +40,7 @@ from delijn import (
 )
 import sys
 from transit_providers import PROVIDERS
+from config import get_config, get_required_config
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
