@@ -8,3 +8,4 @@ hypercorn==0.17.3
 asgiref==3.8.1
 apscheduler==3.10.4
 pandas==2.2.3
+deepdiff==8.0.1
