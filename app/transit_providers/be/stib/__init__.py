@@ -93,7 +93,10 @@ class STIBProvider(TransitProvider):
             }
 
     async def get_stop_details(self, stop_id: str):
-        """Get details for a specific STIB stop"""
+        """Get details for a specific STIB stop.
+        
+        Example of a valid stop_id: 8122 (ROODEBEEK)
+        """
         try:
             # Get waiting times for this stop
             waiting_times = await get_waiting_times(stop_id)

@@ -1,11 +1,10 @@
-# app/transit_providers/be/delijn/config.py
+# app/transit_providers/be/stib/config.py
 
 import os
 from pathlib import Path
-from transit_providers.config import register_provider_config
 import logging
 from logging.config import dictConfig
-from transit_providers.config import get_config
+from transit_providers.config import get_config, register_provider_config
 from datetime import timedelta
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -28,6 +27,7 @@ DEFAULT_CONFIG = {
     } # Example stop, update in local.py
 ], 
  "API_KEY": os.getenv('STIB_API_KEY'),
+ 'API_URL': "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
     "STIB_API_URL_BASE": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
     "STIB_STOPS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/stop-details-production/records",
     "STIB_WAITING_TIME_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/waiting-time-rt-production/records",
@@ -43,5 +43,5 @@ DEFAULT_CONFIG = {
 
 logger.debug("Registering STIB default configuration")
 # Register this provider's default configuration
-register_provider_config('delijn', DEFAULT_CONFIG)
-logger.debug("De Lijn default configuration registered")
+register_provider_config('stib', DEFAULT_CONFIG)
+logger.debug("STIB default configuration registered")

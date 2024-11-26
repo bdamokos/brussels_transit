@@ -1,17 +1,18 @@
 import os
+from config import get_config
 import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 import pytz
 import logging
-from config import get_config
 from logging.config import dictConfig
-from transit_providers.config import get_provider_config
+
 import pytz
 from utils import RateLimiter, get_client
 from dataclasses import dataclass
 from collections import defaultdict
 from get_stop_names import get_stop_names
+from transit_providers.config import get_provider_config
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
@@ -26,8 +27,11 @@ logger.debug(f"Provider config: {provider_config}")
 
 # API configuration
 API_URL = provider_config.get('API_URL', "")
+logger.debug(f"API_URL: {API_URL}")
 MESSAGES_API_URL = provider_config.get('STIB_MESSAGES_API_URL', "")
+logger.debug(f"MESSAGES_API_URL: {MESSAGES_API_URL}")
 WAITING_TIMES_API_URL = provider_config.get('STIB_WAITING_TIME_API_URL', "")
+logger.debug(f"WAITING_TIMES_API_URL: {WAITING_TIMES_API_URL}")
 GTFS_URL = provider_config.get('GTFS_URL', "")
 GTFS_DIR = provider_config.get('GTFS_DIR')
 if GTFS_DIR:
@@ -212,7 +216,12 @@ class WaitingTimesCache:
 
 async def get_route_colors(monitored_lines=None):
     """Fetch route colors with caching"""
-    
+        # If monitored_lines is a string (single line number), convert it to a list
+    if isinstance(monitored_lines, str):
+        monitored_lines = [monitored_lines]
+    # If monitored_lines is a number, convert it to a string in a list
+    elif isinstance(monitored_lines, (int, float)):
+        monitored_lines = [str(monitored_lines)]
     # Initialize cache structure
     routes_cache = {
         'timestamp': None,
@@ -401,7 +410,7 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
     """Get real-time waiting times for STIB stops
     
     Args:
-        stop_id: Optional stop ID to filter results
+        stop_id: Optional stop ID to filter results. Example of a valid stop_id: 8122 (ROODEBEEK)
         
     Returns:
         Dictionary containing waiting times data in the format:

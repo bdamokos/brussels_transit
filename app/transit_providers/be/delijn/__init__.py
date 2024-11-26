@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable
 from transit_providers.config import get_provider_config
 from config import get_config
+import logging
+from logging.config import dictConfig
+
+# Setup logging using configuration
+logging_config = get_config('LOGGING_CONFIG')
+logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
+dictConfig(logging_config)
+
+# Get logger
+logger = logging.getLogger('delijn')
 
 from .api import (
     get_formatted_arrivals,
@@ -40,6 +50,7 @@ class DeLijnProvider:
             'messages': get_service_messages,
             'waiting_times': get_formatted_arrivals,
         }
+        logger.info(f"De Lijn provider initialized with endpoints: {list(self.endpoints.keys())}")
 
     async def get_config(self):
         """Get De Lijn configuration including monitored stops and lines"""

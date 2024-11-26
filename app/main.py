@@ -225,7 +225,12 @@ ROUTES_CACHE_FILE = CACHE_DIR / "routes.json"
 
 async def get_route_colors(monitored_lines=None):
     """Fetch route colors with caching"""
-    
+        # If monitored_lines is a string (single line number), convert it to a list
+    if isinstance(monitored_lines, str):
+        monitored_lines = [monitored_lines]
+    # If monitored_lines is a number, convert it to a string in a list
+    elif isinstance(monitored_lines, (int, float)):
+        monitored_lines = [str(monitored_lines)]
     # Initialize cache structure
     routes_cache = {
         'timestamp': None,
@@ -997,55 +1002,61 @@ async def get_static_data():
 # Get the registered provider
 
 @app.route('/api/<provider>/<endpoint>')
-@app.route('/api/<provider>/<endpoint>/<line>')
-async def provider_endpoint(provider, endpoint, line=None):
+@app.route('/api/<provider>/<endpoint>/<param1>')
+@app.route('/api/<provider>/<endpoint>/<param1>/<param2>')
+async def provider_endpoint(provider, endpoint, param1=None, param2=None):
     """Generic endpoint for accessing transit provider data"""
-    logger.debug(f"Provider endpoint called: {provider}/{endpoint}")
+    logger.debug(f"Provider endpoint called: {provider}/{endpoint} with params: {param1}, {param2}")
     
     try:
-        # Check if provider exists
         if provider not in PROVIDERS:
-            return jsonify({'error': f'Provider {provider} not found'}), 404
+            available_providers = list(PROVIDERS.keys())
+            return jsonify({
+                'error': f'Provider "{provider}" not found',
+                'available_providers': available_providers,
+                'example_urls': [
+                    f'/api/{p}/data' for p in available_providers
+                ],
+                'documentation': '/api/docs/v2'
+            }), 404
             
         provider_data = PROVIDERS[provider]
         
-        # Check if endpoint exists for provider
         if endpoint not in provider_data.endpoints:
-            return jsonify({'error': f'Endpoint {endpoint} not found for provider {provider}'}), 404
+            available_endpoints = list(provider_data.endpoints.keys())
+            return jsonify({
+                'error': f'Endpoint "{endpoint}" not found for provider "{provider}"',
+                'available_endpoints': available_endpoints,
+                'example_urls': [
+                    f'/api/{provider}/{ep}' for ep in available_endpoints
+                ]
+            }), 404
 
-        # Get the function to call
         func = provider_data.endpoints[endpoint]
 
-        # Special handling for functions that need parameters
-        if endpoint == 'vehicles':
-            # Get line from either path parameter or query parameter
-            line_number = line or request.args.get('line')
-            direction = request.args.get('direction')
-            if line_number:
-                result = await func(line_number, direction) if direction else await func(line_number)
+        # Handle different endpoint types
+        if endpoint == 'stops':
+            # Use param1 as stop_id
+            if param1:
+                result = await func(param1)
             else:
                 result = await func()
-        elif endpoint == 'stops':
-            stop_id = request.view_args.get('stop_id')  # Get stop_id from URL path
-            if stop_id:
-                result = await func(stop_id)
+        elif endpoint == 'vehicles':
+            # Handle line and direction
+            if param1 and param2:  # Both line and direction provided
+                result = await func(param1, param2)
+            elif param1:  # Only line provided
+                result = await func(param1)
             else:
                 result = await func()
         elif endpoint in ['route', 'colors']:
-            # Handle line-specific endpoints
-            line_number = line or request.view_args.get('line') or request.args.get('line')
-            if line_number:
-                result = await func(line_number)
+            # Use param1 as line number
+            if param1:
+                result = await func(param1)
             else:
                 return jsonify({'error': f'Line number required for {endpoint} endpoint'}), 400
-        elif endpoint == 'waiting_times':
-            # For waiting times, pass stop IDs if provider needs them
-            if provider == 'delijn':
-                result = await func(PROVIDERS['delijn'].stop_ids)
-            else:
-                result = await func()
         else:
-            # Call the function (handle both async and sync functions)
+            # Default behavior for other endpoints
             if asyncio.iscoroutinefunction(func):
                 result = await func()
             else:
@@ -1066,33 +1077,50 @@ async def provider_line_endpoint(provider, line, endpoint):
     logger.debug(f"Line-specific endpoint called: {provider}/lines/{line}/{endpoint}")
     return await provider_endpoint(provider, endpoint, line)
 
+@app.route('/api/health')
 @app.route('/health')
 def health_check():
     """Health check endpoint for Docker container."""
     return jsonify({"status": "healthy"}), 200
 
+@app.route('/api/docs') # For backwards compatibility
 @app.route('/api/docs/v2')
 async def api_docs_v2():
     """Enhanced documentation endpoint that dynamically discovers all provider endpoints"""
     
     # Get provider documentation
     provider_docs = await get_provider_docs()
-
-    provider_name = next(iter(provider_docs))
     
     api_spec = {
         "version": "2.0.0",
         "base_url": "/api",
-        "endpoints": {
-            f"{provider_name.upper()} Endpoints": {
-                f"/api/{provider_name}/{endpoint_name}": asdict(endpoint_doc)
-                for provider_name, endpoints in provider_docs.items()
-                for endpoint_name, endpoint_doc in endpoints.items()
-            }
-        }
+        "endpoints": {}
     }
     
-    # Add system endpoints
+    # Convert each category's endpoints to a dictionary format
+    for category_name, endpoints in provider_docs.items():
+        api_spec["endpoints"][category_name] = {}
+        for path, endpoint_doc in endpoints.items():
+            # Check if endpoint_doc is a dataclass instance
+            if hasattr(endpoint_doc, '__dataclass_fields__'):
+                # Convert dataclass to dict
+                endpoint_dict = asdict(endpoint_doc)
+            elif isinstance(endpoint_doc, dict):
+                # Already a dict, use as is
+                endpoint_dict = endpoint_doc
+            else:
+                # Convert to dict manually
+                endpoint_dict = {
+                    "method": getattr(endpoint_doc, 'method', 'GET'),
+                    "description": getattr(endpoint_doc, 'description', ''),
+                    "parameters": getattr(endpoint_doc, 'parameters', None),
+                    "returns": getattr(endpoint_doc, 'returns', None),
+                    "body": getattr(endpoint_doc, 'body', None),
+                    "example_response": getattr(endpoint_doc, 'example_response', None),
+                    "config": getattr(endpoint_doc, 'config', None)
+                }
+            api_spec["endpoints"][category_name][path] = endpoint_dict
+          # Add system endpoints
     api_spec["endpoints"]["System Endpoints"] = {
         "/api/docs/v2": {
             "method": "GET",
@@ -1127,13 +1155,17 @@ async def get_provider_docs() -> Dict[str, Dict[str, EndpointDoc]]:
     """Dynamically generate documentation for all registered providers"""
     docs = {}
     
-    for provider_name, provider in PROVIDERS.items():
-        provider_docs = {}
+    # Sort providers alphabetically to ensure consistent order
+    for provider_name in sorted(PROVIDERS.keys()):
+        provider = PROVIDERS[provider_name]
         
         # Get provider configuration
         provider_config = {}
         if hasattr(provider, 'config'):
             provider_config = await provider.config() if inspect.iscoroutinefunction(provider.config) else provider.config()
+        
+        # Create a category name for each provider
+        category_name = f"{provider_name.upper()} Endpoints"
         
         for endpoint_name, endpoint_func in provider.endpoints.items():
             try:
@@ -1141,42 +1173,56 @@ async def get_provider_docs() -> Dict[str, Dict[str, EndpointDoc]]:
                 sig = signature(endpoint_func)
                 params = {}
                 
-                for param_name, param in sig.parameters.items():
-                    if param.name != 'self':  # Skip self parameter
-                        param_doc = str(param.annotation) if param.annotation != Parameter.empty else "any"
-                        default = f" (default: {param.default})" if param.default != Parameter.empty else ""
-                        params[param_name] = f"{param_doc}{default}"
+                # Get return type annotation
+                return_type = sig.return_annotation if sig.return_annotation != Parameter.empty else None
                 
-                # Get function docstring
-                doc = endpoint_func.__doc__ or "No description available"
+                # Parse docstring to get return value description
+                docstring = endpoint_func.__doc__ or ""
+                return_desc = ""
+                for line in docstring.split('\n'):
+                    if ':return:' in line or ':returns:' in line:
+                        return_desc = line.split(':', 2)[-1].strip()
+                        break
                 
-                # Try to get an example response
+                # Build returns documentation
+                returns = {
+                    "type": str(return_type) if return_type else "any",
+                    "description": return_desc,
+                }
+                
+                # If we have an example response, include its structure
                 example_response = None
                 try:
                     if inspect.iscoroutinefunction(endpoint_func):
                         # For async functions that need parameters, try to use defaults or config values
-                        if params:
-                            # Try to get parameters from config
-                            kwargs = {}
-                            if 'line' in params and hasattr(provider, 'monitored_lines'):
-                                kwargs['line'] = next(iter(provider.monitored_lines))
-                            if 'stop_id' in params and hasattr(provider, 'stop_ids'):
-                                kwargs['stop_id'] = next(iter(provider.stop_ids))
-                            if kwargs:
-                                example_response = await endpoint_func(**kwargs)
+                        kwargs = {}
+                        if 'line' in sig.parameters and hasattr(provider, 'monitored_lines'):
+                            kwargs['line'] = next(iter(provider.monitored_lines))
+                        if 'stop_id' in sig.parameters and hasattr(provider, 'stop_ids'):
+                            kwargs['stop_id'] = next(iter(provider.stop_ids))
+                        if kwargs:
+                            example_response = await endpoint_func(**kwargs)
                         else:
                             example_response = await endpoint_func()
                     else:
                         example_response = endpoint_func()
+                    
+                    if example_response:
+                        returns["example_structure"] = {
+                            "type": type(example_response).__name__,
+                            "structure": _describe_structure(example_response)
+                        }
                 except Exception as e:
                     logger.warning(f"Could not get example response for {provider_name}/{endpoint_name}: {e}")
-                    example_response = {"error": "Could not generate example response"}
                 
-                provider_docs[endpoint_name] = EndpointDoc(
+                # Store under the provider-specific category
+                if category_name not in docs:
+                    docs[category_name] = {}
+                docs[category_name][f"/api/{provider_name}/{endpoint_name}"] = EndpointDoc(
                     method="GET",
-                    description=doc,
+                    description=docstring,
                     parameters=params if params else None,
-                    returns={"response": "JSON response format will be documented here"},
+                    returns=returns,
                     example_response=example_response,
                     config=provider_config.get(endpoint_name) if provider_config else None
                 )
@@ -1184,10 +1230,43 @@ async def get_provider_docs() -> Dict[str, Dict[str, EndpointDoc]]:
             except Exception as e:
                 logger.error(f"Error documenting endpoint {endpoint_name}: {e}")
                 continue
-        
-        docs[provider_name] = provider_docs
+    
+    # Add system endpoints as a separate category
+    docs["System Endpoints"] = {
+        "/api/docs/v2": {
+            "method": "GET",
+            "description": "Enhanced API documentation with dynamic provider discovery",
+            "returns": "Complete API specification with examples"
+        },
+        "/health": {
+            "method": "GET",
+            "description": "Health check endpoint",
+            "returns": {"status": "Current system status"}
+        }
+    }
     
     return docs
+
+def _describe_structure(obj, max_depth=3, current_depth=0):
+    """Helper function to describe the structure of an object"""
+    if current_depth >= max_depth:
+        return "..."
+    
+    if isinstance(obj, dict):
+        return {k: _describe_structure(v, max_depth, current_depth + 1) 
+                for k, v in (list(obj.items())[:5] if len(obj) > 5 else obj.items())}
+    elif isinstance(obj, (list, tuple)):
+        if not obj:
+            return "[]"
+        return [_describe_structure(obj[0], max_depth, current_depth + 1)] + (["..."] if len(obj) > 1 else [])
+    elif isinstance(obj, (int, float)):
+        return type(obj).__name__
+    elif isinstance(obj, str):
+        return "string"
+    elif obj is None:
+        return "null"
+    else:
+        return type(obj).__name__
 
 if __name__ == '__main__':
     app.debug = True

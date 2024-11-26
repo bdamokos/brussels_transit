@@ -19,6 +19,7 @@ PROVIDERS: Dict[str, Union[TransitProvider, Dict[str, Callable]]] = {}
 def register_provider(name: str, provider: Union[Dict[str, Callable], TransitProvider]) -> None:
     """Register a transit provider and its endpoints"""
     logger.debug(f"Registering provider: {name}")
+    endpoints = provider if isinstance(provider, dict) else provider.endpoints
     PROVIDERS[name] = TransitProvider(name=name, endpoints=endpoints)
 
 def get_provider_docs() -> Dict[str, Any]:
