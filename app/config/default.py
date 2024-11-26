@@ -64,7 +64,7 @@ LOGGING_CONFIG = {
             'level': 'DEBUG',
             'propagate': False
         },
-        'transit_providers.config': {
+        'transit_providers': {
             'level': 'DEBUG',
             'propagate': False
         }
