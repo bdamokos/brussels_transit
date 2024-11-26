@@ -772,7 +772,7 @@
             );
             const delijnVehiclesResponses = await Promise.all(delijnVehiclesPromises);
             console.log("De Lijn vehicles responses:", delijnVehiclesResponses.map(r => r.status));
-
+            
             if (stibResponse.status === 429) {
                 // Handle rate limiting as before...
                 return;
@@ -786,7 +786,12 @@
             const delijnData = await delijnResponse.json();
             const delijnMessages = delijnMessagesResponse.ok ? await delijnMessagesResponse.json() : { messages: [] };
             const delijnVehiclesData = await Promise.all(
-                delijnVehiclesResponses.map(r => r.ok ? r.json() : { vehicles: [] })
+                delijnVehiclesResponses.map(async r => {
+                    if (!r.ok) return [];
+                    const data = await r.json();
+                    // Handle both array and object formats
+                    return Array.isArray(data) ? data : data.vehicles || [];
+                })
             );
             
             console.log('STIB data:', stibData);
@@ -802,31 +807,8 @@
                 errors: []
             };
 
-            // Transform De Lijn stop data if available
-            if (delijnData && delijnData.stops) {
-                Object.entries(delijnData.stops).forEach(([stopId, stopData]) => {
-                    transformedDelijnData.stops_data[stopId] = {
-                        name: stopData.name,
-                        coordinates: stopData.coordinates,
-                        lines: {}
-                    };
-
-                    // Process lines if they exist
-                    if (stopData.lines) {
-                        console.log(`Processing lines for stop ${stopId}:`, stopData.lines);
-                        Object.entries(stopData.lines).forEach(([line, destinations]) => {
-                            transformedDelijnData.stops_data[stopId].lines[line] = {};
-                            Object.entries(destinations).forEach(([destination, times]) => {
-                                console.log(`Processing line ${line} to ${destination}:`, times);
-                                transformedDelijnData.stops_data[stopId].lines[line][destination] = times;
-                            });
-                        });
-                    }
-                });
-            }
-
             // Transform vehicle positions
-            const allDelijnVehicles = delijnVehiclesData.flatMap(data => data.vehicles || []);
+            const allDelijnVehicles = delijnVehiclesData.flat();
             console.log("Processing De Lijn vehicles:", allDelijnVehicles);
             transformedDelijnData.processed_vehicles = allDelijnVehicles.map(vehicle => ({
                 line: vehicle.line,
