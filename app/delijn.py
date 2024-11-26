@@ -216,6 +216,7 @@ async def get_line_colors() -> Dict[str, str]:
     headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
     
     async with httpx.AsyncClient() as client:
+        await rate_limit()  # Add rate limiting
         response = await client.get(f"{BASE_URL}/kleuren", headers=headers)
         if response.status_code == 200:
             colors_data = response.json()
@@ -302,6 +303,7 @@ async def get_line_stops(line_number: str, direction: str) -> Optional[List[Dict
     
     try:
         async with httpx.AsyncClient() as client:
+            await rate_limit()  # Add rate limiting
             response = await client.get(
                 f"{BASE_URL}/lijnen/3/{line_number}/lijnrichtingen/{direction}/haltes",
                 headers=headers
@@ -597,6 +599,7 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
         }
         
         async with httpx.AsyncClient() as client:
+            await rate_limit()  # Add rate limiting
             response = await client.get(
                 'https://api.delijn.be/gtfs/v3/realtime',
                 headers=headers,
@@ -784,6 +787,7 @@ async def get_service_messages() -> List[Dict]:
                         stop_id = str(stop.get('haltenummer'))
                         try:
                             # Get stop details
+                            await rate_limit()  # Add rate limiting
                             stop_response = await client.get(
                                 f"{BASE_URL}/haltes/3/{stop_id}",
                                 headers=headers
