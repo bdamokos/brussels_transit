@@ -80,7 +80,8 @@ service_messages_cache = {
 }
 
 
-TIMEZONE = pytz.timezone(get_config('TIMEZONE'))
+
+TIMEZONE = pytz.timezone(get_config('TIMEZONE')) 
 
 def parse_service_message(message, stop_details):
     """Parse a service message and extract relevant information"""

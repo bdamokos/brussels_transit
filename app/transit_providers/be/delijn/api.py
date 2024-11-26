@@ -16,7 +16,7 @@ from config import get_config
 from logging.config import dictConfig
 import asyncio
 from transit_providers.config import get_provider_config
-
+import pytz
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -28,7 +28,7 @@ logger = logging.getLogger('delijn')
 
 # Get provider configuration
 provider_config = get_provider_config('delijn')
-logger.info(f"Provider config: {provider_config}")
+logger.debug(f"Provider config: {provider_config}")
 
 # API configuration
 API_URL = provider_config.get('API_URL')
@@ -50,10 +50,9 @@ DELIJN_GTFS_STATIC_API_KEY = provider_config.get('GTFS_STATIC_API_KEY')
 DELIJN_GTFS_REALTIME_API_KEY = provider_config.get('GTFS_REALTIME_API_KEY')
 
 # Configuration
-STOP_ID = get_config('DELIJN_STOP_IDS')
-MONITORED_LINES = get_config('DELIJN_MONITORED_LINES')
-BRUSSELS_TZ = pytz.timezone('Europe/Brussels')
-
+STOP_ID = provider_config.get('STOP_IDS')
+MONITORED_LINES = provider_config.get('MONITORED_LINES')
+TIMEZONE = pytz.timezone(get_config('TIMEZONE'))
 # Cache configuration
 CACHE_DIR = get_config('CACHE_DIR') / "delijn"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -160,7 +159,7 @@ async def parse_passing_times(data: dict) -> List[PassingTime]:
             # Debug print raw doorkomst data
             
             # Parse the timestamps and explicitly set timezone
-            scheduled = BRUSSELS_TZ.localize(
+            scheduled = TIMEZONE.localize(
                 datetime.fromisoformat(doorkomst["dienstregelingTijdstip"])
             )
             
@@ -168,7 +167,7 @@ async def parse_passing_times(data: dict) -> List[PassingTime]:
             expected = scheduled
             is_realtime = False
             if "real-timeTijdstip" in doorkomst:
-                expected = BRUSSELS_TZ.localize(
+                expected = TIMEZONE.localize(
                     datetime.fromisoformat(doorkomst["real-timeTijdstip"])
                 )
                 is_realtime = True
@@ -206,19 +205,19 @@ async def parse_passing_times(data: dict) -> List[PassingTime]:
 async def format_time_until(dt: datetime) -> str:
     """Format a datetime into a minutes-until string, allowing negative values"""
     # Always get fresh "now" time in Brussels timezone
-    now = datetime.now(BRUSSELS_TZ)
+    now = datetime.now(TIMEZONE)
     
     # If dt is naive, assume it's in Brussels time
     if dt.tzinfo is None:
-        dt = BRUSSELS_TZ.localize(dt)
+        dt = TIMEZONE.localize(dt)
     else:
         # If dt has a different timezone, convert to Brussels
-        dt = dt.astimezone(BRUSSELS_TZ)
+        dt = dt.astimezone(TIMEZONE)
     
     # Calculate difference directly in minutes
     diff = (dt - now).total_seconds() / 60
     minutes = int(diff)
-    print(f"Datatime: {dt}, Now: {now}, Diff: {diff}, Minutes: {minutes}")
+
     return f"{minutes}'"
 
 async def get_line_colors() -> Dict[str, str]:
@@ -340,141 +339,145 @@ async def get_line_stops(line_number: str, direction: str) -> Optional[List[Dict
                 return stops_data
                 
     except Exception as e:
-        print(f"Error getting stops for line {line_number} direction {direction}: {e}")
-    return None
+        logger.error(f"Error getting stops for line {line_number} direction {direction}: {e}", exc_info=True)
+        return None
 
 async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
-    """Get formatted arrival times for multiple stops"""
-    if stop_ids is None:
-        stop_ids = STOP_ID  # Use default stops if none provided
-    if isinstance(stop_ids, str):
-        stop_ids = [stop_ids]
-        
-    logger.info(f"Fetching arrivals for stops {stop_ids}")
-    headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
-    
-    # Initialize result structure
-    formatted_data = {
+    delijn_data = {
         "stops": {},
-        "colors": {}  # Moved colors to top level to avoid duplication
+        "processed_vehicles": [],  # Make sure this field exists
+        "errors": []
     }
     
     try:
+        if stop_ids is None:
+            stop_ids = STOP_ID  # Use default stops if none provided
+        if isinstance(stop_ids, str):
+            stop_ids = [stop_ids]
+        
+        logger.info(f"Fetching arrivals for stops {stop_ids}")
+        headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
+        
+        # Initialize result structure
+        formatted_data = {
+            "stops": {},
+            "colors": {}  # Moved colors to top level to avoid duplication
+        }
+        
+        
         async with httpx.AsyncClient() as client:
-            for stop_id in stop_ids:
-                # Rate limit before each API call
-                await rate_limit()
-                
-                # Get basic stop info
-                logger.debug(f"Fetching stop info for {stop_id}")
-                stop_response = await client.get(f"{BASE_URL}/haltes/3/{stop_id}", headers=headers)
-                logger.debug(f"Stop info response status for {stop_id}: {stop_response.status_code}")
-                logger.debug(f"Stop info response for {stop_id}: {stop_response.text}")  # Log full response
-                
-                if stop_response.status_code != 200:
-                    logger.error(f"Failed to get stop info for {stop_id}: HTTP {stop_response.status_code}")
-                    logger.error(f"Response headers: {stop_response.headers}")
-                    continue
+                for stop_id in stop_ids:
+                    # Rate limit before each API call
+                    await rate_limit()
                     
-                stop_data = stop_response.json()
-                stop_info = await parse_stop_info(stop_data)
-                logger.debug(f"Parsed stop info for {stop_id}: {stop_info}")
-                
-                # Rate limit before getting realtime arrivals
-                await rate_limit()
-                
-                # Get realtime arrivals
-                logger.debug(f"Fetching realtime arrivals for {stop_id}")
-                arrivals_response = await client.get(
-                    f"{BASE_URL}/haltes/3/{stop_id}/real-time",
-                    headers=headers
-                )
-                logger.debug(f"Realtime response status for {stop_id}: {arrivals_response.status_code}")
-                logger.debug(f"Realtime response for {stop_id}: {arrivals_response.text}")  # Log full response
-                
-                if arrivals_response.status_code != 200:
-                    logger.error(f"Failed to get arrivals for {stop_id}: HTTP {arrivals_response.status_code}")
-                    logger.error(f"Response headers: {arrivals_response.headers}")
-                    logger.error(f"Response: {arrivals_response.text}")
-                    logger.error(f"URL: {BASE_URL}/haltes/3/{stop_id}/real-time")
-                    continue
+                    # Get basic stop info
+                    logger.debug(f"Fetching stop info for {stop_id}")
+                    stop_response = await client.get(f"{BASE_URL}/haltes/3/{stop_id}", headers=headers)
+                    logger.debug(f"Stop info response status for {stop_id}: {stop_response.status_code}")
+                    logger.debug(f"Stop info response for {stop_id}: {stop_response.text}")  # Log full response
                     
-                arrivals_data = arrivals_response.json()
-                passing_times = await parse_passing_times(arrivals_data)
-                logger.debug(f"Parsed {len(passing_times)} passing times for {stop_id}: {passing_times}")
-                
-                # Initialize stop data structure
-                formatted_data["stops"][stop_id] = {
-                    "name": stop_info["name"],
-                    "coordinates": stop_info["coordinates"],
-                    "lines": {}
-                }
-                
-                # Process each passing time
-                for passing in passing_times:
-                    line = passing["line"]
-                    destination = passing["destination"]
-                    logger.debug(f"Processing passing time for {stop_id}, line {line} to {destination}")
-                    
-                    if MONITORED_LINES and line not in MONITORED_LINES:
-                        logger.debug(f"Skipping unmonitored line {line}")
+                    if stop_response.status_code != 200:
+                        logger.error(f"Failed to get stop info for {stop_id}: HTTP {stop_response.status_code}")
+                        logger.error(f"Response headers: {stop_response.headers}")
                         continue
                     
-                    # Get line colors if not already cached
-                    if line not in formatted_data["colors"]:
-                        logger.debug(f"Fetching colors for line {line}")
-                        colors = await get_line_color(line)
-                        if colors:
-                            formatted_data["colors"][line] = colors
-                            logger.debug(f"Added colors for line {line}: {colors}")
-                        else:
-                            logger.warning(f"No colors found for line {line}")
+                    stop_data = stop_response.json()
+                    stop_info = await parse_stop_info(stop_data)
+                    logger.debug(f"Parsed stop info for {stop_id}: {stop_info}")
                     
-                    # Initialize data structures if needed
-                    if line not in formatted_data["stops"][stop_id]["lines"]:
-                        formatted_data["stops"][stop_id]["lines"][line] = {}
-                    if destination not in formatted_data["stops"][stop_id]["lines"][line]:
-                        formatted_data["stops"][stop_id]["lines"][line][destination] = []
+                    # Rate limit before getting realtime arrivals
+                    await rate_limit()
                     
-                    # Calculate minutes and format times
-                    scheduled_minutes = await format_time_until(passing["scheduled_arrival"])
-                    scheduled_time = passing["scheduled_arrival"].strftime("%H:%M")
+                    # Get realtime arrivals
+                    logger.debug(f"Fetching realtime arrivals for {stop_id}")
+                    arrivals_response = await client.get(
+                        f"{BASE_URL}/haltes/3/{stop_id}/real-time",
+                        headers=headers
+                    )
+                    logger.debug(f"Realtime response status for {stop_id}: {arrivals_response.status_code}")
+                    logger.debug(f"Realtime response for {stop_id}: {arrivals_response.text}")  # Log full response
                     
-                    arrival_data = {
-                        "scheduled_minutes": scheduled_minutes,
-                        "scheduled_time": scheduled_time,
-                        "is_realtime": passing["realtime"],
-                        "message": passing["message"] if passing["message"] else None
+                    if arrivals_response.status_code != 200:
+                        logger.error(f"Failed to get arrivals for {stop_id}: HTTP {arrivals_response.status_code}")
+                        logger.error(f"Response headers: {arrivals_response.headers}")
+                        logger.error(f"Response: {arrivals_response.text}")
+                        logger.error(f"URL: {BASE_URL}/haltes/3/{stop_id}/real-time")
+                        continue
+                    
+                    arrivals_data = arrivals_response.json()
+                    passing_times = await parse_passing_times(arrivals_data)
+                    logger.debug(f"Parsed {len(passing_times)} passing times for {stop_id}: {passing_times}")
+                    
+                    # Initialize stop data structure
+                    formatted_data["stops"][stop_id] = {
+                        "name": stop_info["name"],
+                        "coordinates": stop_info["coordinates"],
+                        "lines": {}
                     }
                     
-                    if passing["realtime"]:
-                        realtime_minutes = await format_time_until(passing["expected_arrival"])
-                        delay = int(realtime_minutes.rstrip("'")) - int(scheduled_minutes.rstrip("'"))
-                        arrival_data.update({
-                            "realtime_minutes": realtime_minutes,
-                            "realtime_time": passing["expected_arrival"].strftime("%H:%M"),
-                            "delay": delay
-                        })
-                        logger.debug(f"Realtime data for {stop_id}, line {line}: minutes={realtime_minutes}, delay={delay}")
-                    
-                    formatted_data["stops"][stop_id]["lines"][line][destination].append(arrival_data)
-                    logger.debug(f"Added arrival data for {stop_id}, line {line}: {arrival_data}")
-            
-            logger.debug(f"Final formatted data: {json.dumps(formatted_data, indent=2, default=str)}")
-            return formatted_data
-            
+                    # Process each passing time
+                    for passing in passing_times:
+                        line = passing["line"]
+                        destination = passing["destination"]
+                        logger.debug(f"Processing passing time for {stop_id}, line {line} to {destination}")
+                        
+                        if MONITORED_LINES and line not in MONITORED_LINES:
+                            logger.debug(f"Skipping unmonitored line {line}")
+                            continue
+                        
+                        # Get line colors if not already cached
+                        if line not in formatted_data["colors"]:
+                            logger.debug(f"Fetching colors for line {line}")
+                            colors = await get_line_color(line)
+                            if colors:
+                                formatted_data["colors"][line] = colors
+                                logger.debug(f"Added colors for line {line}: {colors}")
+                            else:
+                                logger.warning(f"No colors found for line {line}")
+                        
+                        # Initialize data structures if needed
+                        if line not in formatted_data["stops"][stop_id]["lines"]:
+                            formatted_data["stops"][stop_id]["lines"][line] = {}
+                        if destination not in formatted_data["stops"][stop_id]["lines"][line]:
+                            formatted_data["stops"][stop_id]["lines"][line][destination] = []
+                        
+                        # Calculate minutes and format times
+                        scheduled_minutes = await format_time_until(passing["scheduled_arrival"])
+                        scheduled_time = passing["scheduled_arrival"].strftime("%H:%M")
+                        
+                        arrival_data = {
+                            "scheduled_minutes": scheduled_minutes,
+                            "scheduled_time": scheduled_time,
+                            "is_realtime": passing["realtime"],
+                            "message": passing["message"] if passing["message"] else None
+                        }
+                        
+                        if passing["realtime"]:
+                            realtime_minutes = await format_time_until(passing["expected_arrival"])
+                            delay = int(realtime_minutes.rstrip("'")) - int(scheduled_minutes.rstrip("'"))
+                            arrival_data.update({
+                                "realtime_minutes": realtime_minutes,
+                                "realtime_time": passing["expected_arrival"].strftime("%H:%M"),
+                                "delay": delay
+                            })
+                            logger.debug(f"Realtime data for {stop_id}, line {line}: minutes={realtime_minutes}, delay={delay}")
+                        
+                        formatted_data["stops"][stop_id]["lines"][line][destination].append(arrival_data)
+                        logger.debug(f"Added arrival data for {stop_id}, line {line}: {arrival_data}")
+                
+                logger.debug(f"Final formatted data: {json.dumps(formatted_data, indent=2, default=str)}")
+                logger.debug(f"Returning De Lijn data with {len(delijn_data['processed_vehicles'])} vehicles")
+                for vehicle in delijn_data['processed_vehicles']:
+                    logger.debug(f"Vehicle data: {vehicle}")
+                return formatted_data
+                
     except Exception as e:
-        logger.error(f"Error getting formatted arrivals: {str(e)}", exc_info=True)
-        return {
-            "stops": {
-                stop_id: {
-                    "name": "Error fetching stop name",
-                    "coordinates": {"lat": 50.867969, "lon": 4.380751},
-                    "lines": {}
-                } for stop_id in stop_ids
-            },
-            "colors": {}
-        }
+            logger.error(f"Error getting formatted arrivals: {str(e)}", exc_info=True)
+            return {
+                "stops": {},
+                "processed_vehicles": [],  # Make sure it's included in error case too
+                "errors": [str(e)]
+            }
 
 async def download_and_extract_gtfs() -> bool:
     """Download and extract fresh GTFS data"""
@@ -666,7 +669,7 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
                             'bearing': position.get('bearing', 0),
                             'timestamp': datetime.fromtimestamp(
                                 int(vehicle.get('timestamp', 0)),
-                                tz=BRUSSELS_TZ
+                                tz=TIMEZONE
                             ).isoformat(),
                             'vehicle_id': vehicle.get('vehicle', {}).get('id'),
                             'trip_id': trip_id,
@@ -968,9 +971,9 @@ async def main():
             pass
     
     except Exception as e:
-        print(f"Error processing De Lijn data: {e}")
+        logger.error(f"Error processing De Lijn data: {e}")
         import traceback
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
         delijn_data["errors"].append(str(e))
     
     return delijn_data

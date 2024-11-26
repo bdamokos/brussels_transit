@@ -35,4 +35,15 @@ STIB_STOPS = [
     }
 ]
 
+# Timezone for arrival times
+TIMEZONE = "Europe/Brussels"
+
+
+# List of enabled providers
+ENABLED_PROVIDERS = [
+    'delijn',
+    'stib'
+]
+
+
 # Add any other overrides here

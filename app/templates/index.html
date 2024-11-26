@@ -1260,9 +1260,13 @@
             const newVehiclePositions = new Set();
             
             data.processed_vehicles.forEach(vehicle => {
-                if (!vehicle.interpolated_position) return;
+                // Handle both position formats
+                const position = vehicle.interpolated_position || 
+                               (vehicle.position ? [vehicle.position.lat, vehicle.position.lon] : null);
                 
-                const [lat, lon] = vehicle.interpolated_position;
+                if (!position) return;
+                
+                const [lat, lon] = position;
                 const routeColor = lineColors[vehicle.line] || '#666';
                 
                 // Create a key for this vehicle based on line and direction

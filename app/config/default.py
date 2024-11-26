@@ -7,7 +7,7 @@ import dotenv
 import os
 from datetime import timedelta
 from pathlib import Path
-
+import pytz
 dotenv.load_dotenv()
 
 # Provider Configuration
@@ -141,10 +141,7 @@ STIB_STOPS = [
     }
 ]
 
-# De Lijn Configuration
-DELIJN_STOP_IDS = ["307795"]  # Example stop IDs - Brussel Haren Border Station
-DELIJN_MONITORED_LINES = ["270", "271", "272", "470", "620"]  # Example line numbers
-DELIJN_GTFS_DIR = Path("gtfs_transit")
+
 
 # API Configuration
 API_CONFIG = {
