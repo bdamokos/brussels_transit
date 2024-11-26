@@ -52,64 +52,19 @@ LOGGING_CONFIG = {
         }
     },
     'loggers': {
-        '': {  # Root logger
+        '': {  # Root logger - this will be used as default for any undefined logger
             'handlers': ['console', 'file'],
             'level': 'INFO'
         },
-        'main': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'main.time': {
-            'level': 'INFO',
-            'propagate': True
-        },
-        'main.api': {
+        'main.api': {  # Only specify loggers that need different settings from default
             'level': 'WARNING',
             'propagate': True
         },
-        'main.vehicles': {
-            'level': 'INFO',
-            'propagate': True
-        },
-        'delijn': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'stops': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'locate_vehicles': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'routes': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'utils': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
-        'validate_stops': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False
-        },
         'bkk': {
-            'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False
         },
         'transit_providers.config': {
-            'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False
         }
