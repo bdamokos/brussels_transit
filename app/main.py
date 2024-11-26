@@ -465,7 +465,7 @@ async def get_next_buses():
     monitored_stops_config = {stop['id']: stop.get('lines', {}) for stop in STIB_STOPS}
     
     try:
-        
+        delijn_provider = PROVIDERS['delijn']
         # Get De Lijn data
         delijn_data = await delijn_provider.endpoints['data']()
         if delijn_data and delijn_data.get('stops'):
@@ -813,6 +813,7 @@ async def index():
             logger.error(f"Error loading cached route colors: {e}")
 
         # Get De Lijn config for stop IDs
+        delijn_provider = PROVIDERS['delijn']
         delijn_config = await delijn_provider.endpoints['config']()
 
         return render_template('index.html',
@@ -994,7 +995,6 @@ async def get_static_data():
 # Add these routes after your existing routes
 
 # Get the registered provider
-delijn_provider = PROVIDERS['delijn']
 
 @app.route('/api/<provider>/<endpoint>')
 @app.route('/api/<provider>/<endpoint>/<line>')
