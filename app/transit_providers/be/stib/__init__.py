@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable
 from transit_providers.config import get_provider_config
 from config import get_config
+import logging
+from transit_providers import TransitProvider
 
 from .api import (
     get_waiting_times,
@@ -16,15 +18,13 @@ from .api import (
     get_route_data
 )
 
-@dataclass
-class STIBProvider:
-    name: str = "STIB"
-    endpoints: Dict[str, Callable[..., Awaitable[Any]]] = None
-    monitored_lines: set = None
-    stop_ids: set = None
+logger = logging.getLogger('stib')
 
-    def __post_init__(self):
-        # Get merged configuration
+class STIBProvider(TransitProvider):
+    """STIB/MIVB transit provider"""
+    
+    def __init__(self):
+        self.name = "stib"
         self.config = get_provider_config('stib')
         
         # Initialize monitored lines and stops from STIB_STOPS config
@@ -48,6 +48,7 @@ class STIBProvider:
             'messages': get_service_messages,
             'waiting_times': get_waiting_times,
         }
+        logger.info(f"STIB provider initialized with endpoints: {list(self.endpoints.keys())}")
 
     async def get_config(self):
         """Get STIB configuration including monitored stops and lines"""
@@ -82,8 +83,6 @@ class STIBProvider:
                 "colors": colors
             }
         except Exception as e:
-            import logging
-            logger = logging.getLogger('stib')
             logger.error(f"Error getting STIB data: {e}")
             return {
                 "stops": {},
@@ -122,8 +121,6 @@ class STIBProvider:
             return stop_details
             
         except Exception as e:
-            import logging
-            logger = logging.getLogger('stib')
             logger.error(f"Error getting STIB stop details: {e}")
             return {
                 "id": stop_id,
@@ -133,8 +130,16 @@ class STIBProvider:
                 "error": str(e)
             }
 
-# Only create and register provider if it's enabled
+# Create provider instance and register if enabled
 if 'stib' in get_config('ENABLED_PROVIDERS', []):
-    provider = STIBProvider()
-    from transit_providers import register_provider
-    register_provider('stib', provider.endpoints)
+    try:
+        provider = STIBProvider()
+        from transit_providers import register_provider
+        register_provider('stib', provider)  # Register the provider instance
+        logger.info("STIB provider registered successfully")
+    except Exception as e:
+        logger.error(f"Failed to register STIB provider: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+else:
+    logger.warning("STIB provider is not enabled in configuration")
