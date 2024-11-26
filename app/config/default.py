@@ -58,7 +58,7 @@ LOGGING_CONFIG = {
             'propagate': False
         },
         'main.time': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': True
         },
         'main.api': {
