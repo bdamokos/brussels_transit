@@ -48,6 +48,10 @@ GTFS_DIR = provider_config.get('GTFS_DIR')
 GTFS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = provider_config.get('CACHE_DIR')
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    CACHE_DIR.chmod(0o755)
+except Exception as e:
+    logger.warning(f"Could not set cache directory permissions: {e}")
 logger.debug(f"GTFS_DIR: {GTFS_DIR}, CACHE_DIR: {CACHE_DIR}")
 RATE_LIMIT_DELAY = provider_config.get('RATE_LIMIT_DELAY')
 GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
@@ -160,16 +164,29 @@ async def cache_set(cache_key: str, data: Any, valid_until: Optional[datetime] =
     cache_file = CACHE_DIR / f"{cache_key}.json"
     
     try:
+        # Ensure the cache directory exists with proper permissions
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        # Set directory permissions to 755 (rwxr-xr-x)
+        CACHE_DIR.chmod(0o755)
+        
         cache_entry = {
             'data': data,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'valid_until': valid_until.isoformat() if valid_until else None
         }
         
+        # Write the file with 644 permissions (rw-r--r--)
         with open(cache_file, 'w') as f:
             json.dump(cache_entry, f)
+        cache_file.chmod(0o644)
             
         logger.debug(f"Successfully cached data for {cache_key}")
+    except PermissionError as e:
+        logger.error(f"Permission error while caching data for {cache_key}: {str(e)}")
+        logger.error(f"Cache directory: {CACHE_DIR}")
+        logger.error(f"Current permissions: {oct(CACHE_DIR.stat().st_mode)}")
+        logger.error(f"Current user: {os.getuid()}")
+        logger.error(f"Current group: {os.getgid()}")
     except Exception as e:
         logger.error(f"Error caching data for {cache_key}: {str(e)}", exc_info=True)
 
