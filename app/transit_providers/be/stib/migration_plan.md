@@ -46,20 +46,17 @@
    - [ ] /api/data (v1) - test last as it depends on other endpoints
 
 2. Real-time Data (HIGH PRIORITY)
-   - [ ] Fix waiting times endpoint (empty array issue)
-     - [ ] Filter stops using configured STIB_STOPS from config
-       - [ ] Extract monitored stop IDs and line numbers
-       - [ ] Only return data for monitored stops
-       - [ ] Fix regression: if a stop is given as parameter, return data for that stop even if it's not monitored
+   - [~] Fix waiting times endpoint (empty array issue)
+     - [x] Filter stops using configured STIB_STOPS from config
+       - [x] Extract monitored stop IDs and line numbers
+       - [x] Only return data for monitored stops
+       - [x] Fix regression: if a stop is given as parameter, return data for that stop even if it's not monitored
+       - [x] Fix regression: if a list of stops is given as parameter, return data for all stops even if some are not monitored
      - [ ] Use stop_coordinates.py for coordinates
-       - [ ] Leverage API/GTFS fallback with caching
-       - [ ] Potential improvement over v1's coordinate handling
-     - [ ] Use get_stop_names.py for stop names
-       - [ ] Currently duplicated in app/ and stib/
-       - [ ] Will consolidate after v1 retirement
+     - [x] Use get_stop_names.py for stop names
      - [ ] Match v1 data structure exactly:
        - [ ] Return data under "stops_data" key
-       - [ ] Match waiting times format:
+       - [x] Match waiting times format:
          ```json
          {
            "destination": "DESTINATION",
@@ -68,7 +65,7 @@
            "minutes": 5
          }
          ```
-       - [ ] Ensure all fields are in same order as v1
+       - [x] Ensure all fields are in same order as v1
      - [ ] Add proper error handling and logging
        - [ ] Log API failures
        - [ ] Log data parsing issues
@@ -77,7 +74,6 @@
    - [ ] Fix messages endpoint (NoneType error)
 
 2b. Regression testing for all endpoints marked as working
-
 
 3. Route Data (MEDIUM PRIORITY)
    - [ ] Add shape data to route endpoint
@@ -117,11 +113,18 @@
      - [x] Add caching to avoid repeated GTFS lookups
      - [ ] Investigate stops with format like "6934F" and "5053G" that are missing from both API and GTFS
      - [ ] Consider adding a stop ID normalization function (remove letters from stop IDs and try to find all IDs that match {id} and {id}A-Z, to see if there is a unique match, or if the matches at least have the same coordinates or names)
+        - [x] added in waiting_times (v2)
+        - [ ] added in stop_coordinates (v2)
      - [ ] Add logging for stops not found in either source
    - [ ] Backport to v1
      - [ ] Share GTFS data lookup between v1 and v2
      - [ ] Ensure consistent coordinate format
-
+2. Figure out if we are actually downloading the GTFS data
+   - [ ] Add logging
+   - [ ] Check if the file is actually downloaded
+   - [ ] See what functions use GTFS data
+   - [ ] See if anyone is overwriting cache/stib/stops_gtfs.json (is it supposed to contain all stops from the GTFS or just the ones that we have looked up)
+   - [ ] See what is using stib/cache/stops.json and if it is still needed
 
 ## Technical Debt Items
 1. Data Format Standardization

@@ -2,7 +2,7 @@ import os
 from config import get_config
 import json
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 import pytz
 import logging
 from logging.config import dictConfig
@@ -415,16 +415,32 @@ async def get_vehicle_positions():
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         return {}
 
-async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
+def normalize_stop_id(stop_id: str) -> str:
+    """Remove any suffix (letters) from a stop ID.
+    
+    Args:
+        stop_id: The stop ID to normalize (e.g., "5710F")
+        
+    Returns:
+        The normalized stop ID (e.g., "5710")
+    """
+    # Remove any non-digit characters from the end of the stop ID
+    return ''.join(c for c in stop_id if c.isdigit())
+
+async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, Any]:
     """Get real-time waiting times for STIB stops
     
     Args:
-        stop_id: Optional stop ID to filter results. Example of a valid stop_id: 8122 (ROODEBEEK)
+        stop_id: Optional stop ID or list of stop IDs to filter results. 
+                Example of a valid stop_id: 8122 (ROODEBEEK)
+                Example of a list: ["8122", "8032"] (ROODEBEEK and PARC)
+                Stop IDs with suffixes (e.g., "5710F") will be normalized
+                by removing the suffix before querying the API.
         
     Returns:
         Dictionary containing waiting times data in the format:
         {
-            "stops": {
+            "stops_data": {
                 "stop_id": {
                     "name": "Stop Name",
                     "coordinates": {"lat": 50.8, "lon": 4.3},
@@ -446,17 +462,10 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
         # Get monitored stops from merged config
         provider_config = get_provider_config('stib')
         monitored_stops = {
-            str(stop['id']): stop 
+            normalize_stop_id(str(stop['id'])): stop 
             for stop in provider_config.get('STIB_STOPS', [])
         }
         
-        # If specific stop_id is requested, check if it's monitored
-        if stop_id:
-            stop_id = str(stop_id)
-            if stop_id not in monitored_stops:
-                logger.warning(f"Stop {stop_id} is not in monitored stops")
-                return {"stops": {}}
-            
         # Build API query
         params = {
             'apikey': API_KEY,
@@ -464,13 +473,34 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
             'select': 'pointid,lineid,passingtimes'
         }
         
-        # If specific stop requested, filter for it
+        # Handle stop_id parameter
+        requested_stops = set()
+        original_to_normalized = {}  # Keep track of original stop IDs
         if stop_id:
-            params['where'] = f'pointid="{stop_id}"'
+            if isinstance(stop_id, str):
+                # Handle comma-separated string
+                stop_ids = [s.strip() for s in stop_id.split(',')]
+            elif isinstance(stop_id, list):
+                stop_ids = [str(s) for s in stop_id]
+            else:
+                logger.warning(f"Invalid stop_id parameter type: {type(stop_id)}")
+                stop_ids = []
+                
+            # Normalize stop IDs and keep track of originals
+            for original_id in stop_ids:
+                normalized_id = normalize_stop_id(original_id)
+                requested_stops.add(normalized_id)
+                original_to_normalized[original_id] = normalized_id
+                
+            # Build query for requested stops
+            stop_filter = ' or '.join(f'pointid="{stop_id}"' for stop_id in requested_stops)
+            params['where'] = f'({stop_filter})'
+            params['limit'] = 100  # Make sure we get all results for the requested stops
         # Otherwise filter for all monitored stops
         elif monitored_stops:
             stop_filter = ' or '.join(f'pointid="{stop_id}"' for stop_id in monitored_stops.keys())
             params['where'] = f'({stop_filter})'
+            params['limit'] = 100  # Make sure we get all results for monitored stops
             
         async with await get_client() as client:
             response = await client.get(WAITING_TIMES_API_URL, params=params)
@@ -478,27 +508,49 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
             
             if response.status_code != 200:
                 logger.error(f"Failed to get waiting times: {response.status_code} {response.text}")
-                return {"stops": {}}
+                return {"stops_data": {}}
             
             data = response.json()
-            formatted_data = {"stops": {}}
+            formatted_data = {"stops_data": {}}
             
             # Process each record
             for record in data.get('results', []):
                 try:
                     current_stop_id = str(record.get('pointid'))
-                    if not current_stop_id or current_stop_id not in monitored_stops:
+                    if not current_stop_id:
+                        continue
+                    
+                    # If specific stops were requested, only process those
+                    if requested_stops and current_stop_id not in requested_stops:
+                        continue
+                    # Otherwise only process monitored stops
+                    elif not requested_stops and current_stop_id not in monitored_stops:
                         continue
                     
                     line = str(record.get('lineid'))
                     if not line:
                         continue
                     
+                    # Find the original stop ID if it exists
+                    original_stop_id = None
+                    if original_to_normalized:
+                        for orig, norm in original_to_normalized.items():
+                            if norm == current_stop_id:
+                                original_stop_id = orig
+                                break
+                    
+                    # Use the original stop ID in the response if available
+                    response_stop_id = original_stop_id or current_stop_id
+                    
                     # Initialize stop data if needed
-                    if current_stop_id not in formatted_data["stops"]:
-                        formatted_data["stops"][current_stop_id] = {
-                            "name": monitored_stops[current_stop_id]['name'],
-                            "coordinates": {},  # Will be filled by stop_coordinates.py
+                    if response_stop_id not in formatted_data["stops_data"]:
+                        # Get stop name from monitored stops if available, otherwise use stop ID
+                        stop_name = monitored_stops[current_stop_id]['name'] if current_stop_id in monitored_stops else response_stop_id
+                        # Get coordinates for this stop (use original ID for coordinates lookup)
+                        coordinates = get_stop_coordinates_with_fallback(response_stop_id)
+                        formatted_data["stops_data"][response_stop_id] = {
+                            "name": stop_name,
+                            "coordinates": coordinates.get('coordinates', {}) if coordinates else {},
                             "lines": {}
                         }
                     
@@ -512,7 +564,7 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                         try:
                             passing_times = json.loads(passing_times)
                         except json.JSONDecodeError:
-                            logger.error(f"Invalid JSON in passing times for stop {current_stop_id}, line {line}")
+                            logger.error(f"Invalid JSON in passing times for stop {response_stop_id}, line {line}")
                             continue
                     
                     if not isinstance(passing_times, list):
@@ -529,18 +581,19 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                             else:
                                 destination = 'Unknown'
                             
-                            # Check if this line and destination are monitored for this stop
-                            stop_config = monitored_stops[current_stop_id]
-                            if line not in stop_config.get('lines', {}) or \
-                               destination not in stop_config['lines'][line]:
-                                continue
+                            # For monitored stops, check if this line is monitored
+                            # But don't filter by destination to allow all destinations for the line
+                            if current_stop_id in monitored_stops:
+                                stop_config = monitored_stops[current_stop_id]
+                                if line not in stop_config.get('lines', {}):
+                                    continue
                             
                             # Initialize line data if needed
-                            if line not in formatted_data["stops"][current_stop_id]["lines"]:
-                                formatted_data["stops"][current_stop_id]["lines"][line] = {}
+                            if line not in formatted_data["stops_data"][response_stop_id]["lines"]:
+                                formatted_data["stops_data"][response_stop_id]["lines"][line] = {}
                             
-                            if destination not in formatted_data["stops"][current_stop_id]["lines"][line]:
-                                formatted_data["stops"][current_stop_id]["lines"][line][destination] = []
+                            if destination not in formatted_data["stops_data"][response_stop_id]["lines"][line]:
+                                formatted_data["stops_data"][response_stop_id]["lines"][line][destination] = []
                             
                             # Calculate minutes until arrival
                             expected_time = passing_time.get('expectedArrivalTime')
@@ -552,7 +605,7 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                                 now = datetime.now(timezone.utc)
                                 minutes = max(0, int((arrival_dt - now).total_seconds() / 60))
                                 
-                                formatted_data["stops"][current_stop_id]["lines"][line][destination].append({
+                                formatted_data["stops_data"][response_stop_id]["lines"][line][destination].append({
                                     "destination": destination,
                                     "minutes": minutes,
                                     "message": passing_time.get('message', ''),
@@ -561,9 +614,9 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                             except (ValueError, TypeError) as e:
                                 logger.error(f"Error parsing time {expected_time}: {e}")
                                 continue
-                            
+                                
                         except Exception as e:
-                            logger.error(f"Error processing passing time for stop {current_stop_id}, line {line}: {e}")
+                            logger.error(f"Error processing passing time for stop {response_stop_id}, line {line}: {e}")
                             continue
                             
                 except Exception as e:
@@ -571,19 +624,19 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                     continue
             
             # Remove any stops that ended up with no valid data
-            formatted_data["stops"] = {
+            formatted_data["stops_data"] = {
                 stop_id: stop_data
-                for stop_id, stop_data in formatted_data["stops"].items()
+                for stop_id, stop_data in formatted_data["stops_data"].items()
                 if stop_data.get("lines")
             }
             
             return formatted_data
             
     except Exception as e:
-        logger.error(f"Error fetching waiting times: {e}")
+        logger.error(f"Error getting waiting times: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return {"stops": {}}
+        return {"stops_data": {}}
 
 async def get_route_data(line: str) -> Dict[str, Any]:
     """Get route data for a specific line
