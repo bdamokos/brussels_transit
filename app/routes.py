@@ -105,11 +105,12 @@ async def get_route_shape(line: str) -> List[Dict]:
         
     try:
         # Format line number to match API expectations
-        formatted_line = f"{int(line):03}b"
-        formatted_line_fallback = f"{int(line):03}t"
+        formatted_line = f"{int(line):03}b" # For bus lines
+        formatted_line_fallback = f"{int(line):03}t" # For tram lines
+        formatted_line_fallback_2 = f"{int(line):03}m" # For metro lines
         url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/shapefiles-production/records"
         params = {
-            'where': f'ligne="{formatted_line}" or ligne="{formatted_line_fallback}"',
+            'where': f'ligne="{formatted_line}" or ligne="{formatted_line_fallback}" or ligne="{formatted_line_fallback_2}"',
             'limit': 20,
             'apikey': API_KEY
         }
