@@ -584,13 +584,13 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
             variants.append({
                 "variante": len(variants) + 1,
                 "date_debut": datetime.now().strftime("%d/%m/%Y"),
-                "date_fin": (datetime.now() + GTFS_CACHE_DURATION).strftime("%d/%m/%Y"),
+                "date_fin": (datetime.now() + timedelta(seconds=GTFS_CACHE_DURATION)).strftime("%d/%m/%Y"),
                 "coordinates": coordinates
             })
         
         shape_data = {
             "variants": variants,
-            "date_fin": (datetime.now() + GTFS_CACHE_DURATION).strftime("%d/%m/%Y"),
+            "date_fin": (datetime.now() + timedelta(seconds=GTFS_CACHE_DURATION)).strftime("%d/%m/%Y"),
             "cached_at": datetime.now(timezone.utc).isoformat()
         }
         
