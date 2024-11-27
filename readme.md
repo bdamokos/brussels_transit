@@ -2,6 +2,8 @@
 
 Creates a dashboard showing waiting times for Brussels public transport at selected STIB and De Lijn stops, ordered by distance from a given point (map centre or user's current location).
 
+The aim is for a modular design that allows for easy addition of new transit providers, including in other countries.
+
 ## Features
 - Real-time waiting times for STIB/MIVB buses, trams and metros
 - Real-time waiting times for De Lijn buses
@@ -9,8 +11,8 @@ Creates a dashboard showing waiting times for Brussels public transport at selec
 - Auto-refresh of waiting times
 
 ## Potential features
+- Frontend search for stops, configuration options
 - Timetables
-- Frontend configuration options
 
 
 ## Getting Started
@@ -102,6 +104,6 @@ Either:
 - SNCB and TEC are not yet supported.
 - Where the API provides multiple languages, English and French are taken as the default, depending on the API. (E.g. Station names for STIB in French, service messages for STIB in English)
 - Timetables are not yet supported. (This information is available in the GTFS data of both STIB and De Lijn)
-- Initial load is slow because it involves downloading and parsing a large GTFS file (~2.5 GB roughly).
+- Initial load is slow because it involves downloading and parsing a large GTFS file.
 
 
