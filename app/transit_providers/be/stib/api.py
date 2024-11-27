@@ -465,6 +465,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             normalize_stop_id(str(stop['id'])): stop 
             for stop in provider_config.get('STIB_STOPS', [])
         }
+        logger.debug(f"Found {len(monitored_stops)} monitored stops in config")
         
         # Build API query
         params = {
@@ -492,6 +493,8 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                 requested_stops.add(normalized_id)
                 original_to_normalized[original_id] = normalized_id
                 
+            logger.debug(f"Requested stops: {requested_stops} (normalized from {stop_id})")
+                
             # Build query for requested stops
             stop_filter = ' or '.join(f'pointid="{stop_id}"' for stop_id in requested_stops)
             params['where'] = f'({stop_filter})'
@@ -501,6 +504,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             stop_filter = ' or '.join(f'pointid="{stop_id}"' for stop_id in monitored_stops.keys())
             params['where'] = f'({stop_filter})'
             params['limit'] = 100  # Make sure we get all results for monitored stops
+            logger.debug(f"Using monitored stops: {list(monitored_stops.keys())}")
             
         async with await get_client() as client:
             response = await client.get(WAITING_TIMES_API_URL, params=params)
@@ -518,17 +522,21 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                 try:
                     current_stop_id = str(record.get('pointid'))
                     if not current_stop_id:
+                        logger.warning("Skipping record with no stop ID")
                         continue
                     
                     # If specific stops were requested, only process those
                     if requested_stops and current_stop_id not in requested_stops:
+                        logger.debug(f"Skipping stop {current_stop_id} - not in requested stops")
                         continue
                     # Otherwise only process monitored stops
                     elif not requested_stops and current_stop_id not in monitored_stops:
+                        logger.debug(f"Skipping stop {current_stop_id} - not in monitored stops")
                         continue
                     
                     line = str(record.get('lineid'))
                     if not line:
+                        logger.warning(f"Skipping record for stop {current_stop_id} - no line ID")
                         continue
                     
                     # Find the original stop ID if it exists
@@ -546,17 +554,24 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                     if response_stop_id not in formatted_data["stops_data"]:
                         # Get stop name from monitored stops if available, otherwise use stop ID
                         stop_name = monitored_stops[current_stop_id]['name'] if current_stop_id in monitored_stops else response_stop_id
+                        
                         # Get coordinates for this stop (use original ID for coordinates lookup)
                         coordinates = get_stop_coordinates_with_fallback(response_stop_id)
+                        if coordinates:
+                            logger.debug(f"Found coordinates for stop {response_stop_id}")
+                        else:
+                            logger.warning(f"No coordinates found for stop {response_stop_id}")
+                            
                         formatted_data["stops_data"][response_stop_id] = {
                             "name": stop_name,
-                            "coordinates": coordinates.get('coordinates', {}) if coordinates else {},
+                            "coordinates": coordinates or {},
                             "lines": {}
                         }
                     
                     # Process passing times
                     passing_times = record.get('passingtimes')
                     if not passing_times:
+                        logger.warning(f"No passing times for stop {response_stop_id}, line {line}")
                         continue
                         
                     # Handle both string and list formats
@@ -568,6 +583,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             continue
                     
                     if not isinstance(passing_times, list):
+                        logger.warning(f"Invalid passing times format for stop {response_stop_id}, line {line}")
                         continue
                     
                     for passing_time in passing_times:
@@ -579,6 +595,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             elif isinstance(destination, str):
                                 destination = destination
                             else:
+                                logger.warning(f"Invalid destination format for stop {response_stop_id}, line {line}")
                                 destination = 'Unknown'
                             
                             # For monitored stops, check if this line is monitored
@@ -586,6 +603,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             if current_stop_id in monitored_stops:
                                 stop_config = monitored_stops[current_stop_id]
                                 if line not in stop_config.get('lines', {}):
+                                    logger.debug(f"Skipping line {line} for monitored stop {response_stop_id} - not in config")
                                     continue
                             
                             # Initialize line data if needed
@@ -598,6 +616,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             # Calculate minutes until arrival
                             expected_time = passing_time.get('expectedArrivalTime')
                             if not expected_time:
+                                logger.warning(f"No arrival time for stop {response_stop_id}, line {line}")
                                 continue
                                 
                             try:
@@ -612,7 +631,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                     "formatted_time": arrival_dt.strftime("%H:%M")
                                 })
                             except (ValueError, TypeError) as e:
-                                logger.error(f"Error parsing time {expected_time}: {e}")
+                                logger.error(f"Error parsing time {expected_time} for stop {response_stop_id}, line {line}: {e}")
                                 continue
                                 
                         except Exception as e:
