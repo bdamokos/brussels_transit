@@ -23,11 +23,13 @@ from .api import (
 
 from transit_providers.nearest_stop import get_stop_by_name as generic_get_stop_by_name, ingest_gtfs_stops
 from dataclasses import asdict
+import json
 
 logger = logging.getLogger('stib')
 
 provider_config = get_provider_config('stib')
 GTFS_DIR = provider_config.get('GTFS_DIR')
+STOPS_CACHE_FILE = provider_config.get('STOPS_CACHE_FILE')
 
 class StibProvider(TransitProvider):
     """STIB/MIVB transit provider"""
@@ -51,7 +53,7 @@ class StibProvider(TransitProvider):
             'config': self.get_config,
             'data': self.get_data,
             'stops': self.get_stops,
-            'stop': self.get_stop_details,
+            'stop': self.get_stop_details,  # /api/stib/stop/{id}
             'route': get_route_data,
             'colors': get_route_colors,
             'vehicles': get_vehicle_positions,
@@ -60,7 +62,6 @@ class StibProvider(TransitProvider):
             'get_stop_by_name': self.get_stop_by_name,
             'get_nearest_stops': self.get_nearest_stops,
             'search_stops': self.search_stops,
-            'stop_coordinates': self.get_stop_coordinates,
             'static': self.get_static_data,
             'realtime': self.get_realtime_data,
         }
@@ -154,6 +155,30 @@ class StibProvider(TransitProvider):
         Example of a valid stop_id: 8122 (ROODEBEEK)
         """
         try:
+            # Get coordinates from cache
+            coordinates = None
+            try:
+                with open(STOPS_CACHE_FILE, 'r') as f:
+                    stops_data = json.load(f)
+                
+                # First try the original stop ID
+                if stop_id in stops_data:
+                    coordinates = stops_data[stop_id].get('coordinates', None)
+                else:
+                    # Try with letter suffixes
+                    for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                        modified_id = f"{stop_id}{suffix}"
+                        if modified_id in stops_data:
+                            coordinates = stops_data[modified_id].get('coordinates', None)
+                            break
+            except Exception as e:
+                logger.error(f"Error reading coordinates from cache: {e}")
+            
+            # Check if this is a coordinates request by looking at the request path
+            from flask import request
+            if request.path.endswith('/coordinates'):
+                return {'coordinates': coordinates}
+            
             # Get waiting times for this stop
             waiting_times = await get_waiting_times(stop_id)
             
@@ -161,7 +186,7 @@ class StibProvider(TransitProvider):
                 return {
                     "id": stop_id,
                     "name": "Unknown Stop",
-                    "coordinates": None,
+                    "coordinates": coordinates,
                     "lines": {}
                 }
 
@@ -169,7 +194,7 @@ class StibProvider(TransitProvider):
             stop_details = {
                 "id": stop_id,
                 "name": stop_data["name"],
-                "coordinates": stop_data.get("coordinates"),
+                "coordinates": coordinates,
                 "lines": {}
             }
 
@@ -186,7 +211,6 @@ class StibProvider(TransitProvider):
                 "name": "Unknown Stop",
                 "coordinates": None,
                 "lines": {},
-                "error": str(e)
             }
 
     async def get_nearest_stops(self, lat: float, lon: float, limit: int = 5, max_distance: float = 2.0):
@@ -219,19 +243,26 @@ class StibProvider(TransitProvider):
     async def get_stop_coordinates(self, stop_id: str):
         """Get coordinates for a specific stop"""
         try:
-            stops = await get_stops()
-            if stop_id in stops:
-                stop = stops[stop_id]
-                return {
-                    'coordinates': {
-                        'lat': stop.lat,
-                        'lon': stop.lon
-                    }
-                }
+            # Use the same cache file as v1
+            with open(STOPS_CACHE_FILE, 'r') as f:
+                stops_data = json.load(f)
+                
+            # First try the original stop ID
+            if stop_id in stops_data:
+                return {'coordinates': stops_data[stop_id].get('coordinates', None)}
+                    
+            # If not found, try appending letters A-G
+            for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                modified_id = f"{stop_id}{suffix}"
+                if modified_id in stops_data:
+                    return {'coordinates': stops_data[modified_id].get('coordinates', None)}
+                        
+            logger.warning(f"Stop {stop_id} not found in cache (including letter suffixes)")
             return {'coordinates': None}
+                
         except Exception as e:
             logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
-            return {'error': str(e)}
+            return {'coordinates': None}
 
     async def get_static_data(self):
         """Get static data like routes, stops, and colors"""

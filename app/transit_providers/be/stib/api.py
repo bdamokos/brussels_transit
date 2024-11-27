@@ -456,6 +456,10 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
             data = response.json()
             formatted_data = {"stops": {}}
             
+            # Pre-fetch stop names for all stops
+            stop_ids = {str(record.get('pointid')) for record in data.get('results', [])}
+            stop_names = get_stop_names(list(stop_ids))
+            
             for record in data.get('results', []):
                 try:
                     stop_id = str(record.get('pointid'))
@@ -463,10 +467,10 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                     
                     # Initialize stop data if needed
                     if stop_id not in formatted_data["stops"]:
-                        stop_names = get_stop_names([stop_id])
+                        stop_info = stop_names.get(stop_id, {})
                         formatted_data["stops"][stop_id] = {
-                            "name": stop_names.get(stop_id, {}).get('name', stop_id),
-                            "coordinates": stop_names.get(stop_id, {}).get('coordinates', {}),
+                            "name": stop_info.get('name', stop_id),
+                            "coordinates": stop_info.get('coordinates', {}),
                             "lines": {}
                         }
                     
@@ -488,18 +492,16 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                         if expected_time:
                             arrival_dt = datetime.fromisoformat(expected_time)
                             if arrival_dt.tzinfo is None:
-                                arrival_dt = TIMEZONE.localize(arrival_dt)
-                            
-                            now = datetime.now(TIMEZONE)
-                            minutes = int((arrival_dt - now).total_seconds() // 60)
-                            formatted_time = arrival_dt.strftime('%H:%M')
+                                arrival_dt = arrival_dt.replace(tzinfo=timezone.utc)
+                            now = datetime.now(timezone.utc)
+                            minutes = int((arrival_dt - now).total_seconds() / 60)
                             
                             formatted_data["stops"][stop_id]["lines"][line][destination].append({
                                 "minutes": minutes,
-                                "message": passing_time.get('message', {}).get('en', ''),
-                                "formatted_time": formatted_time
+                                "message": "",
+                                "formatted_time": arrival_dt.strftime("%H:%M")
                             })
-                
+                            
                 except Exception as e:
                     logger.error(f"Error processing record: {e}")
                     continue
@@ -508,7 +510,9 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
             
     except Exception as e:
         logger.error(f"Error fetching waiting times: {e}")
-        return {"stops": {}}
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {}
 
 async def get_route_data(line: str) -> Dict[str, Any]:
     """Get route data for a specific line
