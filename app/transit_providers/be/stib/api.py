@@ -120,99 +120,158 @@ def parse_service_message(message, stop_details):
         return None
     
 async def get_service_messages(monitored_lines=None, monitored_stops=None):
-    """Get service messages for monitored lines and stops"""
+    """Get service messages for monitored lines and stops
+    
+    Args:
+        monitored_lines: Optional list or dict of monitored line numbers
+        monitored_stops: Optional list of monitored stop IDs
+        
+    Returns:
+        Dictionary containing messages in the format:
+        {
+            'messages': [
+                {
+                    'text': 'Message text in English',
+                    'lines': ['1', '2'],  # Affected line numbers
+                    'points': ['8122', '8032'],  # Affected stop IDs
+                    'stops': ['ROODEBEEK', 'PARC'],  # Affected stop names
+                    'priority': 0,  # Message priority
+                    'type': '',  # Message type
+                    'is_monitored': True  # Whether this affects monitored lines/stops
+                }
+            ]
+        }
+    """
     try:
-        # Build the filter for stops
-        stop_filters = [f"points like '%{stop}%'" for stop in monitored_stops] if monitored_stops else []
-        
-        # Build the filter for lines
-        line_filters = []
-        unique_lines = set()
-        
-        # More robust line extraction
+        # Convert monitored_lines to a set of strings for easier lookup
+        monitored_line_set = set()
         if monitored_lines:
             if isinstance(monitored_lines, dict):
-                unique_lines.update(str(line) for line in monitored_lines.keys())
-            elif isinstance(monitored_lines, (set, list)):
-                for item in monitored_lines:
-                    if isinstance(item, dict):
-                        unique_lines.update(str(key) for key in item.keys())
-                    else:
-                        unique_lines.add(str(item))
+                monitored_line_set.update(str(line) for line in monitored_lines.keys())
+            elif isinstance(monitored_lines, (list, set)):
+                monitored_line_set.update(str(line) for line in monitored_lines)
             else:
-                unique_lines.add(str(monitored_lines))
-                
-        line_filters = [f"lines like '%{line}%'" for line in unique_lines]
+                monitored_line_set.add(str(monitored_lines))
         
-        # Combine filters
-        where_clause = " or ".join(stop_filters + line_filters)
+        # Convert monitored_stops to a set of strings
+        monitored_stop_set = set(str(stop) for stop in (monitored_stops or []))
         
+        # Build API query
+        filters = []
+        
+        # Add stop filters
+        if monitored_stop_set:
+            stop_filters = [f"points like '%{stop}%'" for stop in monitored_stop_set]
+            filters.extend(stop_filters)
+            logger.debug(f"Added {len(stop_filters)} stop filters")
+        
+        # Add line filters
+        if monitored_line_set:
+            line_filters = [f"lines like '%{line}%'" for line in monitored_line_set]
+            filters.extend(line_filters)
+            logger.debug(f"Added {len(line_filters)} line filters")
+        
+        # Build query parameters
         params = {
-            'where': where_clause,
-            'limit': 100,
-            'apikey': API_KEY
+            'apikey': API_KEY,
+            'limit': 100,  # Get a reasonable number of messages
+            'select': 'content,lines,points,priority,type'  # Only get fields we need
         }
         
+        # Add where clause if we have filters
+        if filters:
+            params['where'] = ' or '.join(filters)
         
         logger.debug(f"Service messages API URL: {MESSAGES_API_URL}?{params}")
-     
+        
+        # Make API request
         async with await get_client() as client:
             response = await client.get(MESSAGES_API_URL, params=params)
-            # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
             
+            if response.status_code != 200:
+                logger.error(f"Service messages API returned {response.status_code}: {response.text}")
+                return {'messages': []}
             
             data = response.json()
-            
-            # Parse the messages
             parsed_messages = []
+            
+            # Process each message
             for message in data.get('results', []):
                 try:
-                    content = json.loads(message['content'])
-                    lines = json.loads(message['lines'])
-                    points = json.loads(message['points'])
+                    # Parse JSON fields
+                    try:
+                        content = json.loads(message.get('content', '[]'))
+                        lines = json.loads(message.get('lines', '[]'))
+                        points = json.loads(message.get('points', '[]'))
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse message JSON: {e}")
+                        continue
                     
-                    # Get the English text from the first text block
-                    text = content[0]['text'][0]['en']
+                    # Get message text (English)
+                    try:
+                        text = content[0]['text'][0]['en']
+                    except (IndexError, KeyError) as e:
+                        logger.error(f"Failed to get message text: {e}")
+                        continue
                     
                     # Get affected lines
-                    affected_lines = [line['id'] for line in lines]
-
-                    # Check if any affected lines are in monitored_lines
-                    
-                    
-                    # Extract just the stop IDs from points and get their names
-                    stop_ids = [point['id'] for point in points]
-                    is_monitored = (
-                        any(stop_id in monitored_stops for stop_id in stop_ids) and 
-                        any(line in monitored_lines for line in affected_lines)
-                    )
-                    affected_stops = [stop_info['name'] for stop_info in get_stop_names(stop_ids).values()]
-                    
-                    # Skip messages that don't affect any monitored lines
-                    if not any(line in monitored_lines for line in affected_lines):
+                    affected_lines = []
+                    try:
+                        affected_lines = [str(line['id']) for line in lines]
+                    except (KeyError, TypeError) as e:
+                        logger.error(f"Failed to get affected lines: {e}")
                         continue
-
+                    
+                    # Get affected stops
+                    affected_stop_ids = []
+                    try:
+                        affected_stop_ids = [str(point['id']) for point in points]
+                    except (KeyError, TypeError) as e:
+                        logger.error(f"Failed to get affected stops: {e}")
+                        continue
+                    
+                    # Get stop names
+                    stop_names = []
+                    try:
+                        stop_info = get_stop_names(affected_stop_ids)
+                        if stop_info:
+                            stop_names = [info.get('name', stop_id) for stop_id, info in stop_info.items()]
+                        else:
+                            stop_names = affected_stop_ids  # Fallback to IDs if names not found
+                    except Exception as e:
+                        logger.error(f"Failed to get stop names: {e}")
+                        stop_names = affected_stop_ids  # Fallback to IDs
+                    
+                    # Check if this message affects monitored lines/stops
+                    is_monitored = (
+                        bool(monitored_line_set) and bool(set(affected_lines) & monitored_line_set) or
+                        bool(monitored_stop_set) and bool(set(affected_stop_ids) & monitored_stop_set)
+                    )
+                    
+                    # Add the parsed message
                     parsed_messages.append({
                         'text': text,
                         'lines': affected_lines,
-                        'points': stop_ids,  # Now just using IDs
-                        "stops": affected_stops,
+                        'points': affected_stop_ids,
+                        'stops': stop_names,
                         'priority': message.get('priority', 0),
                         'type': message.get('type', ''),
                         'is_monitored': is_monitored
                     })
-                except (json.JSONDecodeError, KeyError, IndexError) as e:
-                    logger.error(f"Error parsing message: {e}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
                     continue
             
+            logger.debug(f"Successfully parsed {len(parsed_messages)} messages")
             return {'messages': parsed_messages}
             
     except Exception as e:
-        logger.error(f"Error fetching service messages: {e}")
+        logger.error(f"Error getting service messages: {e}")
         import traceback
-        logger.error(f"Error fetching service messages: {e}\n{traceback.format_exc()}")
-        raise e
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {'messages': []}  # Return empty result instead of raising
 
 class APIError(Exception):
     """Custom exception for API errors"""

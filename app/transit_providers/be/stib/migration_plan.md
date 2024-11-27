@@ -12,6 +12,8 @@
 - [x] /api/stib/stops (v2)
 - [x] /api/stib/stop/{id}/coordinates (v2)
 - [x] /api/stib/waiting_times (v2)
+- [x] /api/messages (v1)
+- [x] /api/stib/messages (v2)
 
 ### Partially Working Endpoints ⚠️
 - [~] /api/stib/vehicles (v2, returns data but format differs from v1)
@@ -20,8 +22,6 @@
 ### Non-working Endpoints ❌
 - [ ] /api/waiting_times (v1)
 - [ ] /api/vehicles (v1)
-- [ ] /api/messages (v1)
-- [ ] /api/stib/messages (v2)
 - [ ] /api/stib/realtime (v2)
 - [ ] /api/stib/static (v2)
 - [ ] /api/stib/get_stop_by_name (v2)
@@ -71,7 +71,21 @@
        - [x] Log data parsing issues
        - [x] Log when stops/lines are not found
    - [ ] Align vehicle positions format with v1
-   - [ ] Fix messages endpoint (NoneType error)
+        - [ ] Analysis phase:
+            - [ ] Check raw STIB response
+            - [ ] Check v1 response
+            - [ ] Check DeLijn response
+            - [ ] Check frontend expectation
+        - [ ] Document findings in the migration plan, and document code where needed
+        - [ ] Implementation phase:
+            - [ ] Add vehicle positions to v2 response
+
+   - [x] Fix messages endpoint (NoneType error)
+     - [x] Fix message parsing
+     - [x] Add line filtering
+     - [x] Add stop name lookup
+     - [x] Add error handling
+     - [x] Add tests
 
 2b. Regression testing for all endpoints marked as working
 
