@@ -38,10 +38,14 @@ def run_tests():
         ("/api/data", "/realtime"),
         ("/api/static_data", "/static"),
         ("/api/stop_names", "/stops"),
+        ("/api/stop_coordinates/1", "/stop/1/coordinates"),
+        ("/api/waiting_times", "/waiting_times"),
+        ("/api/messages", "/messages"),
+        ("/api/vehicles", "/vehicles"),
     ]
     
     # Test specific stop coordinates
-    test_stop_ids = ["1", "2", "3"]  # Add more stop IDs as needed
+    test_stop_ids = ["1", "2", "3", "8122"]  # Added ROODEBEEK (8122)
     for stop_id in test_stop_ids:
         tests.append((f"/api/stop_coordinates/{stop_id}", f"/stop/{stop_id}/coordinates"))
     

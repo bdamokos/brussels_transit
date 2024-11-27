@@ -48,18 +48,20 @@ class StibProvider(TransitProvider):
 
         # Define all endpoints
         self.endpoints = {
-            'config': self.get_config, # Working
-            'data': self.get_data, # Working
-            'stops': self.get_stop_details, # Working
-            'route': get_route_data, # ??
-            'colors': get_route_colors, # Working
-            'vehicles': get_vehicle_positions, # Not working yet
-            'messages': get_service_messages, # Not working yet
-            'waiting_times': get_waiting_times, # Not working yet
-             
+            'config': self.get_config,
+            'data': self.get_data,
+            'stops': self.get_stop_details,
+            'route': get_route_data,
+            'colors': get_route_colors,
+            'vehicles': get_vehicle_positions,
+            'messages': get_service_messages,
+            'waiting_times': get_waiting_times,
             'get_stop_by_name': self.get_stop_by_name,
             'get_nearest_stops': self.get_nearest_stops,
             'search_stops': self.search_stops,
+            'stop_coordinates': self.get_stop_coordinates,
+            'static': self.get_static_data,
+            'realtime': self.get_realtime_data,
         }
         logger.info(f"STIB provider initialized with endpoints: {list(self.endpoints.keys())}")
 
@@ -172,6 +174,82 @@ class StibProvider(TransitProvider):
         except Exception as e:
             logger.error(f"Error in get_stop_by_name: {e}")
             return []
+
+    async def get_stop_coordinates(self, stop_id: str):
+        """Get coordinates for a specific stop"""
+        try:
+            stops = await get_stops()
+            if stop_id in stops:
+                stop = stops[stop_id]
+                return {
+                    'coordinates': {
+                        'lat': stop.lat,
+                        'lon': stop.lon
+                    }
+                }
+            return {'coordinates': None}
+        except Exception as e:
+            logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
+            return {'error': str(e)}
+
+    async def get_static_data(self):
+        """Get static data like routes, stops, and colors"""
+        try:
+            # Get route shapes
+            shapes_data = {}
+            shape_errors = []
+            
+            for line in self.monitored_lines:
+                try:
+                    route_data = await get_route_data(line)
+                    if route_data:
+                        filtered_variants = []
+                        for variant in route_data[line]:
+                            is_monitored_direction = False
+                            for stop in self.config['STIB_STOPS']:
+                                if (line in stop.get('lines', {}) and 
+                                    stop.get('direction') == variant['direction']):
+                                    is_monitored_direction = True
+                                    break
+                            
+                            if is_monitored_direction:
+                                filtered_variants.append(variant)
+                        
+                        if filtered_variants:
+                            shapes_data[line] = filtered_variants
+                except Exception as e:
+                    shape_errors.append(f"Error fetching route data for line {line}: {e}")
+
+            # Get route colors
+            route_colors = await get_route_colors(self.monitored_lines)
+
+            return {
+                'display_stops': self.config['STIB_STOPS'],
+                'shapes': shapes_data,
+                'route_colors': route_colors,
+                'errors': shape_errors
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching static data: {e}")
+            return {"error": str(e)}
+
+    async def get_realtime_data(self):
+        """Get all real-time data including waiting times, messages, and vehicle positions"""
+        try:
+            data = await self.get_data()
+            return {
+                'stops_data': data['stops'],
+                'messages': data['messages'],
+                'processed_vehicles': data.get('processed_vehicles', []),
+                'errors': data.get('errors', [])
+            }
+        except Exception as e:
+            logger.error(f"Error in realtime data endpoint: {e}")
+            return {"error": str(e)}
+        
+def get_stops():
+    pass
 
 # Create provider instance and register if enabled
 if 'stib' in get_config('ENABLED_PROVIDERS', []):
