@@ -546,6 +546,8 @@ async def download_and_extract_gtfs() -> bool:
                 
                 # First make a HEAD request to get the file size
                 logger.info(f"Getting GTFS file size from {GTFS_URL}")
+                logger.info(f"To verify, using curl: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
+                logger.info("To get the file size, run: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}' | grep -i content-length")
                 req = urllib.request.Request(GTFS_URL, headers=headers, method='HEAD')
                 with urllib.request.urlopen(req) as response:
                     total_size = int(response.headers.get('content-length', 0))
