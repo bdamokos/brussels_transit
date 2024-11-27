@@ -617,20 +617,6 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
     cache_key = f"line_{line_number}"
     cache_file = SHAPES_CACHE_DIR / f"{cache_key}.json"
     
-    # Check if we need to update GTFS data
-    gtfs_needs_update = True
-    if GTFS_DIR.exists():
-        routes_file = GTFS_DIR / "routes.txt"
-        if routes_file.exists():
-            mtime = datetime.fromtimestamp(routes_file.stat().st_mtime, tz=timezone.utc)
-            if datetime.now(timezone.utc) - mtime < timedelta(seconds=GTFS_CACHE_DURATION):
-                gtfs_needs_update = False
-    
-    if gtfs_needs_update:
-        logger.info("GTFS data needs updating")
-        if not await download_and_extract_gtfs():
-            logger.warning("Failed to update GTFS data, will try to use existing data")
-    
     # Try to get from cache first
     cached_data = await cache_get(cache_key)
     if cached_data is not None:
@@ -638,10 +624,17 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
     
     try:
         logger.debug(f"Processing GTFS data for line {line_number}")
+        
+        # Ensure GTFS data is available
+        gtfs_dir = await ensure_gtfs_data()
+        if gtfs_dir is None:
+            logger.error("Could not get GTFS data")
+            return None
+            
         # Read the GTFS files
-        routes_df = pd.read_csv(GTFS_DIR / 'routes.txt')
-        trips_df = pd.read_csv(GTFS_DIR / 'trips.txt')
-        shapes_df = pd.read_csv(GTFS_DIR / 'shapes.txt')
+        routes_df = pd.read_csv(gtfs_dir / 'routes.txt')
+        trips_df = pd.read_csv(gtfs_dir / 'trips.txt')
+        shapes_df = pd.read_csv(gtfs_dir / 'shapes.txt')
         
         # Find route_id for the line
         route = routes_df[routes_df['route_short_name'] == str(line_number)]
@@ -695,11 +688,12 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
         logger.info(f"Fetching vehicle positions for line {line_number}")
         
         # First get the route ID from GTFS data
-        
-        routes_file = GTFS_DIR / 'routes.txt'
-        if not routes_file.exists():
-            await download_and_extract_gtfs()
-        routes_df = pd.read_csv(routes_file)
+        gtfs_dir = await ensure_gtfs_data()
+        if not gtfs_dir:
+            logger.error("Could not get GTFS data")
+            return []
+            
+        routes_df = pd.read_csv(gtfs_dir / 'routes.txt')
 
         route = routes_df[routes_df['route_short_name'] == str(line_number)]
         if route.empty:
@@ -986,12 +980,30 @@ async def get_service_messages() -> List[Dict]:
 
 async def ensure_gtfs_data() -> Optional[Path]:
     """Ensure GTFS data is downloaded and return path to GTFS directory."""
-    if not GTFS_DIR.exists() or not (GTFS_DIR / 'stops.txt').exists():
-        logger.info("GTFS data not found, downloading...")
-        success = await download_and_extract_gtfs()
-        if not success:
-            logger.error("Failed to download GTFS data")
-            return None
+    if GTFS_DIR.exists():
+        # Check if all required files exist and are recent
+        all_files_exist = True
+        oldest_file_age = 0
+        
+        for filename in GTFS_USED_FILES:
+            file_path = GTFS_DIR / filename
+            if not file_path.exists():
+                logger.info(f"Missing required GTFS file: {filename}")
+                all_files_exist = False
+                break
+            
+            file_age = time.time() - file_path.stat().st_mtime
+            oldest_file_age = max(oldest_file_age, file_age)
+        
+        if all_files_exist and oldest_file_age < GTFS_CACHE_DURATION:
+            logger.debug(f"Using existing GTFS data (age: {oldest_file_age:.1f}s)")
+            return GTFS_DIR
+    
+    # Need to download fresh data
+    success = await download_and_extract_gtfs()
+    if not success:
+        logger.error("Failed to download GTFS data")
+        return None
     return GTFS_DIR
 
 async def get_stops() -> Dict[str, Stop]:
@@ -1138,8 +1150,16 @@ async def get_stop_by_name(name: str, limit: int = 5) -> List[Dict]:
         # Get cached stops
         stops = get_cached_stops(CACHE_DIR / 'stops.json')
         if not stops:
-            logger.error("No stops data available")
-            return []
+            # If not in cache, ensure GTFS data and load stops
+            gtfs_dir = await ensure_gtfs_data()
+            if gtfs_dir is None:
+                logger.error("Could not get GTFS data")
+                return []
+            
+            stops = ingest_gtfs_stops(gtfs_dir)
+            if not stops:
+                logger.error("No stops data available")
+                return []
             
         # Use the generic function
         matching_stops = generic_get_stop_by_name(stops, name, limit)
