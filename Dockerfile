@@ -14,19 +14,26 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && rm -rf /root/.cache/pip/*
 
-# Create cache directory and set up non-root user
-RUN mkdir -p cache \
-    && useradd -m appuser \
-    && chown -R appuser:appuser /app
+# Create cache directory
+RUN mkdir -p cache
 
-# Copy the application files (fixed duplicate copies)
+# Copy the application files
 COPY app/ .
 COPY cache/ /app/cache/
 
+# Create logs directory and set permissions
+RUN mkdir -p /app/logs && \
+    chown -R nobody:nogroup /app && \
+    chmod -R 755 /app && \
+    chmod 777 /app/logs && \
+    touch /app/logs/app.log && \
+    chmod 666 /app/logs/app.log
+
+# Switch to non-root user
+USER nobody
+
 # Expose the port the app runs on
 EXPOSE 5001
-
-USER appuser
 
 # Command to run the application
 CMD ["python", "main.py"]
