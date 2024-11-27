@@ -591,11 +591,19 @@ async def download_and_extract_gtfs() -> bool:
                 
                 logger.debug("Extracting GTFS data")
                 GTFS_DIR.mkdir(exist_ok=True)
-                with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
-                    zip_ref.extractall(GTFS_DIR)
+                try:
+                    with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
+                        zip_ref.extractall(GTFS_DIR)
+                        logger.debug(f"Extracted GTFS data to {GTFS_DIR}")
+                except Exception as e:
+                    logger.error(f"Error extracting GTFS data: {e}", exc_info=True)
                 
                 # Clean up zip file
-                Path('gtfs_transit.zip').unlink()
+                try:
+                    Path('gtfs_transit.zip').unlink()
+                    logger.debug("Deleted GTFS zip file")
+                except Exception as e:
+                    logger.error(f"Error deleting GTFS zip file: {e}", exc_info=True)
 
                 # Clean up unused files
                 for file in GTFS_DIR.glob('*'):
@@ -993,7 +1001,7 @@ async def ensure_gtfs_data() -> Optional[Path]:
             while time.time() - start_time < 120:  # Wait up to 2 minutes
                 if not lock_file.exists():
                     logger.info("GTFS Lock file removed, proceeding after 20s delay...")
-                    await asyncio.sleep(20)  # Wait additional 20s for unzipping
+                    await asyncio.sleep(10)  # Wait additional 20s for unzipping
                     break
                 await asyncio.sleep(10)  # Check every 10 seconds
                 logger.debug("Still waiting for GTFS Lock file to be removed...")
