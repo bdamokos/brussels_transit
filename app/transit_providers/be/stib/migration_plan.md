@@ -137,6 +137,10 @@
    - [ ] See what functions use GTFS data
    - [ ] See if anyone is overwriting cache/stib/stops_gtfs.json (is it supposed to contain all stops from the GTFS or just the ones that we have looked up)
    - [ ] See what is using stib/cache/stops.json and if it is still needed
+3. . Message Handling
+   - [ ] Implement language fallback for service messages (en -> fr -> nl -> raw message)
+   - [ ] Add debug logging for message language selection
+   - [ ] Add configuration for message language, and fallback order
 
 ## Technical Debt Items
 1. Data Format Standardization

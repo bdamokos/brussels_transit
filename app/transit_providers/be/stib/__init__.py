@@ -24,12 +24,16 @@ from .api import (
 from transit_providers.nearest_stop import get_stop_by_name as generic_get_stop_by_name, ingest_gtfs_stops
 from dataclasses import asdict
 import json
+from .stop_coordinates import get_stop_coordinates
+from utils import get_client
 
 logger = logging.getLogger('stib')
 
 provider_config = get_provider_config('stib')
 GTFS_DIR = provider_config.get('GTFS_DIR')
 STOPS_CACHE_FILE = provider_config.get('STOPS_CACHE_FILE')
+API_KEY = provider_config.get('API_KEY')
+STOPS_API_URL = provider_config.get('STIB_STOPS_API_URL')
 
 class StibProvider(TransitProvider):
     """STIB/MIVB transit provider"""
@@ -123,26 +127,44 @@ class StibProvider(TransitProvider):
                         "name": "Stop Name",
                         "coordinates": {"lat": float, "lon": float}
                     }
+                },
+                "_metadata": {
+                    "sources": {
+                        "stop_id": {
+                            "source": str,
+                            "warning": str or None
+                        }
+                    }
                 }
             }
         """
         try:
             if not stop_ids:
-                return {"stops": {}}
+                return {"stops": {}, "_metadata": {"sources": {}}}
             
             # Use existing get_stop_names function which already has caching
             from .get_stop_names import get_stop_names
             stops_data = get_stop_names(stop_ids)
             
-            # Format response to match v1
-            return {
-                "stops": {
-                    stop_id: {
-                        "name": data["name"],
-                        "coordinates": data["coordinates"]
+            # Get coordinates with source information for each stop
+            metadata = {"sources": {}}
+            formatted_stops = {}
+            
+            for stop_id in stop_ids:
+                coordinates_data = get_stop_coordinates(stop_id)
+                if stop_id in stops_data:
+                    formatted_stops[stop_id] = {
+                        "name": stops_data[stop_id]["name"],
+                        "coordinates": coordinates_data["coordinates"]
                     }
-                    for stop_id, data in stops_data.items()
-                }
+                    metadata["sources"][stop_id] = {
+                        "source": coordinates_data["metadata"]["source"],
+                        "warning": coordinates_data["metadata"].get("warning")
+                    }
+            
+            return {
+                "stops": formatted_stops,
+                "_metadata": metadata
             }
             
         except Exception as e:
@@ -153,56 +175,83 @@ class StibProvider(TransitProvider):
         """Get details for a specific STIB stop.
         
         Example of a valid stop_id: 8122 (ROODEBEEK)
+        
+        The response includes metadata about stop ID format changes to help
+        clients adapt their behavior while maintaining backward compatibility.
         """
         try:
-            # Get coordinates from cache
-            coordinates = None
-            try:
-                with open(STOPS_CACHE_FILE, 'r') as f:
-                    stops_data = json.load(f)
+            # Get coordinates using cache-first approach
+            coordinates_data = get_stop_coordinates(stop_id)
+            coordinates = coordinates_data['coordinates']
+            
+            # If not found in cache or GTFS, try API
+            if not coordinates:
+                # Get stop details from STIB API
+                params = {
+                    'apikey': API_KEY,
+                    'where': f'id="{stop_id}"',
+                    'limit': 1
+                }
                 
-                # First try the original stop ID
-                if stop_id in stops_data:
-                    coordinates = stops_data[stop_id].get('coordinates', None)
-                else:
-                    # Try with letter suffixes
-                    for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
-                        modified_id = f"{stop_id}{suffix}"
-                        if modified_id in stops_data:
-                            coordinates = stops_data[modified_id].get('coordinates', None)
-                            break
-            except Exception as e:
-                logger.error(f"Error reading coordinates from cache: {e}")
+                async with await get_client() as client:
+                    response = await client.get(STOPS_API_URL, params=params)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('total_count', 0) > 0:
+                            stop_data = data['results'][0]
+                            try:
+                                gps = json.loads(stop_data['gpscoordinates'])
+                                api_coordinates = (gps['latitude'], gps['longitude'])
+                                logger.debug(f"Got coordinates from API for stop {stop_id}: {api_coordinates}")
+                                coordinates_data = get_stop_coordinates(stop_id, api_coordinates)
+                                coordinates = coordinates_data['coordinates']
+                            except (json.JSONDecodeError, KeyError) as e:
+                                logger.error(f"Error parsing coordinates for stop {stop_id}: {e}")
             
             # Check if this is a coordinates request by looking at the request path
             from flask import request
             if request.path.endswith('/coordinates'):
-                return {'coordinates': coordinates}
+                return {
+                    'coordinates': coordinates,
+                    '_metadata': {
+                        'source': coordinates_data['metadata']['source'],
+                        'warning': coordinates_data['metadata'].get('warning')
+                    }
+                }
             
             # Get waiting times for this stop
             waiting_times = await get_waiting_times(stop_id)
             
             if not waiting_times or stop_id not in waiting_times.get("stops", {}):
-                return {
+                response = {
                     "id": stop_id,
                     "name": "Unknown Stop",
                     "coordinates": coordinates,
-                    "lines": {}
+                    "lines": {},
+                    "_metadata": {
+                        'source': coordinates_data['metadata']['source'],
+                        'warning': coordinates_data['metadata'].get('warning')
+                    }
                 }
+                return response
 
             stop_data = waiting_times["stops"][stop_id]
-            stop_details = {
+            response = {
                 "id": stop_id,
                 "name": stop_data["name"],
                 "coordinates": coordinates,
-                "lines": {}
+                "lines": {},
+                "_metadata": {
+                    'source': coordinates_data['metadata']['source'],
+                    'warning': coordinates_data['metadata'].get('warning')
+                }
             }
 
             # Extract unique lines and their destinations
             for line, destinations in stop_data.get("lines", {}).items():
-                stop_details["lines"][line] = list(destinations.keys())
+                response["lines"][line] = list(destinations.keys())
 
-            return stop_details
+            return response
             
         except Exception as e:
             logger.error(f"Error getting STIB stop details: {e}")
@@ -211,6 +260,10 @@ class StibProvider(TransitProvider):
                 "name": "Unknown Stop",
                 "coordinates": None,
                 "lines": {},
+                "_metadata": {
+                    'source': None,
+                    'warning': f"Error getting stop details: {e}"
+                }
             }
 
     async def get_nearest_stops(self, lat: float, lon: float, limit: int = 5, max_distance: float = 2.0):
