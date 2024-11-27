@@ -982,6 +982,21 @@ async def ensure_gtfs_data() -> Optional[Path]:
     """Ensure GTFS data is downloaded and return path to GTFS directory."""
     logger.debug(f"Checking GTFS data in directory: {GTFS_DIR}")
     if GTFS_DIR.exists():
+        # Check if another process is currently downloading GTFS data
+        lock_file = CACHE_DIR / "gtfs_download.lock"
+        if lock_file.exists():
+            logger.info("GTFS Lock file exists, waiting for other process to finish downloading...")
+            start_time = time.time()
+            while time.time() - start_time < 120:  # Wait up to 2 minutes
+                if not lock_file.exists():
+                    logger.info("GTFS Lock file removed, proceeding after 20s delay...")
+                    await asyncio.sleep(20)  # Wait additional 20s for unzipping
+                    break
+                await asyncio.sleep(10)  # Check every 10 seconds
+                logger.debug("Still waiting for GTFS Lock file to be removed...")
+            else:
+                logger.warning("Timeout waiting for GTFS Lock file to be removed")
+
         # Check if all required files exist and are recent
         all_files_exist = True
         oldest_file_age = 0
@@ -996,7 +1011,7 @@ async def ensure_gtfs_data() -> Optional[Path]:
             
             file_age = time.time() - file_path.stat().st_mtime
             oldest_file_age = max(oldest_file_age, file_age)
-            logger.debug(f"File {filename} exists, age: {file_age:.1f}s")
+            logger.debug(f"GTFS File {filename} exists, age: {file_age:.1f}s")
         
         if all_files_exist:
             if oldest_file_age < GTFS_CACHE_DURATION:
@@ -1019,7 +1034,7 @@ async def ensure_gtfs_data() -> Optional[Path]:
     if GTFS_DIR.exists():
         missing_files = [f for f in GTFS_USED_FILES if not (GTFS_DIR / f).exists()]
         if missing_files:
-            logger.error(f"After download, still missing files: {missing_files}")
+            logger.error(f"After GTFSdownload, still missing files: {missing_files}")
             return None
         logger.debug("All required GTFS files present after download")
     else:
