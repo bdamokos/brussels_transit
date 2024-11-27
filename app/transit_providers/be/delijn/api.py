@@ -544,22 +544,21 @@ async def download_and_extract_gtfs() -> bool:
                     'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
                 }
                 
-                # First make a HEAD request to get the file size
-                logger.info(f"Getting GTFS file size from {GTFS_URL}")
-                logger.info(f"To verify, using curl: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
-                logger.info("To get the file size, run: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}' | grep -i content-length")
-                req = urllib.request.Request(GTFS_URL, headers=headers, method='HEAD')
+                # Get file size from the GET response
+                req = urllib.request.Request(GTFS_URL, headers=headers)
+                logger.debug(f"Request: {req}")
+                logger.debug(f"Headers: {headers}")
+                logger.debug(f"URL: {GTFS_URL}")
+                logger.debug(f"Request headers: {req.headers}")
+                logger.debug(f"To verify, using curl: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
+                logger.debug(f"To get the file size, run: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}' | grep -i content-length")
                 with urllib.request.urlopen(req) as response:
                     total_size = int(response.headers.get('content-length', 0))
                     logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
-                
-                logger.info("To verify, run: curl -O {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
-                # Now download with progress tracking
-                req = urllib.request.Request(GTFS_URL, headers=headers)
-                progress = ProgressTracker(total_size)
-                
-                with urllib.request.urlopen(req) as response:
+                    
                     logger.debug("Saving GTFS zip file")
+                    progress = ProgressTracker(total_size)
+                    
                     with open('gtfs_transit.zip', 'wb') as f_zip:
                         while True:
                             chunk = response.read(8192)
