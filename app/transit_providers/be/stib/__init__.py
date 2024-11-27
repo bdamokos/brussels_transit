@@ -249,15 +249,27 @@ class StibProvider(TransitProvider):
                 
             # First try the original stop ID
             if stop_id in stops_data:
-                return {'coordinates': stops_data[stop_id].get('coordinates', None)}
+                coords = stops_data[stop_id].get('coordinates', None)
+                if coords and coords.get('lat') and coords.get('lon'):
+                    return {'coordinates': coords}
                     
-            # If not found, try appending letters A-G
+            # If not found or coordinates are null, try appending letters A-G
             for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
                 modified_id = f"{stop_id}{suffix}"
                 if modified_id in stops_data:
-                    return {'coordinates': stops_data[modified_id].get('coordinates', None)}
+                    coords = stops_data[modified_id].get('coordinates', None)
+                    if coords and coords.get('lat') and coords.get('lon'):
+                        return {'coordinates': coords}
                         
-            logger.warning(f"Stop {stop_id} not found in cache (including letter suffixes)")
+            # If still not found, try to fetch from API
+            from .get_stop_names import get_stop_names
+            stop_data = get_stop_names([stop_id])
+            if stop_id in stop_data:
+                coords = stop_data[stop_id].get('coordinates', None)
+                if coords and coords.get('lat') and coords.get('lon'):
+                    return {'coordinates': coords}
+                    
+            logger.warning(f"No coordinates found for stop {stop_id} (including letter suffixes)")
             return {'coordinates': None}
                 
         except Exception as e:
@@ -309,12 +321,26 @@ class StibProvider(TransitProvider):
     async def get_realtime_data(self):
         """Get all real-time data including waiting times, messages, and vehicle positions"""
         try:
-            data = await self.get_data()
+            # Get waiting times for all monitored stops
+            waiting_times = await get_waiting_times()
+            
+            # Get service messages
+            messages = await get_service_messages(
+                monitored_lines=self.monitored_lines,
+                monitored_stops=self.stop_ids
+            )
+            
+            # Get vehicle positions
+            vehicles = await get_vehicle_positions()
+            
+            # Get route colors
+            colors = await get_route_colors(self.monitored_lines)
+            
             return {
-                'stops_data': data['stops'],
-                'messages': data['messages'],
-                'processed_vehicles': data.get('processed_vehicles', []),
-                'errors': data.get('errors', [])
+                'stops_data': waiting_times.get('stops', {}),
+                'messages': messages.get('messages', []),
+                'processed_vehicles': vehicles.get('vehicles', []),
+                'errors': []
             }
         except Exception as e:
             logger.error(f"Error in realtime data endpoint: {e}")

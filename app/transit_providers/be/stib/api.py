@@ -21,6 +21,7 @@ from transit_providers.nearest_stop import (
     ingest_gtfs_stops, get_nearest_stops, cache_stops, 
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
+from .stop_coordinates import get_stop_coordinates as get_stop_coordinates_with_fallback
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
@@ -607,3 +608,31 @@ def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
     lat, lon = coordinates
     stops = asyncio.run(find_nearest_stops(lat, lon, limit=1))
     return stops[0] if stops else {}
+
+async def get_stop_coordinates(self, stop_id: str) -> Optional[Dict[str, float]]:
+    """Get coordinates for a stop."""
+    try:
+        # Try to get coordinates from API first
+        url = f"{self.stops_api_url}?apikey={self.api_key}&where=id='{stop_id}'"
+        async with await get_client() as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                logger.error(f"Failed to get stop coordinates: {response.status_code} {response.text}")
+                return None
+                    
+            data = response.json()
+            results = data.get('results', [])
+            if not results:
+                logger.warning(f"No results found for stop {stop_id}")
+                return get_stop_coordinates_with_fallback(stop_id)
+                    
+            stop = results[0]
+            lat = stop.get('latitude')
+            lon = stop.get('longitude')
+            
+            # Use GTFS fallback if API returns null coordinates
+            return get_stop_coordinates_with_fallback(stop_id, (lat, lon))
+                
+    except Exception as e:
+        logger.error(f"Error getting stop coordinates: {e}")
+        return get_stop_coordinates_with_fallback(stop_id)

@@ -35,6 +35,16 @@
    - [x] Fix /api/stib/stop/{id}/coordinates endpoint
    - [x] Ensure data format matches v1
 
+1b. Regression testing for all endpoints marked as working
+   - [x] /api/static_data (v1)
+   - [x] /api/stop_names (v1)
+   - [x] /api/stop_coordinates/{id} (v1)
+   - [x] /api/stib/config (v2)
+   - [x] /api/stib/route/{id} (v2, partial - missing shapes, some stops have null coordinates)
+   - [x] /api/stib/stops (v2)
+   - [x] /api/stib/stop/{id}/coordinates (v2)
+   - [ ] /api/data (v1) - test last as it depends on other endpoints
+
 2. Real-time Data (HIGH PRIORITY)
    - [ ] Fix waiting times endpoint (empty array issue)
    - [ ] Align vehicle positions format with v1
@@ -61,6 +71,19 @@
    - [ ] Fix parameter handling for get_stop_by_name
    - [ ] Fix parameter handling for get_nearest_stops
    - [ ] Add proper error handling
+
+### Phase 4: Lateral improvements
+1. Stop coordinates and names if not found on API, test in GTFS (stops_gtfs.json)
+   - [~] Implement in v2
+     - [x] Create stops_gtfs.json from GTFS data
+     - [x] Add fallback to GTFS data when API returns null coordinates
+     - [x] Add caching to avoid repeated GTFS lookups
+     - [ ] Investigate stops with format like "6934F" and "5053G" that are missing from both API and GTFS
+     - [ ] Consider adding a stop ID normalization function
+     - [ ] Add logging for stops not found in either source
+   - [ ] Backport to v1
+     - [ ] Share GTFS data lookup between v1 and v2
+     - [ ] Ensure consistent coordinate format
 
 ## Technical Debt Items
 1. Data Format Standardization

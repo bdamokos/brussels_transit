@@ -52,8 +52,13 @@ def get_stop_names(stop_ids):
     """Fetch stop names and coordinates for a list of stop IDs, using cache when possible"""
     global cached_stops
 
-    # Filter out stops we already have in cache
-    stops_to_fetch = [stop_id for stop_id in stop_ids if stop_id not in cached_stops]
+    # Filter out stops we already have in cache with valid coordinates
+    stops_to_fetch = [
+        stop_id for stop_id in stop_ids 
+        if stop_id not in cached_stops or 
+        not cached_stops[stop_id].get('coordinates', {}).get('lat') or 
+        not cached_stops[stop_id].get('coordinates', {}).get('lon')
+    ]
 
     if stops_to_fetch:
         logger.info(f"Fetching {len(stops_to_fetch)} new stop details")
@@ -81,28 +86,39 @@ def get_stop_names(stop_ids):
                     # Extract coordinates from the response
                     gps_coords = json.loads(stop_data.get('gpscoordinates', '{}'))
                     coordinates = {
-                        'lat': gps_coords.get('latitude', None),
-                        'lon': gps_coords.get('longitude', None)
+                        'lat': float(gps_coords.get('latitude')) if gps_coords.get('latitude') else None,
+                        'lon': float(gps_coords.get('longitude')) if gps_coords.get('longitude') else None
                     }
 
-                    cached_stops[stop_id] = {
-                        'name': name_data['fr'],
-                        'coordinates': coordinates
-                    }
-                    logger.debug(f"Added stop {stop_id} to cache: {cached_stops[stop_id]}")
+                    # Only update cache if we got valid coordinates
+                    if coordinates['lat'] is not None and coordinates['lon'] is not None:
+                        cached_stops[stop_id] = {
+                            'name': name_data['fr'],
+                            'coordinates': coordinates
+                        }
+                        logger.debug(f"Added stop {stop_id} to cache with coordinates: {coordinates}")
+                    else:
+                        logger.warning(f"No valid coordinates found for stop {stop_id}")
+                        if stop_id not in cached_stops:
+                            cached_stops[stop_id] = {
+                                'name': name_data['fr'],
+                                'coordinates': {'lat': None, 'lon': None}
+                            }
                 else:
                     logger.warning(f"No data found for stop ID: {stop_id}")
+                    if stop_id not in cached_stops:
+                        cached_stops[stop_id] = {
+                            'name': stop_id,
+                            'coordinates': {'lat': None, 'lon': None}
+                        }
+
+            except Exception as e:
+                logger.error(f"Error fetching stop details for {stop_id}: {e}", exc_info=True)
+                if stop_id not in cached_stops:
                     cached_stops[stop_id] = {
                         'name': stop_id,
                         'coordinates': {'lat': None, 'lon': None}
                     }
-
-            except Exception as e:
-                logger.error(f"Error fetching stop details for {stop_id}: {e}", exc_info=True)
-                cached_stops[stop_id] = {
-                    'name': stop_id,
-                    'coordinates': {'lat': None, 'lon': None}
-                }
 
         # Save updated cache
         save_cached_stops(cached_stops)
