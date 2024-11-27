@@ -553,6 +553,7 @@ async def download_and_extract_gtfs() -> bool:
                     total_size = int(response.headers.get('content-length', 0))
                     logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
                 
+                logger.info("To verify, run: curl -O {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
                 # Now download with progress tracking
                 req = urllib.request.Request(GTFS_URL, headers=headers)
                 progress = ProgressTracker(total_size)
