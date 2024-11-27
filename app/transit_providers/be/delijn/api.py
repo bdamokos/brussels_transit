@@ -606,7 +606,19 @@ async def download_and_extract_gtfs() -> bool:
                 return True
                 
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                except Exception as e:
+                    logger.error(f"Error releasing GTFS lock: {e}")
+                
+                lock_file.unlink(missing_ok=True)
+                logger.debug("Ensuring release of GTFS lock by deleting lock file")
+                # Test if lock file is still present
+                if lock_file.exists():
+                    logger.warning("GTFS lock file still present after attempted release")
+                else:
+                    logger.debug("GTFS lock file deleted successfully")
+
                 
     except Exception as e:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
@@ -989,8 +1001,8 @@ async def ensure_gtfs_data() -> Optional[Path]:
             start_time = time.time()
             while time.time() - start_time < 120:  # Wait up to 2 minutes
                 if not lock_file.exists():
-                    logger.info("GTFS Lock file removed, proceeding after 20s delay...")
-                    await asyncio.sleep(20)  # Wait additional 20s for unzipping
+                    logger.info("GTFS Lock file removed, proceeding after 10s delay...")
+                    await asyncio.sleep(10)  # Wait additional 20s for unzipping
                     break
                 await asyncio.sleep(10)  # Check every 10 seconds
                 logger.debug("Still waiting for GTFS Lock file to be removed...")
