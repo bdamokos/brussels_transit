@@ -9,6 +9,7 @@ import pandas as pd
 import zipfile
 import urllib.request
 import pytz
+import inspect
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
@@ -526,7 +527,7 @@ async def download_and_extract_gtfs() -> bool:
         for filename in GTFS_USED_FILES:
             file_path = GTFS_DIR / filename
             if not file_path.exists():
-                logger.info(f"Missing required GTFS file: {filename}")
+                logger.info(f"Missing required GTFS file: {filename}, path: {file_path}")
                 all_files_exist = False
                 break
             
@@ -638,6 +639,7 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
         logger.debug(f"Processing GTFS data for line {line_number}")
         
         # Ensure GTFS data is available
+        logger.debug(f"Ensuring GTFS data is available. Ensuring triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
         gtfs_dir = await ensure_gtfs_data()
         if gtfs_dir is None:
             logger.error("Could not get GTFS data")
@@ -700,6 +702,7 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
         logger.info(f"Fetching vehicle positions for line {line_number}")
         
         # First get the route ID from GTFS data
+        logger.debug(f"Ensuring GTFS data is available. Ensuring triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
         gtfs_dir = await ensure_gtfs_data()
         if not gtfs_dir:
             logger.error("Could not get GTFS data")
@@ -1037,6 +1040,7 @@ async def ensure_gtfs_data() -> Optional[Path]:
         logger.info(f"GTFS directory does not exist: {GTFS_DIR}")
     
     # Need to download fresh data
+    logger.debug(f"Downloading GTFS data from {GTFS_URL}. Download triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
     success = await download_and_extract_gtfs()
     if not success:
         logger.error("Failed to download GTFS data")
@@ -1065,6 +1069,7 @@ async def get_stops() -> Dict[str, Stop]:
         return cached_stops
     
     # If not in cache, ensure GTFS data and load stops
+    logger.debug(f"Getting stops from GTFS data. Getting triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
     gtfs_dir = await ensure_gtfs_data()
     if gtfs_dir is None:
         logger.error("Could not get GTFS data")
@@ -1200,6 +1205,7 @@ async def get_stop_by_name(name: str, limit: int = 5) -> List[Dict]:
         stops = get_cached_stops(CACHE_DIR / 'stops.json')
         if not stops:
             # If not in cache, ensure GTFS data and load stops
+            logger.debug(f"Getting stops from GTFS data. Getting triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
             gtfs_dir = await ensure_gtfs_data()
             if gtfs_dir is None:
                 logger.error("Could not get GTFS data")
