@@ -517,6 +517,31 @@ async def download_and_extract_gtfs() -> bool:
     """Download and extract fresh GTFS data with file locking"""
     lock_file = CACHE_DIR / "gtfs_download.lock"
     
+    # Check if we already have recent GTFS data
+    if GTFS_DIR.exists():
+        # Check if all required files exist and are recent
+        all_files_exist = True
+        oldest_file_age = 0
+        
+        for filename in GTFS_USED_FILES:
+            file_path = GTFS_DIR / filename
+            if not file_path.exists():
+                logger.info(f"Missing required GTFS file: {filename}")
+                all_files_exist = False
+                break
+            
+            file_age = time.time() - file_path.stat().st_mtime
+            oldest_file_age = max(oldest_file_age, file_age)
+        
+        if all_files_exist:
+            if oldest_file_age < GTFS_CACHE_DURATION:
+                logger.debug(f"Using existing GTFS data (age: {oldest_file_age:.1f}s)")
+                return True
+            else:
+                logger.info(f"GTFS data is too old (age: {oldest_file_age:.1f}s), downloading fresh copy")
+        else:
+            logger.info("Some GTFS files are missing, downloading fresh copy")
+    
     try:
         # Try to acquire lock
         with open(lock_file, 'w') as f:
@@ -548,12 +573,6 @@ async def download_and_extract_gtfs() -> bool:
                 
                 # Get file size from the GET response
                 req = urllib.request.Request(GTFS_URL, headers=headers)
-                logger.debug(f"Request: {req}")
-                logger.debug(f"Headers: {headers}")
-                logger.debug(f"URL: {GTFS_URL}")
-                logger.debug(f"Request headers: {req.headers}")
-                logger.debug(f"To verify, using curl: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}'")
-                logger.debug(f"To get the file size, run: curl -I {GTFS_URL} -H 'Ocp-Apim-Subscription-Key: {DELIJN_GTFS_STATIC_API_KEY}' | grep -i content-length")
                 with urllib.request.urlopen(req) as response:
                     total_size = int(response.headers.get('content-length', 0))
                     logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
