@@ -545,6 +545,7 @@ async def download_and_extract_gtfs() -> bool:
                 }
                 
                 # First make a HEAD request to get the file size
+                logger.info(f"Getting GTFS file size from {GTFS_URL}")
                 req = urllib.request.Request(GTFS_URL, headers=headers, method='HEAD')
                 with urllib.request.urlopen(req) as response:
                     total_size = int(response.headers.get('content-length', 0))
