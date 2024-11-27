@@ -17,14 +17,14 @@ logger = logging.getLogger('stib')
 DEFAULT_CONFIG = {
     'STIB_STOPS': [
     {
-        'id': '8122',  # Example stop - ROODEBEEK
-        'name': 'ROODEBEEK',
+        'id': '5710',  # Example stop - VERBOECKHOVEN (different from global default)
+        'name': 'VERBOECKHOVEN',
         'lines': {
-            '1': ['STOCKEL', "GARE DE L'OUEST"],
-            '5': ['STOCKEL', "GARE DE L'OUEST"]
+            '55': ['DA VINCI', 'ROGIER'],
+            '92': ['SCHAERBEEK GARE', 'FORT-JACO']
         },
-        "direction": "Suburb"  # or "City"
-    } # Example stop, update in local.py
+        "direction": "City"  # or "Suburb"
+    } # Example stop, different from default.py to track config precedence
 ], 
  "API_KEY": os.getenv('STIB_API_KEY'),
  'API_URL': "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",

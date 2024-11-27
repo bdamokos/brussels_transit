@@ -47,13 +47,44 @@
 
 2. Real-time Data (HIGH PRIORITY)
    - [ ] Fix waiting times endpoint (empty array issue)
+     - [ ] Filter stops using configured STIB_STOPS from config
+       - [ ] Extract monitored stop IDs and line numbers
+       - [ ] Only return data for monitored stops
+       - [ ] Fix regression: if a stop is given as parameter, return data for that stop even if it's not monitored
+     - [ ] Use stop_coordinates.py for coordinates
+       - [ ] Leverage API/GTFS fallback with caching
+       - [ ] Potential improvement over v1's coordinate handling
+     - [ ] Use get_stop_names.py for stop names
+       - [ ] Currently duplicated in app/ and stib/
+       - [ ] Will consolidate after v1 retirement
+     - [ ] Match v1 data structure exactly:
+       - [ ] Return data under "stops_data" key
+       - [ ] Match waiting times format:
+         ```json
+         {
+           "destination": "DESTINATION",
+           "formatted_time": "14:30",
+           "message": "",
+           "minutes": 5
+         }
+         ```
+       - [ ] Ensure all fields are in same order as v1
+     - [ ] Add proper error handling and logging
+       - [ ] Log API failures
+       - [ ] Log data parsing issues
+       - [ ] Log when stops/lines are not found
    - [ ] Align vehicle positions format with v1
    - [ ] Fix messages endpoint (NoneType error)
+
+2b. Regression testing for all endpoints marked as working
+
 
 3. Route Data (MEDIUM PRIORITY)
    - [ ] Add shape data to route endpoint
    - [ ] Fix colors endpoint to handle single line requests
    - [ ] Standardize route data format
+
+3b. Regression testing for all endpoints marked as working
 
 ### Phase 2: Implement Aggregated Endpoints
 1. Realtime Endpoint
@@ -61,10 +92,16 @@
    - [ ] Combine waiting times, messages, vehicles
    - [ ] Match v1 data format
 
+1b. Regression testing for all endpoints marked as working
+
 2. Static Endpoint
    - [ ] Create /api/stib/static endpoint
    - [ ] Include routes, stops, colors
    - [ ] Match v1 data format
+
+2b. Regression testing for all endpoints marked as working
+
+3. See if /api/data endpoint finally works in both v1 and v2
 
 ### Phase 3: Fix Search Endpoints
 1. Stop Search
@@ -79,11 +116,12 @@
      - [x] Add fallback to GTFS data when API returns null coordinates
      - [x] Add caching to avoid repeated GTFS lookups
      - [ ] Investigate stops with format like "6934F" and "5053G" that are missing from both API and GTFS
-     - [ ] Consider adding a stop ID normalization function
+     - [ ] Consider adding a stop ID normalization function (remove letters from stop IDs and try to find all IDs that match {id} and {id}A-Z, to see if there is a unique match, or if the matches at least have the same coordinates or names)
      - [ ] Add logging for stops not found in either source
    - [ ] Backport to v1
      - [ ] Share GTFS data lookup between v1 and v2
      - [ ] Ensure consistent coordinate format
+
 
 ## Technical Debt Items
 1. Data Format Standardization

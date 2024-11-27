@@ -431,81 +431,151 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
                     "lines": {
                         "line_number": {
                             "destination": [{
-                                "minutes": 5,
+                                "destination": "DESTINATION",
+                                "formatted_time": "14:30",
                                 "message": "",
-                                "formatted_time": "14:30"
+                                "minutes": 5
                             }]
                         }
                     }
                 }
             }
-        }
-    """
+        }"""
+
     try:
-        params = {
-            'apikey': API_KEY,
-            'limit': 100
+        # Get monitored stops from merged config
+        provider_config = get_provider_config('stib')
+        monitored_stops = {
+            str(stop['id']): stop 
+            for stop in provider_config.get('STIB_STOPS', [])
         }
         
+        # If specific stop_id is requested, check if it's monitored
+        if stop_id:
+            stop_id = str(stop_id)
+            if stop_id not in monitored_stops:
+                logger.warning(f"Stop {stop_id} is not in monitored stops")
+                return {"stops": {}}
+            
+        # Build API query
+        params = {
+            'apikey': API_KEY,
+            'limit': 100,
+            'select': 'pointid,lineid,passingtimes'
+        }
+        
+        # If specific stop requested, filter for it
         if stop_id:
             params['where'] = f'pointid="{stop_id}"'
+        # Otherwise filter for all monitored stops
+        elif monitored_stops:
+            stop_filter = ' or '.join(f'pointid="{stop_id}"' for stop_id in monitored_stops.keys())
+            params['where'] = f'({stop_filter})'
             
         async with await get_client() as client:
-            response = await client.get(API_URL, params=params)
+            response = await client.get(WAITING_TIMES_API_URL, params=params)
             rate_limiter.update_from_headers(response.headers)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to get waiting times: {response.status_code} {response.text}")
+                return {"stops": {}}
             
             data = response.json()
             formatted_data = {"stops": {}}
             
-            # Pre-fetch stop names for all stops
-            stop_ids = {str(record.get('pointid')) for record in data.get('results', [])}
-            stop_names = get_stop_names(list(stop_ids))
-            
+            # Process each record
             for record in data.get('results', []):
                 try:
-                    stop_id = str(record.get('pointid'))
+                    current_stop_id = str(record.get('pointid'))
+                    if not current_stop_id or current_stop_id not in monitored_stops:
+                        continue
+                    
                     line = str(record.get('lineid'))
+                    if not line:
+                        continue
                     
                     # Initialize stop data if needed
-                    if stop_id not in formatted_data["stops"]:
-                        stop_info = stop_names.get(stop_id, {})
-                        formatted_data["stops"][stop_id] = {
-                            "name": stop_info.get('name', stop_id),
-                            "coordinates": stop_info.get('coordinates', {}),
+                    if current_stop_id not in formatted_data["stops"]:
+                        formatted_data["stops"][current_stop_id] = {
+                            "name": monitored_stops[current_stop_id]['name'],
+                            "coordinates": {},  # Will be filled by stop_coordinates.py
                             "lines": {}
                         }
                     
                     # Process passing times
-                    passing_times = json.loads(record.get('passingtimes', '[]'))
+                    passing_times = record.get('passingtimes')
+                    if not passing_times:
+                        continue
+                        
+                    # Handle both string and list formats
+                    if isinstance(passing_times, str):
+                        try:
+                            passing_times = json.loads(passing_times)
+                        except json.JSONDecodeError:
+                            logger.error(f"Invalid JSON in passing times for stop {current_stop_id}, line {line}")
+                            continue
+                    
+                    if not isinstance(passing_times, list):
+                        continue
                     
                     for passing_time in passing_times:
-                        destination = passing_time.get('destination', {}).get('fr', 'Unknown')
-                        
-                        # Initialize line data if needed
-                        if line not in formatted_data["stops"][stop_id]["lines"]:
-                            formatted_data["stops"][stop_id]["lines"][line] = {}
-                        
-                        if destination not in formatted_data["stops"][stop_id]["lines"][line]:
-                            formatted_data["stops"][stop_id]["lines"][line][destination] = []
-                        
-                        # Calculate minutes until arrival
-                        expected_time = passing_time.get('expectedArrivalTime')
-                        if expected_time:
-                            arrival_dt = datetime.fromisoformat(expected_time)
-                            if arrival_dt.tzinfo is None:
-                                arrival_dt = arrival_dt.replace(tzinfo=timezone.utc)
-                            now = datetime.now(timezone.utc)
-                            minutes = int((arrival_dt - now).total_seconds() / 60)
+                        try:
+                            # Get destination from passing time data
+                            destination = passing_time.get('destination', {})
+                            if isinstance(destination, dict):
+                                destination = destination.get('fr', 'Unknown')
+                            elif isinstance(destination, str):
+                                destination = destination
+                            else:
+                                destination = 'Unknown'
                             
-                            formatted_data["stops"][stop_id]["lines"][line][destination].append({
-                                "minutes": minutes,
-                                "message": "",
-                                "formatted_time": arrival_dt.strftime("%H:%M")
-                            })
+                            # Check if this line and destination are monitored for this stop
+                            stop_config = monitored_stops[current_stop_id]
+                            if line not in stop_config.get('lines', {}) or \
+                               destination not in stop_config['lines'][line]:
+                                continue
+                            
+                            # Initialize line data if needed
+                            if line not in formatted_data["stops"][current_stop_id]["lines"]:
+                                formatted_data["stops"][current_stop_id]["lines"][line] = {}
+                            
+                            if destination not in formatted_data["stops"][current_stop_id]["lines"][line]:
+                                formatted_data["stops"][current_stop_id]["lines"][line][destination] = []
+                            
+                            # Calculate minutes until arrival
+                            expected_time = passing_time.get('expectedArrivalTime')
+                            if not expected_time:
+                                continue
+                                
+                            try:
+                                arrival_dt = datetime.fromisoformat(expected_time.replace('Z', '+00:00'))
+                                now = datetime.now(timezone.utc)
+                                minutes = max(0, int((arrival_dt - now).total_seconds() / 60))
+                                
+                                formatted_data["stops"][current_stop_id]["lines"][line][destination].append({
+                                    "destination": destination,
+                                    "minutes": minutes,
+                                    "message": passing_time.get('message', ''),
+                                    "formatted_time": arrival_dt.strftime("%H:%M")
+                                })
+                            except (ValueError, TypeError) as e:
+                                logger.error(f"Error parsing time {expected_time}: {e}")
+                                continue
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing passing time for stop {current_stop_id}, line {line}: {e}")
+                            continue
                             
                 except Exception as e:
                     logger.error(f"Error processing record: {e}")
                     continue
+            
+            # Remove any stops that ended up with no valid data
+            formatted_data["stops"] = {
+                stop_id: stop_data
+                for stop_id, stop_data in formatted_data["stops"].items()
+                if stop_data.get("lines")
+            }
             
             return formatted_data
             
@@ -513,7 +583,7 @@ async def get_waiting_times(stop_id: str = None) -> Dict[str, Any]:
         logger.error(f"Error fetching waiting times: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return {}
+        return {"stops": {}}
 
 async def get_route_data(line: str) -> Dict[str, Any]:
     """Get route data for a specific line

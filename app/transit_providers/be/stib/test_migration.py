@@ -145,6 +145,137 @@ def test_problematic_stop_coordinates():
             
     return success
 
+def test_waiting_times():
+    """Test the waiting times endpoints by comparing v2 endpoint with stops_data from v1."""
+    print("\n=== Testing waiting times endpoints ===")
+    
+    # Get v1 data from /api/data endpoint
+    print("\nGetting v1 data from /api/data:")
+    v1_response = requests.get("http://localhost:5001/api/data")
+    if v1_response.status_code != 200:
+        print(f"❌ Failed to get v1 data: {v1_response.status_code}")
+        return False
+        
+    try:
+        v1_data = v1_response.json()
+        v1_stops_data = v1_data.get('stops_data', {})
+        print(f"✓ Got v1 data with {len(v1_stops_data)} stops")
+        
+        # Print monitored stops and lines
+        v1_stop_ids = set(v1_stops_data.keys())
+        v1_lines = set()
+        for stop in v1_stops_data.values():
+            v1_lines.update(stop.get('lines', {}).keys())
+        print(f"\nv1 monitored stops: {sorted(v1_stop_ids)}")
+        print(f"v1 monitored lines: {sorted(v1_lines)}")
+        
+        # Print sample of v1 data structure
+        if v1_stops_data:
+            sample_stop_id = next(iter(v1_stops_data))
+            print("\nv1 data structure (one stop):")
+            print(json.dumps({sample_stop_id: v1_stops_data[sample_stop_id]}, indent=2))
+    except Exception as e:
+        print(f"❌ Error parsing v1 data: {e}")
+        return False
+    
+    # Get v2 data
+    print("\nGetting v2 data from /api/stib/waiting_times:")
+    v2_response = requests.get("http://localhost:5001/api/stib/waiting_times")
+    if v2_response.status_code != 200:
+        print(f"❌ Failed to get v2 data: {v2_response.status_code}")
+        return False
+        
+    try:
+        v2_data = v2_response.json()
+        v2_stops = v2_data.get('stops', {})
+        print(f"✓ Got v2 data with {len(v2_stops)} stops")
+        
+        # Print monitored stops and lines
+        v2_stop_ids = set(v2_stops.keys())
+        v2_lines = set()
+        for stop in v2_stops.values():
+            v2_lines.update(stop.get('lines', {}).keys())
+        print(f"\nv2 monitored stops: {sorted(v2_stop_ids)}")
+        print(f"v2 monitored lines: {sorted(v2_lines)}")
+        
+        # Print sample of v2 data structure
+        if v2_stops:
+            sample_stop_id = next(iter(v2_stops))
+            print("\nv2 data structure (one stop):")
+            print(json.dumps({sample_stop_id: v2_stops[sample_stop_id]}, indent=2))
+    except Exception as e:
+        print(f"❌ Error parsing v2 data: {e}")
+        return False
+    
+    # Compare data structures
+    print("\nComparing data structures:")
+    
+    # Check if we have data to compare
+    if not v1_stops_data:
+        print("⚠️ No stops in v1 data")
+        return False
+    if not v2_stops:
+        print("⚠️ No stops in v2 data")
+        return False
+        
+    # Compare stop IDs
+    print("\n1. Stop Coverage:")
+    v1_stop_ids = set(v1_stops_data.keys())
+    v2_stop_ids = set(v2_stops.keys())
+    print(f"Stop IDs in v1 but not in v2: {sorted(v1_stop_ids - v2_stop_ids)}")
+    print(f"Stop IDs in v2 but not in v1: {sorted(v2_stop_ids - v1_stop_ids)}")
+    
+    # Compare structure for common stops
+    common_stops = v1_stop_ids & v2_stop_ids
+    print(f"\n2. Common Stops Analysis ({len(common_stops)} stops):")
+    
+    if common_stops:
+        sample_stop = next(iter(common_stops))
+        print(f"\nDetailed comparison for stop {sample_stop}:")
+        
+        v1_stop = v1_stops_data[sample_stop]
+        v2_stop = v2_stops[sample_stop]
+        
+        # Compare fields
+        print("\n3. Fields Comparison:")
+        v1_fields = set(v1_stop.keys())
+        v2_fields = set(v2_stop.keys())
+        print(f"Fields in v1 but not in v2: {v1_fields - v2_fields}")
+        print(f"Fields in v2 but not in v1: {v2_fields - v1_fields}")
+        
+        # Compare coordinates
+        print("\n4. Coordinates Comparison:")
+        print(f"v1: {v1_stop.get('coordinates')}")
+        print(f"v2: {v2_stop.get('coordinates')}")
+        
+        # Compare lines structure
+        if 'lines' in v1_stop and 'lines' in v2_stop:
+            print("\n5. Lines Comparison:")
+            v1_lines = set(v1_stop['lines'].keys())
+            v2_lines = set(v2_stop['lines'].keys())
+            print(f"Lines in v1 but not in v2: {v1_lines - v2_lines}")
+            print(f"Lines in v2 but not in v1: {v2_lines - v1_lines}")
+            
+            # Compare waiting times format for a sample line
+            if v1_lines & v2_lines:
+                sample_line = next(iter(v1_lines & v2_lines))
+                print(f"\n6. Waiting Times Format (line {sample_line}):")
+                print("\nv1:", json.dumps(v1_stop['lines'][sample_line], indent=2))
+                print("\nv2:", json.dumps(v2_stop['lines'][sample_line], indent=2))
+                
+                # Compare waiting time fields
+                if v1_stop['lines'][sample_line]:
+                    v1_fields = set(next(iter(next(iter(v1_stop['lines'][sample_line].values())))).keys())
+                    if v2_stop['lines'][sample_line]:
+                        v2_fields = set(next(iter(next(iter(v2_stop['lines'][sample_line].values())))).keys())
+                        print("\n7. Waiting Time Fields:")
+                        print(f"Fields in v1 but not in v2: {v1_fields - v2_fields}")
+                        print(f"Fields in v2 but not in v1: {v2_fields - v1_fields}")
+                        print(f"Field order in v1: {list(v1_fields)}")
+                        print(f"Field order in v2: {list(v2_fields)}")
+    
+    return True
+
 def main():
     """Test endpoints one by one"""
     tests = [
@@ -155,7 +286,8 @@ def main():
         ("STIB Route", test_stib_route),
         ("STIB Stops", test_stib_stops),
         ("STIB Stop Coordinates", test_stib_stop_coordinates),
-        ("Problematic Stop Coordinates", test_problematic_stop_coordinates)
+        ("Problematic Stop Coordinates", test_problematic_stop_coordinates),
+        ("Waiting Times", test_waiting_times)
     ]
     
     if len(sys.argv) > 1:
