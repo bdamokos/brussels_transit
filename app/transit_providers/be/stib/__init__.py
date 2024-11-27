@@ -50,7 +50,8 @@ class StibProvider(TransitProvider):
         self.endpoints = {
             'config': self.get_config,
             'data': self.get_data,
-            'stops': self.get_stop_details,
+            'stops': self.get_stops,
+            'stop': self.get_stop_details,
             'route': get_route_data,
             'colors': get_route_colors,
             'vehicles': get_vehicle_positions,
@@ -106,6 +107,46 @@ class StibProvider(TransitProvider):
                 "colors": {},
                 "error": str(e)
             }
+
+    async def get_stops(self, stop_ids: List[str] = None) -> Dict[str, Any]:
+        """Get details for multiple stops.
+        
+        Args:
+            stop_ids: List of stop IDs to fetch details for
+            
+        Returns:
+            Dictionary containing stop details in the format:
+            {
+                "stops": {
+                    "stop_id": {
+                        "name": "Stop Name",
+                        "coordinates": {"lat": float, "lon": float}
+                    }
+                }
+            }
+        """
+        try:
+            if not stop_ids:
+                return {"stops": {}}
+            
+            # Use existing get_stop_names function which already has caching
+            from .get_stop_names import get_stop_names
+            stops_data = get_stop_names(stop_ids)
+            
+            # Format response to match v1
+            return {
+                "stops": {
+                    stop_id: {
+                        "name": data["name"],
+                        "coordinates": data["coordinates"]
+                    }
+                    for stop_id, data in stops_data.items()
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting stops data: {e}")
+            return {"error": str(e)}
 
     async def get_stop_details(self, stop_id: str):
         """Get details for a specific STIB stop.

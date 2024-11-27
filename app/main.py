@@ -1001,9 +1001,9 @@ async def get_static_data():
 
 # Get the registered provider
 
-@app.route('/api/<provider>/<endpoint>')
-@app.route('/api/<provider>/<endpoint>/<param1>')
-@app.route('/api/<provider>/<endpoint>/<param1>/<param2>')
+@app.route('/api/<provider>/<endpoint>', methods=['GET', 'POST'])
+@app.route('/api/<provider>/<endpoint>/<param1>', methods=['GET', 'POST'])
+@app.route('/api/<provider>/<endpoint>/<param1>/<param2>', methods=['GET', 'POST'])
 async def provider_endpoint(provider, endpoint, param1=None, param2=None):
     """Generic endpoint for accessing transit provider data"""
     logger.debug(f"Provider endpoint called: {provider}/{endpoint} with params: {param1}, {param2}")
@@ -1036,11 +1036,19 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
 
         # Handle different endpoint types
         if endpoint == 'stops':
+            # For POST requests with stop IDs
+            if request.method == 'POST':
+                stop_ids = request.get_json()
+                result = await func(stop_ids)
+            # For GET requests (all stops)
+            else:
+                result = await func()
+        elif endpoint == 'stop':
             # Use param1 as stop_id
             if param1:
                 result = await func(param1)
             else:
-                result = await func()
+                return jsonify({'error': f'Stop ID required for {endpoint} endpoint'}), 400
         elif endpoint == 'vehicles':
             # Handle line and direction
             if param1 and param2:  # Both line and direction provided

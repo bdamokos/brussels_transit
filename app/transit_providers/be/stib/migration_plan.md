@@ -9,6 +9,7 @@
 - [x] /api/stop_coordinates/{id} (v1)
 - [x] /api/stib/config (v2)
 - [x] /api/stib/route/{id} (v2, partial - missing shapes)
+- [x] /api/stib/stops (v2)
 
 ### Partially Working Endpoints ⚠️
 - [~] /api/stib/vehicles (v2, returns data but format differs from v1)
@@ -19,7 +20,6 @@
 - [ ] /api/waiting_times (v1)
 - [ ] /api/vehicles (v1)
 - [ ] /api/messages (v1)
-- [ ] /api/stib/stops (v2)
 - [ ] /api/stib/stop/{id}/coordinates (v2)
 - [ ] /api/stib/messages (v2)
 - [ ] /api/stib/realtime (v2)
@@ -31,9 +31,9 @@
 
 ### Phase 1: Fix Critical Endpoints
 1. Stop Data (HIGH PRIORITY)
-   - [ ] Fix /api/stib/stops endpoint
+   - [x] Fix /api/stib/stops endpoint
    - [ ] Fix /api/stib/stop/{id}/coordinates endpoint
-   - [ ] Ensure data format matches v1
+   - [x] Ensure data format matches v1
 
 2. Real-time Data (HIGH PRIORITY)
    - [ ] Fix waiting times endpoint (empty array issue)
