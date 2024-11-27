@@ -22,6 +22,8 @@ from transit_providers.nearest_stop import (
     ingest_gtfs_stops, get_nearest_stops, cache_stops, 
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
+import fcntl
+import time
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -487,40 +489,71 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
             }
 
 async def download_and_extract_gtfs() -> bool:
-    """Download and extract fresh GTFS data"""
+    """Download and extract fresh GTFS data with file locking"""
+    lock_file = CACHE_DIR / "gtfs_download.lock"
+    
     try:
-        logger.info("Starting GTFS data download")
-        
-        headers = {
-            'Cache-Control': 'no-cache',
-            'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
-        }
-        
-        # Download the file
-        req = urllib.request.Request(GTFS_URL, headers=headers)
-        logger.info(f"Downloading GTFS data from {GTFS_URL}")
-        with urllib.request.urlopen(req) as response:
-            logger.debug("Saving GTFS zip file")
-            with open('gtfs_transit.zip', 'wb') as f:
-                f.write(response.read())
-        
-        # Extract the zip file
-        logger.debug("Extracting GTFS data")
-        GTFS_DIR.mkdir(exist_ok=True)
-        with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
-            zip_ref.extractall(GTFS_DIR)
-        
-        # Clean up zip file
-        Path('gtfs_transit.zip').unlink()
+        # Try to acquire lock
+        with open(lock_file, 'w') as f:
+            try:
+                # Non-blocking lock attempt
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                # Another process is downloading, wait for it to finish
+                logger.info("Another process is downloading GTFS data, waiting...")
+                
+                # Wait for lock with timeout
+                start_time = time.time()
+                timeout = 300  # 5 minutes timeout
+                
+                while time.time() - start_time < timeout:
+                    try:
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        await asyncio.sleep(1)
+                else:
+                    logger.error("Timeout waiting for GTFS download lock")
+                    return False
 
-        # Clean up unused files
-        for file in GTFS_DIR.glob('*'):
-            if file.name not in GTFS_USED_FILES:
-                file.unlink()
-                logger.debug(f"Deleted unused GTFS file: {file.name}")
-        
-        logger.info("GTFS data updated successfully")
-        return True
+            try:
+                logger.info("Starting GTFS data download")
+                
+                headers = {
+                    'Cache-Control': 'no-cache',
+                    'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
+                }
+                
+                # Download the file
+                req = urllib.request.Request(GTFS_URL, headers=headers)
+                logger.info(f"Downloading GTFS data from {GTFS_URL}")
+                with urllib.request.urlopen(req) as response:
+                    logger.debug("Saving GTFS zip file")
+                    with open('gtfs_transit.zip', 'wb') as f_zip:
+                        f_zip.write(response.read())
+                
+                # Extract the zip file
+                logger.debug("Extracting GTFS data")
+                GTFS_DIR.mkdir(exist_ok=True)
+                with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
+                    zip_ref.extractall(GTFS_DIR)
+                
+                # Clean up zip file
+                Path('gtfs_transit.zip').unlink()
+
+                # Clean up unused files
+                for file in GTFS_DIR.glob('*'):
+                    if file.name not in GTFS_USED_FILES:
+                        file.unlink()
+                        logger.debug(f"Deleted unused GTFS file: {file.name}")
+                
+                logger.info("GTFS data updated successfully")
+                return True
+                
+            finally:
+                # Release lock
+                fcntl.flock(f, fcntl.LOCK_UN)
+                
     except Exception as e:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
         return False
