@@ -980,6 +980,7 @@ async def get_service_messages() -> List[Dict]:
 
 async def ensure_gtfs_data() -> Optional[Path]:
     """Ensure GTFS data is downloaded and return path to GTFS directory."""
+    logger.debug(f"Checking GTFS data in directory: {GTFS_DIR}")
     if GTFS_DIR.exists():
         # Check if all required files exist and are recent
         all_files_exist = True
@@ -987,23 +988,44 @@ async def ensure_gtfs_data() -> Optional[Path]:
         
         for filename in GTFS_USED_FILES:
             file_path = GTFS_DIR / filename
+            logger.debug(f"Checking for GTFS file: {file_path}")
             if not file_path.exists():
-                logger.info(f"Missing required GTFS file: {filename}")
+                logger.info(f"Missing required GTFS file: {filename} (full path: {file_path})")
                 all_files_exist = False
                 break
             
             file_age = time.time() - file_path.stat().st_mtime
             oldest_file_age = max(oldest_file_age, file_age)
+            logger.debug(f"File {filename} exists, age: {file_age:.1f}s")
         
-        if all_files_exist and oldest_file_age < GTFS_CACHE_DURATION:
-            logger.debug(f"Using existing GTFS data (age: {oldest_file_age:.1f}s)")
-            return GTFS_DIR
+        if all_files_exist:
+            if oldest_file_age < GTFS_CACHE_DURATION:
+                logger.debug(f"Using existing GTFS data (age: {oldest_file_age:.1f}s)")
+                return GTFS_DIR
+            else:
+                logger.info(f"GTFS data is too old (age: {oldest_file_age:.1f}s), downloading fresh copy")
+        else:
+            logger.info("Some GTFS files are missing, downloading fresh copy")
+    else:
+        logger.info(f"GTFS directory does not exist: {GTFS_DIR}")
     
     # Need to download fresh data
     success = await download_and_extract_gtfs()
     if not success:
         logger.error("Failed to download GTFS data")
         return None
+    
+    # Verify files after download
+    if GTFS_DIR.exists():
+        missing_files = [f for f in GTFS_USED_FILES if not (GTFS_DIR / f).exists()]
+        if missing_files:
+            logger.error(f"After download, still missing files: {missing_files}")
+            return None
+        logger.debug("All required GTFS files present after download")
+    else:
+        logger.error("GTFS directory still does not exist after download")
+        return None
+    
     return GTFS_DIR
 
 async def get_stops() -> Dict[str, Stop]:
