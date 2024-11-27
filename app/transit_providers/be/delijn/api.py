@@ -114,11 +114,13 @@ class ProgressTracker:
             elapsed = current_time - self.start_time
             speed = self.downloaded / (1024 * 1024 * elapsed)  # MB/s
             progress = (self.downloaded / self.total_size) * 100
+            estimated_time_remaining = (self.total_size - self.downloaded) / (speed * 1024 * 1024)
             
             print(
                 f"Downloaded: {self.downloaded/(1024*1024):.1f}MB / "
                 f"{self.total_size/(1024*1024):.1f}MB "
-                f"({progress:.1f}%) at {speed:.1f}MB/s"
+                f"({progress:.1f}%) at {speed:.1f}MB/s, "
+                f"ETA: {estimated_time_remaining:.1f}s"
             )
             self.last_update = current_time
 
