@@ -98,6 +98,29 @@ class PassingTime(TypedDict):
     realtime: bool
     message: Optional[str]
 
+class ProgressTracker:
+    def __init__(self, total_size: int):
+        self.total_size = total_size
+        self.downloaded = 0
+        self.start_time = time.time()
+        self.last_update = 0
+        
+    def update(self, chunk_size: int) -> None:
+        self.downloaded += chunk_size
+        current_time = time.time()
+        
+        # Update progress every 0.5 seconds
+        if current_time - self.last_update >= 0.5:
+            elapsed = current_time - self.start_time
+            speed = self.downloaded / (1024 * 1024 * elapsed)  # MB/s
+            progress = (self.downloaded / self.total_size) * 100
+            
+            print(
+                f"Downloaded: {self.downloaded/(1024*1024):.1f}MB / "
+                f"{self.total_size/(1024*1024):.1f}MB "
+                f"({progress:.1f}%) at {speed:.1f}MB/s"
+            )
+            self.last_update = current_time
 
 async def cache_get(cache_key: str) -> Optional[Any]:
     """Get data from cache if it exists and is valid"""
@@ -496,13 +519,10 @@ async def download_and_extract_gtfs() -> bool:
         # Try to acquire lock
         with open(lock_file, 'w') as f:
             try:
-                # Non-blocking lock attempt
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                # Another process is downloading, wait for it to finish
                 logger.info("Another process is downloading GTFS data, waiting...")
                 
-                # Wait for lock with timeout
                 start_time = time.time()
                 timeout = 300  # 5 minutes timeout
                 
@@ -524,15 +544,26 @@ async def download_and_extract_gtfs() -> bool:
                     'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
                 }
                 
-                # Download the file
+                # First make a HEAD request to get the file size
+                req = urllib.request.Request(GTFS_URL, headers=headers, method='HEAD')
+                with urllib.request.urlopen(req) as response:
+                    total_size = int(response.headers.get('content-length', 0))
+                    logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
+                
+                # Now download with progress tracking
                 req = urllib.request.Request(GTFS_URL, headers=headers)
-                logger.info(f"Downloading GTFS data from {GTFS_URL}")
+                progress = ProgressTracker(total_size)
+                
                 with urllib.request.urlopen(req) as response:
                     logger.debug("Saving GTFS zip file")
                     with open('gtfs_transit.zip', 'wb') as f_zip:
-                        f_zip.write(response.read())
+                        while True:
+                            chunk = response.read(8192)
+                            if not chunk:
+                                break
+                            f_zip.write(chunk)
+                            progress.update(len(chunk))
                 
-                # Extract the zip file
                 logger.debug("Extracting GTFS data")
                 GTFS_DIR.mkdir(exist_ok=True)
                 with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
@@ -551,7 +582,6 @@ async def download_and_extract_gtfs() -> bool:
                 return True
                 
             finally:
-                # Release lock
                 fcntl.flock(f, fcntl.LOCK_UN)
                 
     except Exception as e:
