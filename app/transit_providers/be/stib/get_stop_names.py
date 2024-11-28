@@ -53,6 +53,66 @@ def save_cached_stops(stops_data):
     except Exception as e:
         logger.error(f"Error saving stops cache: {e}", exc_info=True)
 
+def resolve_stop_name(stop_id, name_data=None):
+    """Resolve stop name using multiple sources in order:
+    1. API name data if provided
+    2. GTFS translations
+    3. GTFS stops.txt
+    4. Stop ID as fallback
+    """
+    result = {
+        'fr': None,
+        'nl': None,
+        '_metadata': {
+            'source': None,
+            'trans_id': None
+        }
+    }
+
+    # 1. Try API name data first
+    if name_data:
+        result['fr'] = name_data.get('fr')
+        result['nl'] = name_data.get('nl')
+        result['_metadata']['source'] = 'api'
+        
+        # If we have both languages, we're done
+        if result['fr'] and result['nl']:
+            return result
+
+    # 2. Try GTFS translations
+    try:
+        # First get trans_id from stops.txt
+        stops_file = GTFS_DIR / 'stops.txt'
+        if stops_file.exists():
+            with open(stops_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                trans_id = None
+                for row in reader:
+                    if row.get('stop_id') == stop_id:
+                        trans_id = row.get('stop_name')  # In STIB GTFS, stop_name contains trans_id
+                        break
+                
+                if trans_id:
+                    translations = load_translations(trans_id)
+                    if translations:
+                        # Only update missing languages
+                        if not result['fr'] and 'fr' in translations:
+                            result['fr'] = translations['fr']
+                        if not result['nl'] and 'nl' in translations:
+                            result['nl'] = translations['nl']
+                        result['_metadata']['source'] = 'gtfs_translations'
+                        result['_metadata']['trans_id'] = trans_id
+    except Exception as e:
+        logger.error(f"Error loading GTFS translations for stop {stop_id}: {e}", exc_info=True)
+
+    # 3. Use stop ID as fallback for any missing language
+    if not result['fr']:
+        result['fr'] = stop_id
+    if not result['nl']:
+        result['nl'] = stop_id
+
+    return result
+
 def get_stop_names(stop_ids, preferred_language=None):
     """Fetch stop names and coordinates for a list of stop IDs, using cache when possible"""
     global cached_stops
@@ -95,34 +155,59 @@ def get_stop_names(stop_ids, preferred_language=None):
                         'lon': float(gps_coords.get('longitude')) if gps_coords.get('longitude') else None
                     }
 
+                    # Resolve names with fallback chain
+                    resolved_names = resolve_stop_name(stop_id, name_data)
+
                     # Only update cache if we got valid coordinates
                     if coordinates['lat'] is not None and coordinates['lon'] is not None:
                         cached_stops[stop_id] = {
-                            'names': name_data,  # Store all language versions
-                            'coordinates': coordinates
+                            'name': resolved_names['fr'],  # For v1 API backward compatibility
+                            'names': {
+                                'fr': resolved_names['fr'],
+                                'nl': resolved_names['nl']
+                            },
+                            'coordinates': coordinates,
+                            '_metadata': resolved_names['_metadata']
                         }
                         logger.debug(f"Added stop {stop_id} to cache with coordinates: {coordinates}")
                     else:
                         logger.warning(f"No valid coordinates found for stop {stop_id}")
                         if stop_id not in cached_stops:
                             cached_stops[stop_id] = {
-                                'names': name_data,  # Store all language versions
-                                'coordinates': {'lat': None, 'lon': None}
+                                'name': resolved_names['fr'],  # For v1 API backward compatibility
+                                'names': {
+                                    'fr': resolved_names['fr'],
+                                    'nl': resolved_names['nl']
+                                },
+                                'coordinates': {'lat': None, 'lon': None},
+                                '_metadata': resolved_names['_metadata']
                             }
                 else:
                     logger.warning(f"No data found for stop ID: {stop_id}")
+                    resolved_names = resolve_stop_name(stop_id)  # Try GTFS without API data
                     if stop_id not in cached_stops:
                         cached_stops[stop_id] = {
-                            'names': {'fr': stop_id, 'nl': stop_id},  # Fallback to ID for all languages
-                            'coordinates': {'lat': None, 'lon': None}
+                            'name': resolved_names['fr'],  # For v1 API backward compatibility
+                            'names': {
+                                'fr': resolved_names['fr'],
+                                'nl': resolved_names['nl']
+                            },
+                            'coordinates': {'lat': None, 'lon': None},
+                            '_metadata': resolved_names['_metadata']
                         }
 
             except Exception as e:
                 logger.error(f"Error fetching stop details for {stop_id}: {e}", exc_info=True)
+                resolved_names = resolve_stop_name(stop_id)  # Try GTFS without API data
                 if stop_id not in cached_stops:
                     cached_stops[stop_id] = {
-                        'names': {'fr': stop_id, 'nl': stop_id},  # Fallback to ID for all languages
-                        'coordinates': {'lat': None, 'lon': None}
+                        'name': resolved_names['fr'],  # For v1 API backward compatibility
+                        'names': {
+                            'fr': resolved_names['fr'],
+                            'nl': resolved_names['nl']
+                        },
+                        'coordinates': {'lat': None, 'lon': None},
+                        '_metadata': resolved_names['_metadata']
                     }
 
         # Save updated cache
@@ -133,8 +218,10 @@ def get_stop_names(stop_ids, preferred_language=None):
     result = {}
     for stop_id in stop_ids:
         stop_data = cached_stops.get(stop_id, {
+            'name': stop_id,  # For v1 API backward compatibility
             'names': {'fr': stop_id, 'nl': stop_id},
-            'coordinates': {'lat': None, 'lon': None}
+            'coordinates': {'lat': None, 'lon': None},
+            '_metadata': {'source': 'fallback'}
         })
         
         # Apply language selection
@@ -147,7 +234,9 @@ def get_stop_names(stop_ids, preferred_language=None):
             'name': name_with_metadata['content'],
             'coordinates': stop_data['coordinates'],
             '_metadata': {
-                'language': name_with_metadata['_metadata']['language']
+                'language': name_with_metadata['_metadata']['language'],
+                'source': stop_data.get('_metadata', {}).get('source', 'fallback'),
+                'trans_id': stop_data.get('_metadata', {}).get('trans_id')
             }
         }
     

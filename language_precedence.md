@@ -54,8 +54,11 @@
 
 3. Integration:
    - [x] Update message parsing in api.py
-   - [ ] Update stop name handling
-   - [ ] Manage the case where the stop or direction names provided in the config match a language version other than the language taking precedence - e.g. we configure stop with Weststation (Dutch) but the precedence order is en, fr, nl and stops are provided in fr and nl. So the expected behaviour is that the stop with the Dutch name of Weststation is returned but using its French name.
+   - [x] Update stop name handling with multi-source resolution:
+     - API names (primary source)
+     - GTFS translations (secondary source)
+     - Stop ID fallback (last resort)
+   - [ ] Manage the case where the stop or direction names provided in the config match a language version other than the language taking precedence
    - [ ] Add tests for language fallback
    - [ ] Add tests for metadata accuracy
 
@@ -63,6 +66,65 @@
    - [ ] Document language configuration in README
    - [ ] Add examples for custom language precedence
    - [ ] Document metadata structure
+
+## Testing Requirements
+
+1. Stop Name Resolution Chain:
+   - Test API response handling:
+     - Complete responses (both fr/nl present)
+     - Partial responses (only one language)
+     - Empty/error responses
+   - Test GTFS fallback:
+     - Valid trans_id in stops.txt
+     - Missing trans_id
+     - Missing translations.txt
+   - Test metadata accuracy:
+     - Source tracking (api/gtfs_translations/fallback)
+     - Language selection
+     - trans_id preservation
+
+2. Edge Cases:
+   - Stop IDs with suffixes (e.g., 5710F vs 5710)
+   - Identical names in different languages
+   - Missing or corrupted cache files
+   - API timeouts and errors
+   - GTFS file encoding issues
+
+3. Language Selection:
+   - Test precedence order follows configuration
+   - Test fallback chain when preferred language unavailable
+   - Test metadata warnings for language fallbacks
+   - Test handling of unordered languages
+
+4. Cache Behavior:
+   - Test cache structure maintains backward compatibility
+   - Test cache updates when new translations become available
+   - Test cache persistence across restarts
+
+## Current Status (2024-11-28)
+
+1. Implemented Features:
+   - Complete name resolution chain in get_stop_names.py
+   - Metadata tracking for name sources and translations
+   - Backward compatibility with v1 API
+   - GTFS translation integration
+
+2. Next Steps:
+   - Implement comprehensive test suite
+   - Add more logging for debugging language selection
+   - Document the new name resolution process
+   - Consider adding language stats collection for monitoring
+
+3. Open Questions:
+   - How to handle conflicting translations between API and GTFS?
+   - Should we cache GTFS translations separately?
+   - How to handle dynamic language updates?
+
+Note: Need to test thoroughly with real-world data, especially:
+- Stops with different names in fr/nl
+- GTFS translation accuracy
+- API response variations
+- Cache consistency
 
 ## API Investigation Findings
 
