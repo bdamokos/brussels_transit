@@ -42,7 +42,7 @@ LOGGING_CONFIG = {
     'handlers': {
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': '/app/logs/app.log',
+            'filename': str(Path('logs/app.log').absolute()),
             'maxBytes': 1024 * 1024,  # 1MB
             'backupCount': 3,
             'formatter': 'standard',

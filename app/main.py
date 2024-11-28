@@ -23,6 +23,11 @@ from flask import jsonify
 from transit_providers import PROVIDERS
 from config import get_config, get_required_config
 from dataclasses import asdict
+import os
+from pathlib import Path
+
+# Ensure logs directory exists
+Path('logs').mkdir(exist_ok=True)
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
