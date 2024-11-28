@@ -20,7 +20,6 @@
 - [~] /api/stib/colors (v2, works but needs line number handling)
 
 ### Non-working Endpoints ❌
-- [ ] /api/waiting_times (v1)
 - [ ] /api/vehicles (v1)
 - [ ] /api/stib/realtime (v2)
 - [ ] /api/stib/static (v2)
