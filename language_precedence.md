@@ -64,6 +64,44 @@
    - [ ] Add examples for custom language precedence
    - [ ] Document metadata structure
 
+## API Investigation Findings
+
+1. STIB Stop Names API:
+   ```json
+   {
+     "name": {
+       "fr": "SIMONIS",
+       "nl": "SIMONIS"
+     }
+   }
+   ```
+   - Stop names are provided in both French and Dutch
+   - Some stops have identical names in both languages
+   - No English names provided by default
+
+2. STIB Waiting Times API:
+   ```json
+   {
+     "message": {
+       "en": "End of service",
+       "fr": "Fin de service",
+       "nl": "Einde dienst"
+     }
+   }
+   ```
+   - Service messages are provided in all three languages
+   - Need to check more examples as this was an end-of-service message
+
+3. Next Steps for Integration:
+   a) First: Update message parsing in api.py
+   b) Then: Update stop name handling
+   c) Finally: Handle terminus name matching across languages
+
+Note: Need to get more API examples for:
+- Regular waiting time messages with terminus information
+- Stop names with different translations
+- Service disruption messages
+
 
 
    

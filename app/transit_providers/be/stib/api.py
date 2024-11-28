@@ -11,7 +11,7 @@ from pathlib import Path
 from dataclasses import asdict
 
 import pytz
-from utils import RateLimiter, get_client
+from utils import RateLimiter, get_client, select_language
 from dataclasses import dataclass
 from collections import defaultdict
 from get_stop_names import get_stop_names
@@ -89,6 +89,10 @@ last_api_call = datetime.now(timezone.utc)
 # Create a global rate limiter instance
 rate_limiter = RateLimiter()
 
+# Get available languages from provider config
+AVAILABLE_LANGUAGES = provider_config.get('_AVAILABLE_LANGUAGES', ['en', 'fr', 'nl'])
+logger.debug(f"Available languages: {AVAILABLE_LANGUAGES}")
+
 def parse_service_message(message, stop_details):
     """Parse a service message and extract relevant information"""
     try:
@@ -96,8 +100,11 @@ def parse_service_message(message, stop_details):
         lines = json.loads(message['lines'])
         points = json.loads(message['points'])
         
-        # Get the English text from the first text block
-        text = content[0]['text'][0]['en']
+        # Get text using language selection utility
+        text_with_langs = content[0]['text'][0]
+        text, metadata = select_language(text_with_langs, provider_languages=AVAILABLE_LANGUAGES)
+        if metadata['language']['warning']:
+            logger.warning(f"Language warning for message: {metadata['language']['warning']}")
         
         # Get affected stop names
         affected_stops = [stop_details.get(point['id'], {'name': point['id']})['name'] 
@@ -108,6 +115,7 @@ def parse_service_message(message, stop_details):
         
         return {
             'text': text,
+            '_metadata': metadata,  # Include language metadata
             'lines': affected_lines,
             'points': [point['id'] for point in points],
             'stops': affected_stops,
@@ -208,9 +216,12 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
                         logger.error(f"Failed to parse message JSON: {e}")
                         continue
                     
-                    # Get message text (English)
+                    # Get message text using language selection utility
                     try:
-                        text = content[0]['text'][0]['en']
+                        text_with_langs = content[0]['text'][0]
+                        text, metadata = select_language(text_with_langs, provider_languages=AVAILABLE_LANGUAGES)
+                        if metadata['language']['warning']:
+                            logger.warning(f"Language warning for message: {metadata['language']['warning']}")
                     except (IndexError, KeyError) as e:
                         logger.error(f"Failed to get message text: {e}")
                         continue
@@ -252,6 +263,7 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
                     # Add the parsed message
                     parsed_messages.append({
                         'text': text,
+                        '_metadata': metadata,  # Include language metadata
                         'lines': affected_lines,
                         'points': affected_stop_ids,
                         'stops': stop_names,

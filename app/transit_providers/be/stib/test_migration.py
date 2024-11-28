@@ -4,6 +4,14 @@ import requests
 from datetime import datetime
 from deepdiff import DeepDiff
 import logging
+import sys
+from pathlib import Path
+
+# Add app directory to Python path
+app_dir = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(app_dir))
+
+from transit_providers.config import get_config, set_config_for_testing, reset_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,12 +133,104 @@ def test_all_endpoints():
         for name in not_working:
             print(f"✗ {name}")
 
+def test_message_language():
+    """Test that message language handling works correctly with preferred_language parameter."""
+    print("\n=== Testing Message Language Handling ===")
+    
+    # Test different language preferences
+    for lang in ['en', 'fr', 'nl']:
+        print(f"\n1. Testing /messages endpoint with preferred_language={lang}")
+        response = requests.get(f"{BASE_URL}/api/stib/messages", params={'preferred_language': lang})
+        if response.ok:
+            data = response.json()
+            messages = data.get('messages', [])
+            if messages:
+                print(f"Found {len(messages)} messages")
+                language_stats = {'en': 0, 'fr': 0, 'nl': 0, 'other': 0}
+                for i, message in enumerate(messages[:5]):  # Show first 5 for brevity
+                    print(f"\nMessage {i+1}:")
+                    # Check message has text
+                    if 'text' in message:
+                        print("✓ Has text content")
+                        print(f"  Content: {message['text']}")
+                    else:
+                        print("✗ Missing text content")
+                    
+                    # Check language metadata
+                    if '_metadata' in message and 'language' in message['_metadata']:
+                        print("✓ Has language metadata")
+                        lang_meta = message['_metadata']['language']
+                        provided_lang = lang_meta.get('provided')
+                        print(f"  Provided language: {provided_lang}")
+                        print(f"  Available languages: {lang_meta.get('available')}")
+                        if lang_meta.get('warning'):
+                            print(f"  Warning: {lang_meta['warning']}")
+                        
+                        # Update statistics
+                        if provided_lang in language_stats:
+                            language_stats[provided_lang] += 1
+                        else:
+                            language_stats['other'] += 1
+                    else:
+                        print("✗ Missing language metadata")
+                
+                # Print language statistics
+                print("\nLanguage Statistics:")
+                total = sum(language_stats.values())
+                for lang_code, count in language_stats.items():
+                    if count > 0:
+                        percentage = (count / total) * 100
+                        print(f"  {lang_code}: {count} messages ({percentage:.1f}%)")
+                
+                # Verify language preference is followed
+                most_common_lang = max(language_stats.items(), key=lambda x: x[1])[0]
+                if most_common_lang == lang:
+                    print(f"\n✓ Messages are in requested language: {lang}")
+                else:
+                    print(f"\n✗ Expected messages in {lang}, but got mostly {most_common_lang}")
+                    print(f"  Available languages: {set(lang for lang, count in language_stats.items() if count > 0)}")
+            else:
+                print("No messages found to test")
+        else:
+            print(f"✗ Request failed: {response.status_code}")
+        
+        print("\n2. Testing /waiting_times endpoint")
+        response = requests.get(f"{BASE_URL}/api/stib/waiting_times", params={'preferred_language': lang})
+        if response.ok:
+            data = response.json()
+            stops = data.get('stops', {})
+            if stops:
+                print(f"Found {len(stops)} stops with waiting times")
+                for stop_id, stop_data in stops.items():
+                    print(f"\nStop {stop_id}:")
+                    for line in stop_data.get('lines', []):
+                        if 'message' in line:
+                            print(f"Line {line.get('line')}:")
+                            print(f"  Message: {line['message']}")
+                            # Check language metadata
+                            if '_metadata' in line and 'language' in line['_metadata']:
+                                print("✓ Has language metadata")
+                                lang_meta = line['_metadata']['language']
+                                print(f"  Provided language: {lang_meta.get('provided')}")
+                                print(f"  Available languages: {lang_meta.get('available')}")
+                                if lang_meta.get('warning'):
+                                    print(f"  Warning: {lang_meta['warning']}")
+                            else:
+                                print("✗ Missing language metadata")
+            else:
+                print("No waiting times found to test")
+        else:
+            print(f"✗ Request failed: {response.status_code}")
+
 def main():
     """Run all tests."""
     # First test source consistency
     test_source_consistency()
     
-    # Then test all endpoints
+    # Then test message language handling
+    test_message_language()
+    
+    # Finally test all endpoints
     test_all_endpoints()
 
 if __name__ == "__main__":

@@ -2,10 +2,9 @@
 
 import os
 from pathlib import Path
-from transit_providers.config import register_provider_config
 import logging
 from logging.config import dictConfig
-from transit_providers.config import get_config
+from transit_providers.config import get_config, register_provider_config
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -19,7 +18,7 @@ DEFAULT_CONFIG = {
     'STOP_IDS': ["307250", "307251"],  # Example stops - should be set in local.py
     'MONITORED_LINES': ["116","117", '118'],  # Example lines - should be set in local.py
     'API_URL': 'https://api.delijn.be/DLKernOpenData/api/v1',
-    'AVAILABLE_LANGUAGES': ['nl'],  # De Lijn only provides Dutch content
+    '_AVAILABLE_LANGUAGES': ['nl'],  # De Lijn only provides Dutch content
     'GTFS_URL': 'https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip',
     'GTFS_DIR': Path('cache/delijn/gtfs'),
     'CACHE_DIR': Path('cache/delijn'),
