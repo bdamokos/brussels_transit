@@ -11,7 +11,7 @@ from pathlib import Path
 app_dir = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(app_dir))
 
-from transit_providers.config import get_config, set_config_for_testing, reset_config
+from transit_providers.config import get_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

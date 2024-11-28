@@ -121,8 +121,9 @@ def select_language(content, provider_languages, requested_language=None):
     language_precedence = get_config('LANGUAGE_PRECEDENCE', ['en', 'fr', 'nl'])
     
     # Check if any keys look like language codes (2-3 chars)
-    possible_lang_keys = {k for k in content.keys() 
-                         if isinstance(k, str) and len(k) in (2, 3)}
+    # Use list to preserve order from API
+    possible_lang_keys = [k for k in content.keys() 
+                         if isinstance(k, str) and len(k) in (2, 3)]
     
     # If no keys look like language codes, return as is
     if not possible_lang_keys:
@@ -136,19 +137,19 @@ def select_language(content, provider_languages, requested_language=None):
         }
     
     # Get available languages that match our provider's languages
-    available_languages = possible_lang_keys & set(provider_languages)
+    # Use list comprehension to preserve order from API
+    available_languages = [lang for lang in possible_lang_keys 
+                         if lang in provider_languages]
     
     # If we found language-like keys but none match our provider's languages,
     # this might indicate an API change
     if possible_lang_keys and not available_languages:
-        # Sort the keys for consistent error messages
-        sorted_keys = sorted(possible_lang_keys)
         return content, {
             "language": {
                 "requested": requested_language,
                 "provided": None,
-                "available": sorted_keys,
-                "warning": f"Found unexpected language keys: {set(sorted_keys)}. Possible API change?"
+                "available": possible_lang_keys,
+                "warning": f"Found unexpected language keys: {possible_lang_keys}. Possible API change?"
             }
         }
     
@@ -160,11 +161,9 @@ def select_language(content, provider_languages, requested_language=None):
         if lang in provider_languages and lang not in fallback_chain:
             fallback_chain.append(lang)
     
-    # Add any remaining provider languages not in precedence list
-    unordered_languages = []
-    for lang in provider_languages:
-        if lang not in fallback_chain and lang not in language_precedence:
-            unordered_languages.append(lang)
+    # Add any remaining provider languages in API order
+    for lang in available_languages:
+        if lang not in fallback_chain:
             fallback_chain.append(lang)
     
     # Try each language in the chain
@@ -174,7 +173,7 @@ def select_language(content, provider_languages, requested_language=None):
                 "language": {
                     "requested": requested_language,
                     "provided": lang,
-                    "available": sorted(available_languages),
+                    "available": available_languages,
                     "warning": (f"Fallback to {lang}: content not available in {requested_language}"
                               if requested_language and lang != requested_language
                               else None)
@@ -186,7 +185,7 @@ def select_language(content, provider_languages, requested_language=None):
         "language": {
             "requested": requested_language,
             "provided": None,
-            "available": sorted(available_languages),
+            "available": available_languages,
             "warning": "Found language keys but no valid content in any language"
         }
     }
