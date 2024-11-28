@@ -4,10 +4,12 @@ import logging
 from config import get_config
 from logging.config import dictConfig
 
-# Setup logging using configuration
-logging_config = get_config('LOGGING_CONFIG')
-logging_config['log_dir'].mkdir(exist_ok=True)
-dictConfig(logging_config)
+# Only configure logging if we're not being imported for testing
+if __name__ != "__main__" and not any(p.endswith('test_language_utils.py') for p in __import__('sys').argv):
+    # Setup logging using configuration
+    logging_config = get_config('LOGGING_CONFIG')
+    logging_config['log_dir'].mkdir(exist_ok=True)
+    dictConfig(logging_config)
 
 # Get logger
 logger = logging.getLogger('utils')
@@ -81,3 +83,111 @@ class RateLimiter:
 
 async def get_client():
     return httpx.AsyncClient(timeout=30.0) 
+
+def select_language(content, provider_languages, requested_language=None):
+    """Select the best matching language for multilingual content.
+    
+    Args:
+        content: Content object that might contain language-specific versions
+        provider_languages: List of languages available from the provider
+        requested_language: Optional specific language to try first
+        
+    Returns:
+        tuple: (selected_content, metadata)
+        metadata format:
+        {
+            "language": {
+                "requested": str,  # Language that was requested
+                "provided": str,   # Language that was actually provided
+                "available": list, # Languages available in the content
+                "warning": str     # Warning message if API structure might have changed
+            }
+        }
+    """
+    from config import get_config
+    
+    # If content is not a dictionary, return as is
+    if not isinstance(content, dict):
+        return content, {
+            "language": {
+                "requested": requested_language,
+                "provided": None,
+                "available": [],
+                "warning": None
+            }
+        }
+    
+    # Get language precedence from config
+    language_precedence = get_config('LANGUAGE_PRECEDENCE', ['en', 'fr', 'nl'])
+    
+    # Check if any keys look like language codes (2-3 chars)
+    possible_lang_keys = {k for k in content.keys() 
+                         if isinstance(k, str) and len(k) in (2, 3)}
+    
+    # If no keys look like language codes, return as is
+    if not possible_lang_keys:
+        return content, {
+            "language": {
+                "requested": requested_language,
+                "provided": None,
+                "available": [],
+                "warning": None
+            }
+        }
+    
+    # Get available languages that match our provider's languages
+    available_languages = possible_lang_keys & set(provider_languages)
+    
+    # If we found language-like keys but none match our provider's languages,
+    # this might indicate an API change
+    if possible_lang_keys and not available_languages:
+        # Sort the keys for consistent error messages
+        sorted_keys = sorted(possible_lang_keys)
+        return content, {
+            "language": {
+                "requested": requested_language,
+                "provided": None,
+                "available": sorted_keys,
+                "warning": f"Found unexpected language keys: {set(sorted_keys)}. Possible API change?"
+            }
+        }
+    
+    # Build the fallback chain
+    fallback_chain = []
+    if requested_language and requested_language in provider_languages:
+        fallback_chain.append(requested_language)
+    for lang in language_precedence:
+        if lang in provider_languages and lang not in fallback_chain:
+            fallback_chain.append(lang)
+    
+    # Add any remaining provider languages not in precedence list
+    unordered_languages = []
+    for lang in provider_languages:
+        if lang not in fallback_chain and lang not in language_precedence:
+            unordered_languages.append(lang)
+            fallback_chain.append(lang)
+    
+    # Try each language in the chain
+    for lang in fallback_chain:
+        if lang in content and content[lang]:
+            return content[lang], {
+                "language": {
+                    "requested": requested_language,
+                    "provided": lang,
+                    "available": sorted(available_languages),
+                    "warning": (f"Fallback to {lang}: content not available in {requested_language}"
+                              if requested_language and lang != requested_language
+                              else None)
+                }
+            }
+    
+    # If we get here, we found language keys but couldn't get valid content
+    return content, {
+        "language": {
+            "requested": requested_language,
+            "provided": None,
+            "available": sorted(available_languages),
+            "warning": "Found language keys but no valid content in any language"
+        }
+    }
+

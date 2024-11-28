@@ -45,5 +45,11 @@ ENABLED_PROVIDERS = [
     'stib'
 ]
 
+# Language Configuration
+# Override the default language precedence order
+# LANGUAGE_PRECEDENCE = ['en', 'fr', 'nl']  # Default order
+# LANGUAGE_PRECEDENCE = ['fr', 'nl', 'en']  # Example: prefer French, then Dutch
+# Note: If a provider has languages not in this list (e.g., 'de'),
+# they will be added to the chain before falling back to raw content
 
 # Add any other overrides here

@@ -27,6 +27,7 @@ DEFAULT_CONFIG = {
     } # Example stop, different from default.py to track config precedence
 ], 
  "API_KEY": os.getenv('STIB_API_KEY'),
+ "AVAILABLE_LANGUAGES": ['en', 'fr', 'nl'],  # Languages available in STIB API responses
  'API_URL': "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
     "STIB_API_URL_BASE": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
     "STIB_STOPS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/stop-details-production/records",
