@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
     'CACHE_DURATION': timedelta(days=30),
     'RATE_LIMIT_DELAY': 0.5,  # seconds between API calls
     'GTFS_CACHE_DURATION': 86400*30,  # 30 days in seconds
-    'GTFS_USED_FILES': ['stops.txt', 'routes.txt', 'trips.txt', 'shapes.txt']
+    'GTFS_USED_FILES': ['stops.txt', 'routes.txt', 'trips.txt', 'shapes.txt', 'translations.txt']
 }
 
 logger.debug("Registering STIB default configuration")

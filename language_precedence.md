@@ -53,7 +53,7 @@
    - [x] Add language metadata to response structure
 
 3. Integration:
-   - [ ] Update message parsing in api.py
+   - [x] Update message parsing in api.py
    - [ ] Update stop name handling
    - [ ] Manage the case where the stop or direction names provided in the config match a language version other than the language taking precedence - e.g. we configure stop with Weststation (Dutch) but the precedence order is en, fr, nl and stops are provided in fr and nl. So the expected behaviour is that the stop with the Dutch name of Weststation is returned but using its French name.
    - [ ] Add tests for language fallback

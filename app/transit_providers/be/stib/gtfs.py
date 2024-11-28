@@ -20,6 +20,7 @@ GTFS_DIR = provider_config.get('GTFS_DIR')
 GTFS_USED_FILES = provider_config.get('GTFS_USED_FILES')
 GTFS_DIR.mkdir(parents=True, exist_ok=True)
 GTFS_CACHE_DURATION = provider_config.get('GTFS_CACHE_DURATION')
+GTFS_USED_FILES = provider_config.get('GTFS_USED_FILES')
 
 async def download_gtfs_data():
     '''Connects to the GTFS API, and parses the response to get the required files.'''
@@ -93,7 +94,7 @@ async def download_gtfs_data():
 
 def ensure_gtfs_data():
     '''Ensures the GTFS data is downloaded and available.'''
-    if not (GTFS_DIR / 'stops.txt').exists():
+    if not all((GTFS_DIR / file).exists() for file in GTFS_USED_FILES):
         return download_gtfs_data()
     return True
 

@@ -1,3 +1,5 @@
+# app/transit_providers/be/stib/get_stop_names.py
+
 import os
 import requests
 from pathlib import Path
@@ -7,6 +9,9 @@ import logging
 from logging.config import dictConfig
 from transit_providers.config import get_provider_config
 from config import get_config
+from utils import select_language
+from gtfs import ensure_gtfs_data
+import csv
 
 # Get configuration
 provider_config = get_provider_config('stib')
@@ -15,7 +20,7 @@ API_KEY = provider_config.get('API_KEY')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
 CACHE_DURATION = provider_config.get('CACHE_DURATION')
-
+GTFS_DIR = provider_config.get('GTFS_DIR')
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)
@@ -48,7 +53,7 @@ def save_cached_stops(stops_data):
     except Exception as e:
         logger.error(f"Error saving stops cache: {e}", exc_info=True)
 
-def get_stop_names(stop_ids):
+def get_stop_names(stop_ids, preferred_language=None):
     """Fetch stop names and coordinates for a list of stop IDs, using cache when possible"""
     global cached_stops
 
@@ -93,7 +98,7 @@ def get_stop_names(stop_ids):
                     # Only update cache if we got valid coordinates
                     if coordinates['lat'] is not None and coordinates['lon'] is not None:
                         cached_stops[stop_id] = {
-                            'name': name_data['fr'],
+                            'names': name_data,  # Store all language versions
                             'coordinates': coordinates
                         }
                         logger.debug(f"Added stop {stop_id} to cache with coordinates: {coordinates}")
@@ -101,14 +106,14 @@ def get_stop_names(stop_ids):
                         logger.warning(f"No valid coordinates found for stop {stop_id}")
                         if stop_id not in cached_stops:
                             cached_stops[stop_id] = {
-                                'name': name_data['fr'],
+                                'names': name_data,  # Store all language versions
                                 'coordinates': {'lat': None, 'lon': None}
                             }
                 else:
                     logger.warning(f"No data found for stop ID: {stop_id}")
                     if stop_id not in cached_stops:
                         cached_stops[stop_id] = {
-                            'name': stop_id,
+                            'names': {'fr': stop_id, 'nl': stop_id},  # Fallback to ID for all languages
                             'coordinates': {'lat': None, 'lon': None}
                         }
 
@@ -116,7 +121,7 @@ def get_stop_names(stop_ids):
                 logger.error(f"Error fetching stop details for {stop_id}: {e}", exc_info=True)
                 if stop_id not in cached_stops:
                     cached_stops[stop_id] = {
-                        'name': stop_id,
+                        'names': {'fr': stop_id, 'nl': stop_id},  # Fallback to ID for all languages
                         'coordinates': {'lat': None, 'lon': None}
                     }
 
@@ -124,8 +129,53 @@ def get_stop_names(stop_ids):
         save_cached_stops(cached_stops)
         logger.info("Saved updated stops cache")
 
-    # Return requested stop details from cache
-    return {stop_id: cached_stops.get(stop_id, {'name': stop_id, 'coordinates': {'lat': None, 'lon': None}})
-            for stop_id in stop_ids}
+    # Return requested stop details from cache with language selection
+    result = {}
+    for stop_id in stop_ids:
+        stop_data = cached_stops.get(stop_id, {
+            'names': {'fr': stop_id, 'nl': stop_id},
+            'coordinates': {'lat': None, 'lon': None}
+        })
+        
+        # Apply language selection
+        name_with_metadata = select_language(
+            stop_data['names'],
+            preferred_language=preferred_language
+        )
+        
+        result[stop_id] = {
+            'name': name_with_metadata['content'],
+            'coordinates': stop_data['coordinates'],
+            '_metadata': {
+                'language': name_with_metadata['_metadata']['language']
+            }
+        }
+    
+    return result
 
+def load_translations(trans_id_to_return=None):
+    """Load stop name translations from GTFS translations.txt"""
+    translations = {}
+    try:
+        if not (GTFS_DIR / 'translations.txt').exists():
+            logger.warning("translations.txt not found, need to trigger GTFS download")
+            ensure_gtfs_data()
 
+        with open(GTFS_DIR / 'translations.txt', 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                trans_id = row.get('trans_id')
+                translation = row.get('translation')
+                lang = row.get('lang')
+                
+                if all([trans_id, translation, lang]):
+                    if trans_id not in translations:
+                        translations[trans_id] = {}
+                    translations[trans_id][lang] = translation
+
+    except Exception as e:
+        logger.error(f"Error loading translations: {e}", exc_info=True)
+    if not trans_id_to_return:
+        return translations
+    else:
+        return translations.get(trans_id_to_return, {})
