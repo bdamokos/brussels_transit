@@ -22,6 +22,9 @@ from transit_providers.nearest_stop import (
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
 from .stop_coordinates import get_stop_coordinates as get_stop_coordinates_with_fallback
+from .locate_vehicles import process_vehicle_positions, interpolate_position, VehiclePosition
+from .validate_stops import validate_line_stops, load_route_shape
+
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
@@ -427,7 +430,7 @@ async def get_vehicle_positions():
             # Check if we've exceeded quota or have low remaining requests
             if not rate_limiter.can_make_request() or (rate_limiter.remaining is not None and rate_limiter.remaining < 1000):
                 logger.warning("Skipping vehicle positions due to rate limit constraints")
-                return {}
+                return {"vehicles": []}
                 
             response = await client.get(
                 base_url,
@@ -438,7 +441,7 @@ async def get_vehicle_positions():
             
             data = response.json()
             
-            # Transform into our expected format
+            # Transform into intermediate format
             positions = defaultdict(lambda: defaultdict(list))
             
             # Process each vehicle record
@@ -469,22 +472,70 @@ async def get_vehicle_positions():
                     logger.error(f"Error processing vehicle position for line {line_id}: {e}")
                     continue
             
-            # Filter out any remaining entries with invalid keys
+            # Process positions into VehiclePosition objects
+            vehicle_positions = []
+            for line_id, directions in positions.items():
+                # Get route variants for this line
+                variants = await validate_line_stops(line_id)
+                if not variants:
+                    logger.error(f"No route variants found for line {line_id}")
+                    continue
+
+                # Process each direction's vehicles
+                for direction_id, vehicles_list in directions.items():
+                    # Find the route variant for this direction
+                    variant = next(
+                        (v for v in variants 
+                         if any(stop['id'] == direction_id for stop in v.stops)),
+                        None
+                    )
+                    if not variant:
+                        logger.error(f"No route variant found for line {line_id} direction {direction_id}")
+                        continue
+
+                    # Process each vehicle
+                    for vehicle_data in vehicles_list:
+                        try:
+                            # Process the vehicle position
+                            vehicle = await process_vehicle_positions({
+                                line_id: {
+                                    direction_id: [vehicle_data]
+                                }
+                            })
+                            if vehicle:
+                                # Calculate interpolated position
+                                position = interpolate_position(vehicle[0])
+                                if position:
+                                    vehicle[0].interpolated_position = position
+                                vehicle_positions.extend(vehicle)
+                        except Exception as e:
+                            logger.error(f"Error processing vehicle on line {line_id}: {e}")
+                            continue
+
+            # Convert to v1 format
             return {
-                line: {
-                    dir_id: pos_list
-                    for dir_id, pos_list in directions.items()
-                    if dir_id != 'None' and pos_list
-                }
-                for line, directions in dict(positions).items()
-                if line != 'None'
+                "vehicles": [
+                    {
+                        "line": v.line,
+                        "direction": v.direction,
+                        "current_segment": v.current_segment,
+                        "distance_to_next": v.distance_to_next,
+                        "segment_length": v.segment_length,
+                        "is_valid": v.is_valid,
+                        "interpolated_position": v.interpolated_position,
+                        "bearing": v.bearing,
+                        "shape_segment": v.shape_segment,
+                        "raw_data": v.raw_data
+                    }
+                    for v in vehicle_positions
+                ]
             }
             
     except Exception as e:
         logger.error(f"Error fetching vehicle positions: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return {}
+        return {"vehicles": []}
 
 def normalize_stop_id(stop_id: str) -> str:
     """Remove any suffix (letters) from a stop ID.
@@ -665,8 +716,8 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                 destination_data = {'fr': str(destination_data)}
                             
                             # Select display name using language precedence
-                            selected_destination = select_language(destination_data)
-                            destination, _ = selected_destination['content']
+                            selected_destination,_metadata = select_language(content=destination_data, provider_languages=AVAILABLE_LANGUAGES)
+                            destination = selected_destination
                             
                             # For monitored stops, check if this line is monitored
                             if current_stop_id in monitored_stops:
@@ -712,7 +763,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                     "message": passing_time.get('message', ''),
                                     "formatted_time": arrival_dt.strftime("%H:%M"),
                                     "_metadata": {
-                                        "language": selected_destination['_metadata']
+                                        "language": _metadata['language']
                                     }
                                 })
                             except (ValueError, TypeError) as e:

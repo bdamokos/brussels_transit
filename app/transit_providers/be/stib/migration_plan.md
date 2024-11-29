@@ -133,32 +133,49 @@
 
         - [ ] Implementation phase:
             1. Port Core Functions:
-               - [ ] Copy locate_vehicles.py to stib/locate_vehicles.py
-               - [ ] Update imports to use provider paths
-               - [ ] Keep all geometric calculations unchanged
+               - [x] Copy locate_vehicles.py to stib/locate_vehicles.py
+               - [x] Copy validate_stops.py to stib/validate_stops.py
+               - [x] Copy routes.py to stib/routes.py
+               - [x] Update imports to use provider paths
+               - [x] Update logger names to use stib.* prefix
 
             2. Update v2 API:
-               - [ ] Modify get_vehicle_positions to use VehiclePosition
-               - [ ] Add terminus mapping
-               - [ ] Add route variant lookup
-               - [ ] Add position interpolation
+               - [ ] Add vehicle position processing to api.py:
+                 - [ ] Import VehiclePosition and related functions
+                 - [ ] Add terminus mapping logic
+                 - [ ] Add route variant lookup
+                 - [ ] Add position interpolation
+               - [ ] Update get_vehicle_positions() to use new processing:
+                 - [ ] Convert raw API response to VehiclePosition objects
+                 - [ ] Add shape data to response
+                 - [ ] Calculate and include bearing
 
             3. Response Format:
-               - [ ] Match v1 format exactly
-               - [ ] Include all calculated fields
-               - [ ] Maintain metadata
+               - [ ] Match v1 format exactly:
+                 - [ ] Update response structure
+                 - [ ] Include all calculated fields
+                 - [ ] Maintain metadata
+               - [ ] Add tests to verify format matches
 
             4. Error Handling:
                - [ ] Keep existing validation
                - [ ] Add proper error responses
                - [ ] Maintain logging
+               - [ ] Add error handling tests
 
-   - [x] Fix messages endpoint (NoneType error)
-     - [x] Fix message parsing
-     - [x] Add line filtering
-     - [x] Add stop name lookup
-     - [x] Add error handling
-     - [x] Add tests
+Next Steps:
+1. Start implementing vehicle position processing in api.py
+2. Focus on one piece at a time:
+   - First get the basic position calculation working
+   - Then add shape data
+   - Finally add bearing calculation
+3. Add tests as we go to ensure compatibility
+
+Notes:
+- Core functions have been successfully ported
+- All geometric calculations remain unchanged
+- Logging has been properly namespaced
+- Cache directories and config remain the same
 
 2b. Regression testing for all endpoints marked as working
 

@@ -8,7 +8,7 @@ from typing import Dict, Any, Callable, Awaitable, List
 from transit_providers.config import get_provider_config
 from config import get_config
 import logging
-from transit_providers import TransitProvider
+from transit_providers import TransitProvider, register_provider
 from .gtfs import ensure_gtfs_data
 
 from .api import (
@@ -406,8 +406,7 @@ def get_stops():
 if 'stib' in get_config('ENABLED_PROVIDERS', []):
     try:
         provider = StibProvider()
-        from transit_providers import register_provider
-        register_provider('stib', provider)  # Register the provider instance
+        register_provider(provider.name, provider)
         logger.info("STIB provider registered successfully")
     except Exception as e:
         logger.error(f"Failed to register STIB provider: {e}")

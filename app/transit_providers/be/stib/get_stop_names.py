@@ -10,7 +10,7 @@ from logging.config import dictConfig
 from transit_providers.config import get_provider_config
 from config import get_config
 from utils import select_language
-from gtfs import ensure_gtfs_data
+from .gtfs import ensure_gtfs_data
 import csv
 
 # Get configuration
@@ -25,7 +25,7 @@ GTFS_DIR = provider_config.get('GTFS_DIR')
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)
 dictConfig(logging_config)
-
+language_precedence = get_config('LANGUAGE_PRECEDENCE')
 # Get logger
 logger = logging.getLogger('stib.get_stop_names')
 
@@ -225,16 +225,14 @@ def get_stop_names(stop_ids, preferred_language=None):
         })
         
         # Apply language selection
-        name_with_metadata = select_language(
-            stop_data['names'],
-            preferred_language=preferred_language
-        )
+        
+        name_with_metadata, _metadata = select_language(content=stop_data['names'], provider_languages=language_precedence, requested_language=preferred_language)
         
         result[stop_id] = {
-            'name': name_with_metadata['content'],
+            'name': name_with_metadata,
             'coordinates': stop_data['coordinates'],
             '_metadata': {
-                'language': name_with_metadata['_metadata']['language'],
+                'language': _metadata['language'],
                 'source': stop_data.get('_metadata', {}).get('source', 'fallback'),
                 'trans_id': stop_data.get('_metadata', {}).get('trans_id')
             }
