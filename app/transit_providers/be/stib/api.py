@@ -11,7 +11,7 @@ from pathlib import Path
 from dataclasses import asdict
 
 import pytz
-from utils import RateLimiter, get_client, select_language
+from utils import RateLimiter, get_client, select_language, matches_destination
 from dataclasses import dataclass
 from collections import defaultdict
 from get_stop_names import get_stop_names
@@ -659,22 +659,32 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                     
                     for passing_time in passing_times:
                         try:
-                            # Get destination from passing time data
-                            destination = passing_time.get('destination', {})
-                            if isinstance(destination, dict):
-                                destination = destination.get('fr', 'Unknown')
-                            elif isinstance(destination, str):
-                                destination = destination
-                            else:
-                                logger.warning(f"Invalid destination format for stop {response_stop_id}, line {line}")
-                                destination = 'Unknown'
+                            # Get destination with all language versions
+                            destination_data = passing_time.get('destination', {})
+                            if not isinstance(destination_data, dict):
+                                destination_data = {'fr': str(destination_data)}
+                            
+                            # Select display name using language precedence
+                            selected_destination = select_language(destination_data)
+                            destination, _ = selected_destination['content']
                             
                             # For monitored stops, check if this line is monitored
-                            # But don't filter by destination to allow all destinations for the line
                             if current_stop_id in monitored_stops:
                                 stop_config = monitored_stops[current_stop_id]
-                                if line not in stop_config.get('lines', {}):
+                                allowed_lines = stop_config.get('lines', {})
+                                
+                                if line not in allowed_lines:
                                     logger.debug(f"Skipping line {line} for monitored stop {response_stop_id} - not in config")
+                                    continue
+                                
+                                # Check if this destination is allowed for this line
+                                allowed_destinations = allowed_lines[line]
+                                if allowed_destinations and not any(matches_destination(allowed_dest, destination_data) 
+                                                                  for allowed_dest in allowed_destinations):
+                                    logger.warning(
+                                        f"Unexpected destination '{destination}' for line {line} at stop {response_stop_id} "
+                                        f"(configured destinations: {allowed_destinations})"
+                                    )
                                     continue
                             
                             # Initialize line data if needed
@@ -697,9 +707,13 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                 
                                 formatted_data["stops_data"][response_stop_id]["lines"][line][destination].append({
                                     "destination": destination,
+                                    "destination_data": destination_data,  # Keep all language versions
                                     "minutes": minutes,
                                     "message": passing_time.get('message', ''),
-                                    "formatted_time": arrival_dt.strftime("%H:%M")
+                                    "formatted_time": arrival_dt.strftime("%H:%M"),
+                                    "_metadata": {
+                                        "language": selected_destination['_metadata']
+                                    }
                                 })
                             except (ValueError, TypeError) as e:
                                 logger.error(f"Error parsing time {expected_time} for stop {response_stop_id}, line {line}: {e}")

@@ -722,19 +722,23 @@ async def get_next_buses():
                         if str(passing_time.get('lineId')) != line:
                             continue
                         
-                        # Get destination
+                        # Get destination with all language versions
                         destination_data = passing_time.get('destination', {})
-                        destination = destination_data.get('fr', 'Unknown')
                         
+                        # For backward compatibility and logging
+                        destination = destination_data.get('fr', 'Unknown')
+
                         # Check if this destination is unexpected for this line
                         if (allowed_lines and line in allowed_lines and 
                             allowed_lines[line] and 
-                            destination not in allowed_lines[line]):
+                            not any(matches_destination(allowed_dest, destination_data) 
+                                   for allowed_dest in allowed_lines[line])):
                             logger.warning(
                                 f"Unexpected destination '{destination}' for line {line} at stop {stop_id} "
                                 f"(configured destinations: {allowed_lines[line]})"
                             )
-                        
+                            continue
+
                         # Get message if it exists
                         message = ''
                         if isinstance(passing_time.get('message'), dict):
@@ -1280,6 +1284,26 @@ def _describe_structure(obj, max_depth=3, current_depth=0):
         return "null"
     else:
         return type(obj).__name__
+
+def matches_destination(configured_name: str, destination_data: dict) -> bool:
+    """
+    Check if a configured destination name matches any language version of the actual destination.
+    
+    Args:
+        configured_name: The destination name from config (e.g., "STOCKEL")
+        destination_data: Multilingual destination data (e.g., {"fr": "STOCKEL", "nl": "STOKKEL"})
+        
+    Returns:
+        bool: True if the configured name matches any language version
+    """
+    if not destination_data or not isinstance(destination_data, dict):
+        return False
+        
+    # Normalize names for comparison (uppercase)
+    configured_name = configured_name.upper()
+    destination_values = [str(v).upper() for v in destination_data.values()]
+    
+    return configured_name in destination_values
 
 if __name__ == '__main__':
     app.debug = True

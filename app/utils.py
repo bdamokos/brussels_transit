@@ -190,3 +190,23 @@ def select_language(content, provider_languages, requested_language=None):
         }
     }
 
+def matches_destination(configured_name: str, destination_data: dict) -> bool:
+    """
+    Check if a configured destination name matches any language version of the actual destination.
+    
+    Args:
+        configured_name: The destination name from config (e.g., "STOCKEL")
+        destination_data: Multilingual destination data (e.g., {"fr": "STOCKEL", "nl": "STOKKEL"})
+        
+    Returns:
+        bool: True if the configured name matches any language version
+    """
+    if not destination_data or not isinstance(destination_data, dict):
+        return False
+        
+    # Normalize names for comparison (uppercase)
+    configured_name = configured_name.upper()
+    destination_values = [str(v).upper() for v in destination_data.values()]
+    
+    return configured_name in destination_values
+

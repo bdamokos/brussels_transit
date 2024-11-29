@@ -101,30 +101,49 @@
    - Test cache updates when new translations become available
    - Test cache persistence across restarts
 
-## Current Status (2024-11-28)
+## Current Status (2024-01-XX)
 
 1. Implemented Features:
    - Complete name resolution chain in get_stop_names.py
    - Metadata tracking for name sources and translations
    - Backward compatibility with v1 API
    - GTFS translation integration
+   - Destination name matching across languages:
+     - Added `matches_destination()` in utils.py
+     - Updated both v1 (main.py) and v2 (stib/api.py) APIs
+     - Proper language selection using precedence order
+     - Full metadata tracking for language selection
 
 2. Next Steps:
-   - Implement comprehensive test suite
-   - Add more logging for debugging language selection
-   - Document the new name resolution process
-   - Consider adding language stats collection for monitoring
+   - Test the destination matching with real-world data:
+     - Stops with different names in fr/nl (e.g., "GARE DE L'OUEST"/"WESTSTATION")
+     - Configured stops using non-preferred language names
+     - Edge cases like missing translations or API errors
+   - Add tests for language selection and matching:
+     - Test different language precedence orders
+     - Test fallback behavior
+     - Test metadata accuracy
+   - Document the new features:
+     - Update README with language configuration
+     - Add examples of multilingual stop/destination configuration
+     - Document metadata structure and usage
 
 3. Open Questions:
-   - How to handle conflicting translations between API and GTFS?
-   - Should we cache GTFS translations separately?
-   - How to handle dynamic language updates?
+   - Should we cache the language versions of destinations for faster matching?
+   - Do we need to handle any special cases for De Lijn integration?
+   - Should we add statistics collection for language usage?
 
-Note: Need to test thoroughly with real-world data, especially:
-- Stops with different names in fr/nl
-- GTFS translation accuracy
-- API response variations
-- Cache consistency
+4. Validation Needed:
+   - Verify that the language precedence is correctly followed
+   - Check that destination matching works with all name variants
+   - Ensure backward compatibility is maintained
+   - Test performance with large numbers of stops/destinations
+
+Note: The implementation now properly handles cases like:
+- Configuring "WESTSTATION" but getting "GARE DE L'OUEST" in API response
+- Following language precedence when selecting display names
+- Preserving all language versions in the response
+- Providing clear metadata about language selection and fallbacks
 
 ## API Investigation Findings
 
