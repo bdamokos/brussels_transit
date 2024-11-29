@@ -22,7 +22,7 @@ from transit_providers.nearest_stop import (
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
 from .stop_coordinates import get_stop_coordinates as get_stop_coordinates_with_fallback
-from .locate_vehicles import process_vehicle_positions, interpolate_position, VehiclePosition
+from .locate_vehicles import process_vehicle_positions, interpolate_position, VehiclePosition, validate_segment
 from .validate_stops import validate_line_stops, load_route_shape
 
 # Setup logging using configuration
@@ -407,14 +407,39 @@ routes_cache = {
 }
 
 
-async def get_vehicle_positions():
-    """Get real-time vehicle positions from STIB API"""
+async def get_vehicle_positions(line: str = None, direction: str = None):
+    """Get real-time vehicle positions from STIB API
+    
+    Args:
+        line: Optional line number to filter results
+        direction: Optional direction to filter results
+        
+    Returns:
+        Dictionary containing vehicle positions in the format:
+        {
+            "vehicles": [
+                {
+                    "line": "55",
+                    "direction": "1",
+                    "current_segment": ["8122", "8032"],
+                    "distance_to_next": 100,
+                    "segment_length": 500,
+                    "is_valid": true,
+                    "interpolated_position": [50.8, 4.3],
+                    "bearing": 45
+                }
+            ]
+        }
+    """
     try:
-        # Filter for our monitored lines
-        monitored_lines = set()
-        for stop in STIB_STOPS:
-            if 'lines' in stop:
-                monitored_lines.update(stop['lines'])
+        # Get monitored lines from config if no specific line is requested
+        if line:
+            monitored_lines = {str(line)}
+        else:
+            monitored_lines = set()
+            for stop in STIB_STOPS:
+                if 'lines' in stop:
+                    monitored_lines.update(str(l) for l in stop['lines'])
         
         # The correct filter syntax for the API
         lines_filter = " or ".join([f'lineid="{line}"' for line in monitored_lines])
@@ -452,12 +477,16 @@ async def get_vehicle_positions():
                     vehicle_positions = json.loads(record.get('vehiclepositions', '[]'))
                     
                     for position in vehicle_positions:
-                        direction = str(position.get('directionId'))
+                        vehicle_direction = str(position.get('directionId'))
+                        # Skip if direction doesn't match (if specified)
+                        if direction and vehicle_direction != direction:
+                            continue
+                            
                         point_id = str(position.get('pointId'))
                         distance = position.get('distanceFromPoint')
                         
                         # Skip invalid data
-                        if not all([direction, point_id]) or distance is None:
+                        if not all([vehicle_direction, point_id]) or distance is None:
                             continue
                         
                         position_data = {
@@ -465,8 +494,8 @@ async def get_vehicle_positions():
                             'next_stop': point_id
                         }
                         
-                        positions[line_id][direction].append(position_data)
-                        logger.debug(f"Added position data for line {line_id} ({direction}): {position_data}")
+                        positions[line_id][vehicle_direction].append(position_data)
+                        logger.debug(f"Added position data for line {line_id} ({vehicle_direction}): {position_data}")
                     
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
                     logger.error(f"Error processing vehicle position for line {line_id}: {e}")
@@ -484,11 +513,17 @@ async def get_vehicle_positions():
                 # Process each direction's vehicles
                 for direction_id, vehicles_list in directions.items():
                     # Find the route variant for this direction
+                    # First try to find a variant where this direction ID is the terminus
                     variant = next(
                         (v for v in variants 
-                         if any(stop['id'] == direction_id for stop in v.stops)),
+                         if v.stops and v.stops[-1]['id'].rstrip('FG') == direction_id.rstrip('FG')),
                         None
                     )
+                    
+                    # If not found, try the other variant (assuming 2 variants per line)
+                    if not variant and len(variants) > 0:
+                        variant = variants[0]  # Use first variant
+                        
                     if not variant:
                         logger.error(f"No route variant found for line {line_id} direction {direction_id}")
                         continue
@@ -496,18 +531,43 @@ async def get_vehicle_positions():
                     # Process each vehicle
                     for vehicle_data in vehicles_list:
                         try:
-                            # Process the vehicle position
-                            vehicle = await process_vehicle_positions({
-                                line_id: {
-                                    direction_id: [vehicle_data]
-                                }
-                            })
-                            if vehicle:
-                                # Calculate interpolated position
-                                position = interpolate_position(vehicle[0])
+                            next_stop = vehicle_data['next_stop'].rstrip('FG')
+                            
+                            # Find the stop in the variant's stop list
+                            stop_index = next(
+                                (i for i, stop in enumerate(variant.stops)
+                                 if stop['id'].rstrip('FG') == next_stop),
+                                None
+                            )
+                            if stop_index is None:
+                                logger.error(f"Stop {next_stop} not found in variant for line {line_id}")
+                                continue
+                                
+                            # Get the next stop in the sequence
+                            if stop_index + 1 < len(variant.stops):
+                                next_stop_obj = variant.stops[stop_index + 1]
+                                next_stop_id = next_stop_obj['id']
+                                
+                                # Get the current stop and next stop
+                                from_stop = variant.stops[stop_index]
+                                to_stop = variant.stops[stop_index + 1]
+                                
+                                # Create VehiclePosition object using validate_segment
+                                position = validate_segment(
+                                    from_stop=from_stop,
+                                    to_stop=to_stop,
+                                    line=line_id,
+                                    direction=variant.direction,  # Use City/Suburb from variant
+                                    distance_to_next=vehicle_data['distance'],
+                                    route_variant=variant,
+                                    raw_data=vehicle_data
+                                )
+                                
                                 if position:
-                                    vehicle[0].interpolated_position = position
-                                vehicle_positions.extend(vehicle)
+                                    vehicle_positions.append(position)
+                            else:
+                                logger.warning(f"Vehicle at terminal stop {next_stop} on line {line_id}")
+                                
                         except Exception as e:
                             logger.error(f"Error processing vehicle on line {line_id}: {e}")
                             continue

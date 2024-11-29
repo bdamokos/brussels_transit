@@ -93,9 +93,14 @@ async def validate_line_stops(line):
     try:
         # Get route data
         route_data = await get_route_data(line)
+        logger.debug(f"Got route data for line {line}: {route_data}")
         if not route_data or line not in route_data:
             logger.error(f"No route data found for line {line}")
             return []
+
+        # Load stops data with coordinates
+        stops_data = load_stops_data()
+        logger.debug(f"Loaded stops data with {len(stops_data)} stops")
 
         variants = []
         for variant in route_data[line]:
@@ -108,16 +113,41 @@ async def validate_line_stops(line):
                 direction = variant.get('direction', 'Unknown')
                 destination = variant.get('destination', {'fr': 'Unknown'})
                 
+                logger.debug(f"Processing variant for line {line}:")
+                logger.debug(f"  Direction: {direction}")
+                logger.debug(f"  Destination: {destination}")
+                logger.debug(f"  Stops: {stops}")
+                
+                # Add coordinates to stops
+                for stop in stops:
+                    stop_id = stop['id']
+                    # Try with and without F/G suffix
+                    base_id = stop_id.rstrip('FG')
+                    if base_id in stops_data:
+                        stop['coordinates'] = stops_data[base_id]['coordinates']
+                        stop['name'] = stops_data[base_id].get('name', stop_id)  # Use stop ID as fallback name
+                    elif stop_id in stops_data:
+                        stop['coordinates'] = stops_data[stop_id]['coordinates']
+                        stop['name'] = stops_data[stop_id].get('name', stop_id)  # Use stop ID as fallback name
+                    else:
+                        logger.warning(f"No coordinates found for stop {stop_id}")
+                        stop['coordinates'] = {'lat': None, 'lon': None}
+                        stop['name'] = stop_id  # Use stop ID as name if not found
+                
+                # Create a variant for this direction
                 variants.append(RouteVariant(
                     line=line,
-                    direction=direction,
+                    direction=direction,  # Use City/Suburb directly
                     destination=destination,
                     stops=stops
                 ))
+                logger.debug(f"Added variant for direction {direction}")
+                
             except Exception as e:
                 logger.error(f"Error processing variant for line {line}: {e}")
                 continue
                 
+        logger.debug(f"Returning {len(variants)} variants for line {line}")
         return variants
         
     except Exception as e:
@@ -145,10 +175,11 @@ def load_route_shape(line: str, direction: str = None) -> List[List[float]]:
         variant = None
         
         if direction:
+            # Variant 1 is City, Variant 2 is Suburb
             variant = next(
                 (v for v in variants if 
-                 (v['variante'] == 2 and direction == 'City') or
-                 (v['variante'] == 1 and direction == 'Suburb')),
+                 (v['variante'] == 1 and direction == 'City') or
+                 (v['variante'] == 2 and direction == 'Suburb')),
                 None
             )
         else:

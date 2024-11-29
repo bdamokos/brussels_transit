@@ -134,6 +134,18 @@ def find_stop_in_shape(stop_coords: Tuple[float, float],
         return best_idx
     return None
 
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the bearing between two points in degrees"""
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    
+    dlon = lon2 - lon1
+    y = sin(dlon) * cos(lat2)
+    x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon)
+    bearing = degrees(math.atan2(y, x))
+    
+    # Convert to 0-360 range
+    return (bearing + 360) % 360
+
 def validate_segment(from_stop: Stop, 
                     to_stop: Stop, 
                     line: str,
@@ -157,7 +169,7 @@ def validate_segment(from_stop: Stop,
             not isinstance(from_stop['coordinates'], dict) or
             not to_stop.get('coordinates') or 
             not isinstance(to_stop['coordinates'], dict)):
-            logger.error(f"Missing coordinates for stops: from={from_stop.get('name')}, to={to_stop.get('name')}")
+            logger.error(f"Missing coordinates for stops: from={from_stop.get('id')}, to={to_stop.get('id')}")
             return None
 
         # Validate lat/lon values exist
@@ -179,7 +191,7 @@ def validate_segment(from_stop: Stop,
         to_idx = find_stop_in_shape(to_coords, shape_coords)
         
         if from_idx is None or to_idx is None:
-            logger.error(f"Could not locate stops in shape: {from_stop['name']} or {to_stop['name']}")
+            logger.error(f"Could not locate stops in shape: {from_stop.get('id')} ({from_stop.get('name', 'Unknown')}) or {to_stop.get('id')} ({to_stop.get('name', 'Unknown')})")
             return None
         
         # Ensure correct order
@@ -200,29 +212,45 @@ def validate_segment(from_stop: Stop,
             logger.warning(
                 f"Reported distance ({distance_to_next:.0f}m) is significantly greater than "
                 f"segment length ({segment_length:.0f}m) between "
-                f"{from_stop['name']} and {to_stop['name']}"
+                f"{from_stop.get('id')} ({from_stop.get('name', 'Unknown')}) and {to_stop.get('id')} ({to_stop.get('name', 'Unknown')})"
             )
         
-        return VehiclePosition(
+        # Create vehicle position object
+        position = VehiclePosition(
             line=line,
             direction=direction,
             current_segment=(from_stop['id'], to_stop['id']),
             distance_to_next=min(distance_to_next, segment_length),  # Cap the distance
             segment_length=segment_length,
+            is_valid=is_valid,
             shape_segment=shape_segment,
             raw_data=raw_data
         )
+        
+        # Calculate interpolated position and bearing
+        interpolated = interpolate_position(position)
+        if interpolated:
+            position.interpolated_position = interpolated
+            # Calculate bearing from interpolated position to next point in shape
+            next_point = shape_segment[1] if len(shape_segment) > 1 else shape_segment[0]
+            position.bearing = calculate_bearing(
+                interpolated[0], interpolated[1],  # lat, lon of interpolated position
+                next_point[1], next_point[0]      # lat, lon of next point (swapped from [lon, lat])
+            )
+        
+        return position
+        
     except Exception as e:
         import traceback
         logger.error(f"Error validating segment: {str(e)}")
         logger.error(f"Full traceback:\n{traceback.format_exc()}")
         logger.error(f"Input data:")
-        logger.error(f"  From stop: {from_stop['name']} (ID: {from_stop['id']}) at {from_stop['coordinates']}")
-        logger.error(f"  To stop: {to_stop['name']} (ID: {to_stop['id']}) at {to_stop['coordinates']}")
+        logger.error(f"  From stop: {from_stop.get('id')} ({from_stop.get('name', 'Unknown')}) at {from_stop.get('coordinates')}")
+        logger.error(f"  To stop: {to_stop.get('id')} ({to_stop.get('name', 'Unknown')}) at {to_stop.get('coordinates')}")
         logger.error(f"  Distance to next: {distance_to_next}m")
         logger.error(f"  Line: {line}, Direction: {direction}")
         logger.error(f"  Shape coords length: {len(shape_coords)}")
-        logger.error(f"  Found indices: from_idx={from_idx}, to_idx={to_idx}")
+        logger.error(f"  Found indices: from_idx={from_idx if 'from_idx' in locals() else 'N/A'}, to_idx={to_idx if 'to_idx' in locals() else 'N/A'}")
         logger.error(f"  Raw vehicle data: {raw_data}")
         return None
 
@@ -293,150 +321,96 @@ async def get_terminus_stops(line: str) -> Dict[str, Terminus]:
     return terminus_map
 
 
-async def process_vehicle_positions(positions_data: Dict) -> List[VehiclePosition]:
-    """Process raw vehicle positions data into Vehicle objects"""
-    vehicles = []
+async def process_vehicle_positions(positions_data):
+    """Process vehicle positions data into VehiclePosition objects"""
+    vehicle_positions = []
     
-    for line, directions in positions_data.items():
-        try:
-            # Get terminus data for this line
-            terminus_data = await get_terminus_stops(line)
-            logger.debug(f"\nLine {line}:")
-            
-            # Get route variants for this line
-            route_variants = await validate_line_stops(line)
-            if not route_variants:
-                logger.error(f"No route variants found for line {line}")
-                continue
-                
-            # Process each direction's vehicles
-            for terminus_id, vehicles_list in directions.items():
-                # Try to determine direction from terminus data
-                terminus_info = terminus_data.get(terminus_id)
-                direction = None
-                
-                if terminus_info:
-                    logger.debug(f"  Terminus: {terminus_info.stop_name} (ID: {terminus_info.stop_id})")
-                    logger.debug(f"  Heading to: {terminus_info.destination['fr']}")
-                    direction = terminus_info.direction
-                else:
-                    # If terminus not found, try to determine direction from next stops
-                    for vehicle_data in vehicles_list:
-                        next_stop = vehicle_data['next_stop']
-                        # First try with original stop ID
-                        for variant in route_variants:
-                            if any(stop['id'] == next_stop for stop in variant.stops):
-                                direction = variant.direction
-                                break
-                                
-                        # If not found, try with suffixes
-                        if not direction:
-                            for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']:
-                                next_stop_with_suffix = f"{next_stop}{suffix}"
-                                for variant in route_variants:
-                                    if any(stop['id'] == next_stop_with_suffix for stop in variant.stops):
-                                        direction = variant.direction
-                                        break
-                                if direction:
-                                    break
-                                    
-                        if direction:
-                            break
-                    
-                    if not direction:
-                        logger.warning(f"Unknown direction for terminus. "
-                                     f"Terminus ID: {terminus_id}. "
-                                     f"Available terminus data: {terminus_data}. "
-                                     f"Line {line} direction data: {directions}")
-                        continue
-                # Process vehicles for this direction
-                for vehicle_data in vehicles_list:
-                    next_stop_id = vehicle_data['next_stop']
-                    
-                    # Find the route variant containing this stop
-                    route_variant = None
-                    # Try finding route variant with original stop ID
-                    for variant in route_variants:
-                        if any(stop['id'] == next_stop_id for stop in variant.stops):
-                            route_variant = variant
-                            break
-                            
-                    # If not found, try with suffixes
-                    if not route_variant:
-                        suffixes = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-                        for suffix in suffixes:
-                            stop_id_with_suffix = f"{next_stop_id}{suffix}"
-                            for variant in route_variants:
-                                if any(stop['id'] == stop_id_with_suffix for stop in variant.stops):
-                                    route_variant = variant
-                                    break
-                            if route_variant:
-                                break
-                    
-                    if not route_variant:
-                        logger.error(f"No route variant found containing stop {next_stop_id} (or with suffixes) for line {line}")
-                        continue
-                        
-                    try:
-                        # Try original ID first
-                        try:
-                            next_stop_index = next(
-                                i for i, stop in enumerate(route_variant.stops)
-                                if stop['id'] == next_stop_id
-                            )
-                        except StopIteration:
-                            # Try with suffixes
-                            found = False
-                            for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']:
-                                try:
-                                    next_stop_index = next(
-                                        i for i, stop in enumerate(route_variant.stops)
-                                        if stop['id'] == f"{next_stop_id}{suffix}"
-                                    )
-                                    found = True
-                                    break
-                                except StopIteration:
-                                    continue
-                            if not found:
-                                raise StopIteration(f"Stop {next_stop_id} not found with any suffix")
-                        
-                        if next_stop_index > 0:
-                            from_stop = route_variant.stops[next_stop_index - 1]
-                            to_stop = route_variant.stops[next_stop_index]
-                            
-                            # Load shape coordinates
-                            shape_coords = load_route_shape(line)
-                            
-
-                            # Create vehicle position
-                            vehicle = validate_segment(
-                                from_stop=from_stop,
-                                to_stop=to_stop,
-                                line=line,
-                                direction=direction,
-                                distance_to_next=vehicle_data['distance'],
-                                route_variant=route_variant,
-                                next_stop_coords=to_stop['coordinates'],
-                                raw_data=vehicle_data
-                            )
-                            
-                            if vehicle:
-                                vehicles.append(vehicle)
-                                
-                    except StopIteration:
-                        logger.error(f"Next stop {next_stop_id} not found in route stop list")
-                        continue
-                    except Exception as e:
-                        logger.error(f"Error processing vehicle: {str(e)}")
-                        continue
-                    
-        except Exception as e:
-            logger.error(f"Error processing line {line}: {str(e)}")
-            import traceback
-            logger.error(f"Error processing line {line}: {traceback.format_exc()}")
+    for line_id, directions in positions_data.items():
+        # Get route variants for this line
+        variants = await validate_line_stops(line_id)
+        logger.debug(f"Got {len(variants)} route variants for line {line_id}")
+        if not variants:
+            logger.error(f"No route variants found for line {line_id}")
             continue
             
-    return vehicles
+        # Create a mapping of stop IDs to directions
+        stop_to_direction = {}
+        direction_to_stops = {}
+        for variant in variants:
+            direction = variant.direction if hasattr(variant, 'direction') else variant['direction']
+            stops = variant.stops if hasattr(variant, 'stops') else variant['stops']
+            logger.debug(f"Processing variant with direction {direction} and {len(stops)} stops")
+            direction_to_stops[direction] = set()
+            for stop in stops:
+                stop_id = stop['id'] if isinstance(stop, dict) else stop.id
+                # Remove F/G suffixes for matching
+                stop_id = stop_id.rstrip('FG')
+                stop_to_direction[stop_id] = direction
+                direction_to_stops[direction].add(stop_id)
+                
+        logger.debug(f"Stop to direction mapping: {stop_to_direction}")
+        logger.debug(f"Direction to stops mapping: {direction_to_stops}")
+                
+        # Process each direction's vehicles
+        for direction_id, vehicles_list in directions.items():
+            # Find the route variant for this direction
+            variant = next(
+                (v for v in variants 
+                 if (hasattr(v, 'direction') and v.direction == direction_id) or
+                    (isinstance(v, dict) and v['direction'] == direction_id)),
+                None
+            )
+            if not variant:
+                logger.error(f"No route variant found for line {line_id} direction {direction_id}")
+                continue
+                
+            # Get stops list, handling both object and dict formats
+            stops = variant.stops if hasattr(variant, 'stops') else variant['stops']
+            
+            # Process each vehicle
+            for vehicle_data in vehicles_list:
+                try:
+                    next_stop = vehicle_data['next_stop'].rstrip('FG')
+                    
+                    # Find the stop in the variant's stop list
+                    stop_index = next(
+                        (i for i, stop in enumerate(stops)
+                         if (isinstance(stop, dict) and stop['id'].rstrip('FG') == next_stop) or
+                            (hasattr(stop, 'id') and stop.id.rstrip('FG') == next_stop)),
+                        None
+                    )
+                    if stop_index is None:
+                        logger.error(f"Stop {next_stop} not found in variant for line {line_id}")
+                        continue
+                        
+                    # Get the next stop in the sequence
+                    if stop_index + 1 < len(stops):
+                        next_stop_obj = stops[stop_index + 1]
+                        next_stop_id = next_stop_obj['id'] if isinstance(next_stop_obj, dict) else next_stop_obj.id
+                        current_segment = [next_stop, next_stop_id]
+                        
+                        # Create VehiclePosition object
+                        position = VehiclePosition(
+                            line=line_id,
+                            direction=direction_id,
+                            current_segment=current_segment,
+                            distance_to_next=vehicle_data['distance'],
+                            segment_length=None,  # Will be calculated later if needed
+                            is_valid=True,
+                            interpolated_position=None,  # Will be calculated later
+                            bearing=None,  # Will be calculated later
+                            shape_segment=None,  # Will be calculated later
+                            raw_data=vehicle_data
+                        )
+                        vehicle_positions.append(position)
+                    else:
+                        logger.warning(f"Vehicle at terminal stop {next_stop} on line {line_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing vehicle on line {line_id}: {e}")
+                    continue
+                    
+    return vehicle_positions
 
 
 def interpolate_position(vehicle: VehiclePosition) -> Optional[Tuple[float, float]]:
@@ -478,23 +452,6 @@ def interpolate_position(vehicle: VehiclePosition) -> Optional[Tuple[float, floa
     last_point = vehicle.shape_segment[-1]
     return (last_point[1], last_point[0])  # Return last point instead of None
 
-
-def calculate_bearing(lat1, lon1, lat2, lon2):
-    """Calculate the bearing between two points."""
-    # Convert to radians
-    lat1 = math.radians(lat1)
-    lon1 = math.radians(lon1)
-    lat2 = math.radians(lat2)
-    lon2 = math.radians(lon2)
-    
-    # Calculate bearing
-    d_lon = lon2 - lon1
-    y = math.sin(d_lon) * math.cos(lat2)
-    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(d_lon)
-    bearing = math.degrees(math.atan2(y, x))
-    
-    # Normalize to 0-360
-    return (bearing + 360) % 360
 
 if __name__ == "__main__":
     # Example vehicle positions data

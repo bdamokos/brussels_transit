@@ -299,26 +299,71 @@ def match_stops_to_variants(shapes: Dict, stops_by_direction: Dict) -> Dict:
     
     return result
 
-async def get_route_data(line: str) -> Dict:
-    """Get complete route data including shapes and stops"""
-    shapes = await get_route_shape(line)
-    stops_by_direction = await get_stops_for_line(line)
+async def get_route_data(line: str) -> Dict[str, List[Dict]]:
+    """Get route data for a line, including stops and destinations"""
+    url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/stops-by-line-production/records"
+    params = {
+        'where': f'lineid={line}',
+        'limit': 20,
+        'apikey': API_KEY
+    }
     
-    # Get all unique stop IDs from both directions
-    all_stop_ids = set()
-    for direction_data in stops_by_direction.values():
-        for stop in direction_data.get('stops', []):
-            all_stop_ids.add(stop['id'])
-    
-    # Get stop details using existing function
-    stop_details = get_stop_names(list(all_stop_ids))
-    
-    # Add stop details to the data structure
-    for direction, direction_data in stops_by_direction.items():
-        for stop in direction_data.get('stops', []):
-            stop_id = stop['id']
-            if stop_id in stop_details:
-                stop['name'] = stop_details[stop_id]['name']
-                stop['coordinates'] = stop_details[stop_id]['coordinates']
-    
-    return {line: match_stops_to_variants({line: shapes}, stops_by_direction)[line]}
+    try:
+        async with await get_client() as client:
+            response = await client.get(url, params=params)
+            # Update rate limits from response headers
+            rate_limiter.update_from_headers(response.headers)
+            
+            data = response.json()
+            logger.debug(f"Got API response for line {line}: {data}")
+            
+            variants = []
+            for route in data['results']:
+                try:
+                    destination = json.loads(route['destination'])
+                    points = json.loads(route['points'])
+                    direction = route['direction']
+                    
+                    logger.debug(f"Processing route variant:")
+                    logger.debug(f"  Direction: {direction}")
+                    logger.debug(f"  Destination: {destination}")
+                    logger.debug(f"  Points: {points}")
+                    
+                    # Create a list of stops with their order
+                    stops = []
+                    for point in points:
+                        stop_id = point['id']
+                        order = point['order']
+                        stops.append({
+                            'id': stop_id,
+                            'order': order
+                        })
+                    
+                    # Sort stops by order
+                    stops.sort(key=lambda x: x['order'])
+                    
+                    # Create variant data
+                    variant = {
+                        'direction': direction,
+                        'destination': destination,
+                        'stops': stops
+                    }
+                    variants.append(variant)
+                    logger.debug(f"Added variant with {len(stops)} stops")
+                    
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"Error parsing route data for line {line}: {e}")
+                    continue
+            
+            if variants:
+                logger.debug(f"Returning {len(variants)} variants for line {line}")
+                return {line: variants}
+            else:
+                logger.error(f"No valid route data found for line {line}")
+                return {}
+                
+    except Exception as e:
+        logger.error(f"Error getting route data for line {line}: {e}")
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {}

@@ -1040,7 +1040,7 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
                     f'/api/{provider}/{ep}' for ep in available_endpoints
                 ]
             }), 404
-
+            
         func = provider_data.endpoints[endpoint]
 
         # Handle different endpoint types
@@ -1059,11 +1059,15 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
             else:
                 return jsonify({'error': f'Stop ID required for {endpoint} endpoint'}), 400
         elif endpoint == 'vehicles':
+            # First check query parameters
+            line = request.args.get('line', param1)  # Use param1 as fallback
+            direction = request.args.get('direction', param2)  # Use param2 as fallback
+            
             # Handle line and direction
-            if param1 and param2:  # Both line and direction provided
-                result = await func(param1, param2)
-            elif param1:  # Only line provided
-                result = await func(param1)
+            if line and direction:  # Both line and direction provided
+                result = await func(line, direction)
+            elif line:  # Only line provided
+                result = await func(line)
             else:
                 result = await func()
         elif endpoint in ['route', 'colors']:
