@@ -70,14 +70,88 @@
        - [x] Log data parsing issues
        - [x] Log when stops/lines are not found
    - [ ] Align vehicle positions format with v1
-        - [ ] Analysis phase:
-            - [ ] Check raw STIB response
-            - [ ] Check v1 response
-            - [ ] Check DeLijn response
-            - [ ] Check frontend expectation
-        - [ ] Document findings in the migration plan, and document code where needed
+        - [x] Analysis phase:
+            - [x] Raw STIB API Response:
+                ```json
+                {
+                  "results": [{
+                    "lineid": "10",
+                    "vehiclepositions": [{
+                      "directionId": "5800",     # Terminus stop ID
+                      "distanceFromPoint": 432,  # Distance in meters
+                      "pointId": "6209"          # Next stop ID
+                    }]
+                  }]
+                }
+                ```
+
+            - [x] Processing Chain:
+                1. `get_vehicle_positions()` in main.py/stib/api.py:
+                   - Fetches raw data from STIB API
+                   - Groups by line and direction
+                   - Basic validation
+
+                2. `process_vehicle_positions()` in locate_vehicles.py:
+                   - Gets terminus data for direction mapping
+                   - Gets route variants for stop sequence
+                   - Validates vehicle positions
+                   - Creates VehiclePosition objects
+
+                3. `validate_segment()` in locate_vehicles.py:
+                   - Loads shape coordinates
+                   - Validates stop coordinates
+                   - Calculates segment distances
+                   - Validates reported distances
+
+                4. `interpolate_position()` in locate_vehicles.py:
+                   - Calculates actual lat/lon along shape
+                   - Computes bearing
+                   - Handles edge cases
+
+            - [x] Final v1 Response Format (from /api/data):
+                ```json
+                {
+                  "vehicles": [{
+                    "line": "55",                    # Line number as string
+                    "direction": "City",             # Mapped from terminus ID
+                    "current_segment": ["0529", "0536"],  # From, To stops
+                    "distance_to_next": 246,         # Validated distance
+                    "segment_length": 519.09,        # Actual segment length
+                    "is_valid": true,               # Based on validation
+                    "interpolated_position": [       # Calculated position
+                      50.8585931100429,             # lat
+                      4.3597654689025465            # lon
+                    ],
+                    "bearing": 4.23609,             # Calculated bearing
+                    "shape_segment": [              # Route shape segment
+                      [4.358725, 50.856233],        # Array of [lon, lat] points
+                      ...
+                    ]
+                  }]
+                }
+                ```
+
         - [ ] Implementation phase:
-            - [ ] Add vehicle positions to v2 response
+            1. Port Core Functions:
+               - [ ] Copy locate_vehicles.py to stib/locate_vehicles.py
+               - [ ] Update imports to use provider paths
+               - [ ] Keep all geometric calculations unchanged
+
+            2. Update v2 API:
+               - [ ] Modify get_vehicle_positions to use VehiclePosition
+               - [ ] Add terminus mapping
+               - [ ] Add route variant lookup
+               - [ ] Add position interpolation
+
+            3. Response Format:
+               - [ ] Match v1 format exactly
+               - [ ] Include all calculated fields
+               - [ ] Maintain metadata
+
+            4. Error Handling:
+               - [ ] Keep existing validation
+               - [ ] Add proper error responses
+               - [ ] Maintain logging
 
    - [x] Fix messages endpoint (NoneType error)
      - [x] Fix message parsing
