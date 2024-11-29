@@ -14,13 +14,12 @@
 - [x] /api/stib/waiting_times (v2)
 - [x] /api/messages (v1)
 - [x] /api/stib/messages (v2)
-
+- [x] /api/stib/vehicles (v2)
 ### Partially Working Endpoints ⚠️
-- [~] /api/stib/vehicles (v2, returns data but format differs from v1)
+
 - [~] /api/stib/colors (v2, works but needs line number handling)
 
 ### Non-working Endpoints ❌
-- [ ] /api/vehicles (v1)
 - [ ] /api/stib/realtime (v2)
 - [ ] /api/stib/static (v2)
 - [ ] /api/stib/get_stop_by_name (v2)
@@ -30,161 +29,22 @@
 
 ### Phase 1: Fix Critical Endpoints
 1. Stop Data (HIGH PRIORITY)
-   - [x] Fix /api/stib/stops endpoint
-   - [x] Fix /api/stib/stop/{id}/coordinates endpoint
-   - [x] Ensure data format matches v1
 
 1b. Regression testing for all endpoints marked as working
-   - [x] /api/static_data (v1)
-   - [x] /api/stop_names (v1)
-   - [x] /api/stop_coordinates/{id} (v1)
-   - [x] /api/stib/config (v2)
-   - [x] /api/stib/route/{id} (v2, partial - missing shapes, some stops have null coordinates)
-   - [x] /api/stib/stops (v2)
-   - [x] /api/stib/stop/{id}/coordinates (v2)
    - [ ] /api/data (v1) - test last as it depends on other endpoints
 
 2. Real-time Data (HIGH PRIORITY)
    - [x] Fix waiting times endpoint (empty array issue)
-     - [x] Filter stops using configured STIB_STOPS from config
-       - [x] Extract monitored stop IDs and line numbers
-       - [x] Only return data for monitored stops
-       - [x] Fix regression: if a stop is given as parameter, return data for that stop even if it's not monitored
-       - [x] Fix regression: if a list of stops is given as parameter, return data for all stops even if some are not monitored
-     - [x] Use stop_coordinates.py for coordinates
-     - [x] Use get_stop_names.py for stop names
-     - [x] Match v1 data structure exactly:
-       - [x] Return data under "stops_data" key
-       - [x] Match waiting times format:
-         ```json
-         {
-           "destination": "DESTINATION",
-           "formatted_time": "14:30",
-           "message": "",
-           "minutes": 5
-         }
-         ```
-       - [x] Ensure all fields are in same order as v1
-     - [x] Add proper error handling and logging
-       - [x] Log API failures
-       - [x] Log data parsing issues
-       - [x] Log when stops/lines are not found
-   - [ ] Align vehicle positions format with v1
-        - [x] Analysis phase:
-            - [x] Raw STIB API Response:
-                ```json
-                {
-                  "results": [{
-                    "lineid": "10",
-                    "vehiclepositions": [{
-                      "directionId": "5800",     # Terminus stop ID
-                      "distanceFromPoint": 432,  # Distance in meters
-                      "pointId": "6209"          # Next stop ID
-                    }]
-                  }]
-                }
-                ```
+   - [x] Align vehicle positions format with v1
 
-            - [x] Processing Chain:
-                1. `get_vehicle_positions()` in main.py/stib/api.py:
-                   - Fetches raw data from STIB API
-                   - Groups by line and direction
-                   - Basic validation
+3.  Regression testing for all endpoints marked as working
 
-                2. `process_vehicle_positions()` in locate_vehicles.py:
-                   - Gets terminus data for direction mapping
-                   - Gets route variants for stop sequence
-                   - Validates vehicle positions
-                   - Creates VehiclePosition objects
-
-                3. `validate_segment()` in locate_vehicles.py:
-                   - Loads shape coordinates
-                   - Validates stop coordinates
-                   - Calculates segment distances
-                   - Validates reported distances
-
-                4. `interpolate_position()` in locate_vehicles.py:
-                   - Calculates actual lat/lon along shape
-                   - Computes bearing
-                   - Handles edge cases
-
-            - [x] Final v1 Response Format (from /api/data):
-                ```json
-                {
-                  "vehicles": [{
-                    "line": "55",                    # Line number as string
-                    "direction": "City",             # Mapped from terminus ID
-                    "current_segment": ["0529", "0536"],  # From, To stops
-                    "distance_to_next": 246,         # Validated distance
-                    "segment_length": 519.09,        # Actual segment length
-                    "is_valid": true,               # Based on validation
-                    "interpolated_position": [       # Calculated position
-                      50.8585931100429,             # lat
-                      4.3597654689025465            # lon
-                    ],
-                    "bearing": 4.23609,             # Calculated bearing
-                    "shape_segment": [              # Route shape segment
-                      [4.358725, 50.856233],        # Array of [lon, lat] points
-                      ...
-                    ]
-                  }]
-                }
-                ```
-
-        - [ ] Implementation phase:
-            1. Port Core Functions:
-               - [x] Copy locate_vehicles.py to stib/locate_vehicles.py
-               - [x] Copy validate_stops.py to stib/validate_stops.py
-               - [x] Copy routes.py to stib/routes.py
-               - [x] Update imports to use provider paths
-               - [x] Update logger names to use stib.* prefix
-
-            2. Update v2 API:
-               - [ ] Add vehicle position processing to api.py:
-                 - [ ] Import VehiclePosition and related functions
-                 - [ ] Add terminus mapping logic
-                 - [ ] Add route variant lookup
-                 - [ ] Add position interpolation
-               - [ ] Update get_vehicle_positions() to use new processing:
-                 - [ ] Convert raw API response to VehiclePosition objects
-                 - [ ] Add shape data to response
-                 - [ ] Calculate and include bearing
-
-            3. Response Format:
-               - [ ] Match v1 format exactly:
-                 - [ ] Update response structure
-                 - [ ] Include all calculated fields
-                 - [ ] Maintain metadata
-               - [ ] Add tests to verify format matches
-
-            4. Error Handling:
-               - [ ] Keep existing validation
-               - [ ] Add proper error responses
-               - [ ] Maintain logging
-               - [ ] Add error handling tests
-
-Next Steps:
-1. Start implementing vehicle position processing in api.py
-2. Focus on one piece at a time:
-   - First get the basic position calculation working
-   - Then add shape data
-   - Finally add bearing calculation
-3. Add tests as we go to ensure compatibility
-
-Notes:
-- Core functions have been successfully ported
-- All geometric calculations remain unchanged
-- Logging has been properly namespaced
-- Cache directories and config remain the same
-
-2b. Regression testing for all endpoints marked as working
-
-3. Route Data (MEDIUM PRIORITY)
+4. Route Data (MEDIUM PRIORITY)
    - [ ] Add shape data to route endpoint
    - [ ] Fix colors endpoint to handle single line requests
    - [ ] Standardize route data format
 
-3b. Regression testing for all endpoints marked as working
+5. Regression testing for all endpoints marked as working
 
 ### Phase 2: Implement Aggregated Endpoints
 1. Realtime Endpoint
@@ -192,16 +52,16 @@ Notes:
    - [ ] Combine waiting times, messages, vehicles
    - [ ] Match v1 data format
 
-1b. Regression testing for all endpoints marked as working
+2. Regression testing for all endpoints marked as working
 
-2. Static Endpoint
+3. Static Endpoint
    - [ ] Create /api/stib/static endpoint
    - [ ] Include routes, stops, colors
    - [ ] Match v1 data format
 
-2b. Regression testing for all endpoints marked as working
+4. Regression testing for all endpoints marked as working
 
-3. See if /api/data endpoint finally works in both v1 and v2
+5. See if /api/data endpoint finally works in both v1 and v2
 
 ### Phase 3: Fix Search Endpoints
 1. Stop Search
@@ -209,6 +69,7 @@ Notes:
    - [ ] Fix parameter handling for get_nearest_stops
    - [ ] Add proper error handling
 
+2. Regression testing for all endpoints marked as working
 ### Phase 4: Lateral improvements
 1. Stop coordinates and names if not found on API, test in GTFS (stops_gtfs.json)
    - [~] Implement in v2
@@ -227,10 +88,10 @@ Notes:
    - [ ] See what functions use GTFS data
    - [ ] See if anyone is overwriting cache/stib/stops_gtfs.json (is it supposed to contain all stops from the GTFS or just the ones that we have looked up)
    - [ ] See what is using stib/cache/stops.json and if it is still needed
-3. . Message Handling
-   - [ ] Implement language fallback for service messages (en -> fr -> nl -> raw message)
-   - [ ] Add debug logging for message language selection
-   - [ ] Add configuration for message language, and fallback order
+3. [x] Message Handling
+   - [x] Implement language fallback for service messages (en -> fr -> nl -> raw message)
+   - [x] Add debug logging for message language selection
+   - [x] Add configuration for message language, and fallback order
 
 ## Technical Debt Items
 1. Data Format Standardization
