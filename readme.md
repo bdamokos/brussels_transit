@@ -14,6 +14,9 @@ The aim is for a modular design that allows for easy addition of new transit pro
 - Frontend search for stops, configuration options
 - Timetables
 
+## Use-case
+See for example this implementation: [Raspberry Pi Waiting Time Display](https://github.com/bdamokos/rpi_waiting_time_display)
+
 
 ## Getting Started
 
