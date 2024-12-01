@@ -560,79 +560,100 @@ async def download_and_extract_gtfs() -> bool:
             logger.info("Some GTFS files are missing, downloading fresh copy")
     
     try:
-        # Try to acquire lock
-        with open(lock_file, 'w') as f:
+        while True:  # Loop until we get the lock or timeout
             try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                logger.info("Another process is downloading GTFS data, waiting...")
-                
                 start_time = time.time()
-                timeout = 300  # 5 minutes timeout
-                
-                while time.time() - start_time < timeout:
+                with open(lock_file, 'w') as f:
                     try:
+                        # Try to acquire lock
                         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
+                        break  # Got the lock, proceed with download
                     except BlockingIOError:
-                        await asyncio.sleep(1)
-                else:
-                    logger.error("Timeout waiting for GTFS download lock")
-                    return False
+                        # Check for stale lock
+                        if lock_file.exists():
+                            lock_age = time.time() - lock_file.stat().st_mtime
+                            if lock_age > 3600:  # 1 hour in seconds
+                                logger.warning(f"Lock file is {lock_age:.1f}s old, attempting to remove stale lock")
+                                try:
+                                    lock_file.unlink()
+                                    logger.info("Successfully removed stale lock, will retry")
+                                    continue  # Retry lock acquisition
+                                except Exception as e:
+                                    logger.error(f"Failed to remove stale lock: {e}")
+                        
+                        # Not stale or couldn't remove - wait and retry
+                        logger.info("Another process is downloading GTFS data, waiting...")
+                        await asyncio.sleep(10)  # Wait 10 seconds before retry
+                        
+                        # Check overall timeout
+                        if time.time() - start_time > 300:  # 5 minutes timeout
+                            logger.error("Timeout waiting for GTFS download lock")
+                            return False
+                        
+                        continue  # Try again
+            except Exception as e:
+                logger.error(f"Error handling lock file: {e}")
+                return False
 
+        try:
+            logger.info("Starting GTFS data download")
+            
+            headers = {
+                'Cache-Control': 'no-cache',
+                'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
+            }
+            
+            # Get file size from the GET response
+            req = urllib.request.Request(GTFS_URL, headers=headers)
+            with urllib.request.urlopen(req) as response:
+                total_size = int(response.headers.get('content-length', 0))
+                logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
+                
+                logger.debug("Saving GTFS zip file")
+                progress = ProgressTracker(total_size)
+                
+                with open('gtfs_transit.zip', 'wb') as f_zip:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        f_zip.write(chunk)
+                        progress.update(len(chunk))
+                
+            logger.debug("Extracting GTFS data")
+            GTFS_DIR.mkdir(exist_ok=True)
             try:
-                logger.info("Starting GTFS data download")
-                
-                headers = {
-                    'Cache-Control': 'no-cache',
-                    'Ocp-Apim-Subscription-Key': DELIJN_GTFS_STATIC_API_KEY
-                }
-                
-                # Get file size from the GET response
-                req = urllib.request.Request(GTFS_URL, headers=headers)
-                with urllib.request.urlopen(req) as response:
-                    total_size = int(response.headers.get('content-length', 0))
-                    logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
-                    
-                    logger.debug("Saving GTFS zip file")
-                    progress = ProgressTracker(total_size)
-                    
-                    with open('gtfs_transit.zip', 'wb') as f_zip:
-                        while True:
-                            chunk = response.read(8192)
-                            if not chunk:
-                                break
-                            f_zip.write(chunk)
-                            progress.update(len(chunk))
-                
-                logger.debug("Extracting GTFS data")
-                GTFS_DIR.mkdir(exist_ok=True)
-                try:
-                    with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
-                        zip_ref.extractall(GTFS_DIR)
-                        logger.debug(f"Extracted GTFS data to {GTFS_DIR}")
-                except Exception as e:
-                    logger.error(f"Error extracting GTFS data: {e}", exc_info=True)
-                
-                # Clean up zip file
-                try:
-                    Path('gtfs_transit.zip').unlink()
-                    logger.debug("Deleted GTFS zip file")
-                except Exception as e:
-                    logger.error(f"Error deleting GTFS zip file: {e}", exc_info=True)
+                with zipfile.ZipFile('gtfs_transit.zip', 'r') as zip_ref:
+                    zip_ref.extractall(GTFS_DIR)
+                    logger.debug(f"Extracted GTFS data to {GTFS_DIR}")
+            except Exception as e:
+                logger.error(f"Error extracting GTFS data: {e}", exc_info=True)
+            
+            # Clean up zip file
+            try:
+                Path('gtfs_transit.zip').unlink()
+                logger.debug("Deleted GTFS zip file")
+            except Exception as e:
+                logger.error(f"Error deleting GTFS zip file: {e}", exc_info=True)
 
-                # Clean up unused files
-                for file in GTFS_DIR.glob('*'):
-                    if file.name not in GTFS_USED_FILES:
-                        file.unlink()
-                        logger.debug(f"Deleted unused GTFS file: {file.name}")
-                
-                logger.info("GTFS data updated successfully")
-                return True
-                
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-                
+            # Clean up unused files
+            for file in GTFS_DIR.glob('*'):
+                if file.name not in GTFS_USED_FILES:
+                    file.unlink()
+                    logger.debug(f"Deleted unused GTFS file: {file.name}")
+            
+            logger.info("GTFS data updated successfully")
+            return True
+            
+        finally:
+            # Release lock and clean up
+            if lock_file.exists():
+                try:
+                    lock_file.unlink()
+                    logger.debug("Deleted lock file")
+                except Exception as e:
+                    logger.error(f"Error deleting lock file: {e}")
+                    
     except Exception as e:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
         return False
