@@ -974,3 +974,81 @@ async def get_stop_coordinates(self, stop_id: str) -> Optional[Dict[str, float]]
     except Exception as e:
         logger.error(f"Error getting stop coordinates: {e}")
         return get_stop_coordinates_with_fallback(stop_id)
+
+def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert v2 API response format to v1 format for backward compatibility.
+    
+    See api_formats.md for detailed format documentation.
+
+    Function to be removed once all clients have been migrated to v2.
+    
+    Args:
+        v2_data: Data in v2 format
+        
+    Returns:
+        Data in v1 format
+    """
+    v1_data = {
+        "stops_data": {},
+        "messages": {"messages": []},
+        "processed_vehicles": [],
+        "errors": []
+    }
+    
+    # Convert stops data
+    for stop_id, stop_data in v2_data.get("stops", {}).items():
+        v1_stop = {
+            "name": stop_data["name"],
+            "coordinates": stop_data.get("coordinates", {}).get("coordinates", {}),
+            "lines": {}
+        }
+        
+        # Convert lines and waiting times
+        for line, line_data in stop_data.get("lines", {}).items():
+            v1_stop["lines"][line] = {}
+            for dest, dest_data in line_data.items():
+                # Use the provided language version as in v1
+                v1_stop["lines"][line][dest] = [
+                    {
+                        "destination": arrival["destination"],
+                        "formatted_time": arrival["formatted_time"],
+                        "message": arrival.get("message", ""),
+                        "minutes": arrival["minutes"]
+                    }
+                    for arrival in dest_data
+                ]
+        
+        v1_data["stops_data"][stop_id] = v1_stop
+    
+    # Convert messages
+    # Get monitored stops and their lines from config
+    monitored_stops = set(STIB_STOPS.keys())
+    monitored_lines = set()
+    for stop_data in STIB_STOPS.values():
+        monitored_lines.update(str(line) for line in stop_data.get('lines', []))
+
+    v1_data["messages"]["messages"] = [
+        {
+            "text": msg["text"],
+            "lines": msg["lines"],
+            "points": msg["points"],
+            "stops": msg["stops"],
+            "priority": msg.get("priority", 0),
+            "type": msg.get("type", ""),
+            "is_monitored": (
+                any(stop_id in monitored_stops for stop_id in msg["points"]) and 
+                any(line in monitored_lines for line in msg["lines"])
+            )
+        }
+        for msg in v2_data.get("messages", [])
+    ]
+    
+    # Convert vehicles
+    v1_data["processed_vehicles"] = v2_data.get("vehicles", {}).get("vehicles", [])
+    
+    # Add any errors from metadata
+    for stop_id, stop_data in v2_data.get("stops", {}).items():
+        if "metadata" in stop_data and stop_data["metadata"].get("warning"):
+            v1_data["errors"].append(f"Stop {stop_id}: {stop_data['metadata']['warning']}")
+            
+    return v1_data

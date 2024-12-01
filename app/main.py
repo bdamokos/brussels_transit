@@ -944,14 +944,24 @@ def calculate_minutes_until(target_time: str, now: datetime = None) -> str:
 # Update the get_data route to recalculate times before sending
 @app.route('/api/data')
 async def get_data():
+    """Legacy v1 endpoint for all real-time data"""
     try:
-        data = await get_next_buses()
-        return {
-            'stops_data': data['stops_data'],
-            'messages': data['messages'],
-            'processed_vehicles': data['processed_vehicles'],
-            'errors': data['errors']
-        }
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        from transit_providers.be.stib.api import convert_v2_to_v1_format
+        provider = StibProvider()
+            
+        # Get data from v2 endpoint
+        v2_response = await provider.get_data()
+        
+        # Check for error
+        if 'error' in v2_response:
+            return {"error": v2_response['error']}, 500
+            
+        # Convert v2 format to v1 format
+        v1_response = convert_v2_to_v1_format(v2_response)
+            
+        return v1_response
     except Exception as e:
         logger.error(f"Error in data route: {e}")
         return {"error": str(e)}, 500
