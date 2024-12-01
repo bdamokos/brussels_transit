@@ -2,6 +2,9 @@
 
 ## Current Status (Test Results)
 
+## Regressions:
+- Shapes are no longer working in the frontend for STIB :(
+
 ### Working Endpoints ✓
 - [x] /api/data (v1)
 - [x] /api/static_data (v1)
