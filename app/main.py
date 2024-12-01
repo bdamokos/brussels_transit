@@ -960,8 +960,19 @@ async def get_data():
 async def get_stop_coordinates(stop_id):
     """API endpoint to get stop coordinates from cache"""
     try:
-        coordinates = stop_coordinate_filter(stop_id)
-        return {'coordinates': coordinates}
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        provider = StibProvider()
+            
+        # Get data from v2 endpoint
+        v2_response = await provider.get_stop_coordinates(stop_id)
+        
+        # Check for error
+        if 'error' in v2_response:
+            return v2_response, 500
+            
+        # Return coordinates (v2 format matches v1 format)
+        return v2_response
     except Exception as e:
         logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
         return {'error': str(e)}, 500
