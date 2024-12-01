@@ -995,8 +995,9 @@ def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
         "errors": []
     }
     
-    # Convert stops data
-    for stop_id, stop_data in v2_data.get("stops", {}).items():
+    # Convert stops data - handle both "stops" and "stops_data" keys
+    stops_data = v2_data.get("stops", {}) or v2_data.get("stops_data", {})
+    for stop_id, stop_data in stops_data.items():
         v1_stop = {
             "name": stop_data["name"],
             "coordinates": stop_data.get("coordinates", {}).get("coordinates", {}),
@@ -1022,9 +1023,12 @@ def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Convert messages
     # Get monitored stops and their lines from config
-    monitored_stops = set(STIB_STOPS.keys())
+    logger.debug(f"STIB_STOPS: {STIB_STOPS}")
+    # Convert list of stops to a dict keyed by stop ID
+    monitored_stops = {str(stop['id']): stop for stop in STIB_STOPS}
+    logger.debug(f"Monitored stops: {monitored_stops}")
     monitored_lines = set()
-    for stop_data in STIB_STOPS.values():
+    for stop_data in STIB_STOPS:  # Iterate directly over the list
         monitored_lines.update(str(line) for line in stop_data.get('lines', []))
 
     v1_data["messages"]["messages"] = [
@@ -1047,8 +1051,40 @@ def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
     v1_data["processed_vehicles"] = v2_data.get("vehicles", {}).get("vehicles", [])
     
     # Add any errors from metadata
-    for stop_id, stop_data in v2_data.get("stops", {}).items():
+    for stop_id, stop_data in stops_data.items():
         if "metadata" in stop_data and stop_data["metadata"].get("warning"):
             v1_data["errors"].append(f"Stop {stop_id}: {stop_data['metadata']['warning']}")
             
     return v1_data
+
+async def get_data(stop_id: Union[str, List[str]] = None) -> Dict[str, Any]:
+    """Get all data for a stop or list of stops in v2 format.
+    
+    Args:
+        stop_id: Optional stop ID or list of stop IDs to filter results
+        
+    Returns:
+        Dictionary containing all data in v2 format
+    """
+    try:
+        # Get waiting times
+        waiting_times = await get_waiting_times(stop_id)
+        
+        # Get service messages
+        messages = await get_service_messages()  # No need to pass monitored lines/stops here
+        
+        # Get vehicle positions
+        vehicles = await get_vehicle_positions()
+        
+        return {
+            "stops": waiting_times.get("stops_data", {}),  # For v2 format
+            "stops_data": waiting_times.get("stops_data", {}),  # For v1 format
+            "messages": messages.get("messages", []),
+            "vehicles": vehicles
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting data: {e}")
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {"error": str(e)}

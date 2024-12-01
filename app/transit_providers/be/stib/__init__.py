@@ -100,7 +100,7 @@ class StibProvider(TransitProvider):
             colors = await get_route_colors(self.monitored_lines)
             
             return {
-                "stops": waiting_times.get('stops', {}),
+                "stops": waiting_times.get('stops_data', {}),
                 "messages": messages.get('messages', []),
                 "vehicles": vehicles,
                 "colors": colors

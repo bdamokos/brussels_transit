@@ -964,6 +964,8 @@ async def get_data():
         return v1_response
     except Exception as e:
         logger.error(f"Error in data route: {e}")
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         return {"error": str(e)}, 500
 
 @app.route('/api/stop_coordinates/<stop_id>')
