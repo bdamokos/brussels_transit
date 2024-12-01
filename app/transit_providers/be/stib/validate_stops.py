@@ -31,6 +31,7 @@ class RouteVariant:
     direction: str  # 'City' or 'Suburb'
     stops: List[Stop]
     destination: Dict[str, str]  # {'fr': str, 'nl': str}
+    shape: List[List[float]]
 
 @dataclass
 class Terminus:
@@ -103,6 +104,7 @@ async def load_line_stops(line: str) -> Dict:
 async def validate_line_stops(line):
     try:
         # Get route data
+        from routes import get_route_data  # Import the correct function
         route_data = await get_route_data(line)
         logger.debug(f"Got route data for line {line}: {route_data}")
         if not route_data or line not in route_data:
@@ -145,12 +147,16 @@ async def validate_line_stops(line):
                         stop['coordinates'] = {'lat': None, 'lon': None}
                         stop['name'] = stop_id  # Use stop ID as name if not found
                 
+                # Get shape data for this variant
+                shape = load_route_shape(line, direction)
+                
                 # Create a variant for this direction
                 variants.append(RouteVariant(
                     line=line,
                     direction=direction,  # Use City/Suburb directly
                     destination=destination,
-                    stops=stops
+                    stops=stops,
+                    shape=shape
                 ))
                 logger.debug(f"Added variant for direction {direction}")
                 

@@ -338,10 +338,10 @@ class StibProvider(TransitProvider):
     async def get_static_data(self):
         """Get static data like routes, stops, and colors"""
         try:
-            # Get route shapes
             shapes_data = {}
             shape_errors = []
             
+            # Get route shapes for monitored lines
             for line in self.monitored_lines:
                 try:
                     route_data = await get_route_data(line)
@@ -349,7 +349,7 @@ class StibProvider(TransitProvider):
                         filtered_variants = []
                         for variant in route_data[line]:
                             is_monitored_direction = False
-                            for stop in self.config['STIB_STOPS']:
+                            for stop in self.config.get('STIB_STOPS', []):
                                 if (line in stop.get('lines', {}) and 
                                     stop.get('direction') == variant['direction']):
                                     is_monitored_direction = True
@@ -364,10 +364,14 @@ class StibProvider(TransitProvider):
                     shape_errors.append(f"Error fetching route data for line {line}: {e}")
 
             # Get route colors
-            route_colors = await get_route_colors(self.monitored_lines)
+            try:
+                route_colors = await get_route_colors(self.monitored_lines)
+            except Exception as e:
+                route_colors = {}
+                shape_errors.append(f"Error fetching route colors: {str(e)}")
 
             return {
-                'display_stops': self.config['STIB_STOPS'],
+                'display_stops': self.config.get('STIB_STOPS', []),
                 'shapes': shapes_data,
                 'route_colors': route_colors,
                 'errors': shape_errors

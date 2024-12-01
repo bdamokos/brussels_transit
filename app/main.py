@@ -1024,53 +1024,21 @@ async def get_stop_names_api():
 
 @app.route('/api/static_data')
 async def get_static_data():
-    """Endpoint for static data like routes, stops, and colors"""
+    """Legacy v1 endpoint for static data like routes, stops, and colors"""
     try:
-        monitored_lines = set()
-        monitored_stops = set()
-        for stop in STIB_STOPS:
-            if stop['lines']:
-                monitored_lines.update(stop['lines'].keys())
-            monitored_stops.add(stop['id'])
-
-        shapes_data = {}
-        shape_errors = []
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        provider = StibProvider()
+            
+        # Get data from v2 endpoint
+        v2_response = await provider.get_static_data()
         
-        # Get route shapes
-        for line in monitored_lines:
-            try:
-                route_data = await get_route_data(line)
-                if route_data:
-                    filtered_variants = []
-                    for variant in route_data[line]:
-                        is_monitored_direction = False
-                        for stop in STIB_STOPS:
-                            if (line in stop.get('lines', {}) and 
-                                stop.get('direction') == variant['direction']):
-                                is_monitored_direction = True
-                                break
-                        
-                        if is_monitored_direction:
-                            filtered_variants.append(variant)
-                    
-                    if filtered_variants:
-                        shapes_data[line] = filtered_variants
-            except Exception as e:
-                shape_errors.append(f"Error fetching route data for line {line}: {e}")
-
-        # Get route colors
-        try:
-            route_colors = await get_route_colors(monitored_lines)
-        except Exception as e:
-            route_colors = {}
-            shape_errors.append(f"Error fetching route colors: {str(e)}")
-
-        return {
-            'display_stops': STIB_STOPS,
-            'shapes': shapes_data,
-            'route_colors': route_colors,
-            'errors': shape_errors
-        }
+        # Check for error
+        if 'error' in v2_response:
+            return {"error": v2_response['error']}, 500
+            
+        # Return v2 response directly since it's compatible with v1 format
+        return v2_response
         
     except Exception as e:
         logger.error(f"Error fetching static data: {e}")

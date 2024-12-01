@@ -864,13 +864,28 @@ async def get_route_data(line: str) -> Dict[str, Any]:
     """
     try:
         # Get route variants from validate_stops
-        from validate_stops import validate_line_stops
+        from validate_stops import validate_line_stops, load_route_shape
         route_variants = await validate_line_stops(line)
         
         if not route_variants:
             return None
             
-        return {line: route_variants}
+        # Convert RouteVariant objects to dictionaries
+        variants_dict = []
+        for variant in route_variants:
+            # Get shape data for this variant
+            shape = load_route_shape(line, variant.direction)
+            
+            variants_dict.append({
+                'direction': variant.direction,
+                'stops': variant.stops,
+                'shape': shape,
+                'destination': variant.destination,
+                'date_fin': getattr(variant, 'date_fin', None),
+                'variante': getattr(variant, 'variante', None)
+            })
+            
+        return {line: variants_dict}
         
     except Exception as e:
         logger.error(f"Error getting route data: {e}")
@@ -992,7 +1007,10 @@ def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
         "stops_data": {},
         "messages": {"messages": []},
         "processed_vehicles": [],
-        "errors": []
+        "errors": [],
+        "shapes": v2_data.get("shapes", {}),  # Copy shapes directly
+        "route_colors": v2_data.get("route_colors", {}),  # Copy route colors directly
+        "display_stops": v2_data.get("display_stops", [])  # Copy display stops directly
     }
     
     # Convert stops data - handle both "stops" and "stops_data" keys
