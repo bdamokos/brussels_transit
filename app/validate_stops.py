@@ -20,10 +20,7 @@ logger = logging.getLogger('validate_stops')
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-try:
-    from app.routes import get_route_data
-except ImportError:
-    from routes import get_route_data
+from transit_providers.be.stib.routes import get_route_data
 
 @dataclass
 class Stop:

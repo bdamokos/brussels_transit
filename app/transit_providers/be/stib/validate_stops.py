@@ -70,10 +70,8 @@ async def load_line_stops(line: str) -> Dict:
     except FileNotFoundError:
         logger.info(f"No cache found for line {line}, fetching from API...")
         # Import here to avoid circular imports
-        try:   
-            from routes import get_route_data
-        except ImportError:
-            from app.routes import get_route_data
+        from transit_providers.be.stib.routes import get_route_data
+        
         
         # Fetch the route data which includes stops
         route_data = await get_route_data(line)
