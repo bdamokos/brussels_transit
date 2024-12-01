@@ -34,6 +34,16 @@ def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
     """Ingest GTFS stops.txt into a dictionary of Stop objects."""
     stops = {}
     stops_path = Path(gtfs_stops_path) / 'stops.txt'
+    logger.debug(f"Stops path: {stops_path}")
+    # Debug directory information
+    import os
+    current_dir = os.getcwd()
+    logger.debug(f"Current directory: {current_dir}")
+    logger.debug(f"Looking for stops at: {stops_path}")
+    if os.path.exists(stops_path.parent):
+        logger.debug(f"GTFS directory contents: {os.listdir(stops_path.parent)}")
+    else:
+        logger.debug(f"GTFS directory does not exist: {stops_path.parent}")
     
     try:
         with open(stops_path, 'r', encoding='utf-8') as f:

@@ -132,6 +132,13 @@ def get_coordinates_from_gtfs(stop_id: str) -> Optional[StopCoordinates]:
             stops = ingest_gtfs_stops(GTFS_DIR)
             if not stops:
                 logger.error("Could not load stops from GTFS")
+                import os
+                logger.debug(f"Current directory: {os.getcwd()}")
+                logger.debug(f"GTFS directory: {GTFS_DIR}")
+                if os.path.exists(GTFS_DIR):
+                    logger.debug(f"GTFS directory contents: {os.listdir(GTFS_DIR)}")
+                else:
+                    logger.debug("GTFS directory does not exist")
                 return None
             
             # Get stop coordinates
