@@ -991,7 +991,7 @@ async def get_stop_coordinates(stop_id):
 
 @app.route('/api/stop_names', methods=['POST'])
 async def get_stop_names_api():
-    """API endpoint to get stop names from cache"""
+    """Legacy v1 endpoint to get stop names from cache"""
     try:
         # Get stop IDs from request body
         stop_ids = request.get_json()
@@ -1017,7 +1017,11 @@ async def get_stop_names_api():
                 'coordinates': stop_data['coordinates']
             }
             
-        return {'stops': v1_response}
+        # Add deprecation notice
+        return {
+            'stops': v1_response,
+            '_deprecated': 'This endpoint is deprecated. Please use /api/stib/stops instead.'
+        }
     except Exception as e:
         logger.error(f"Error getting stop names: {e}")
         return {'error': str(e)}, 500
@@ -1037,7 +1041,10 @@ async def get_static_data():
         if 'error' in v2_response:
             return {"error": v2_response['error']}, 500
             
-        # Return v2 response directly since it's compatible with v1 format
+        # Add deprecation notice to v2 response
+        v2_response['_deprecated'] = 'This endpoint is deprecated. Please use /api/stib/static instead.'
+        
+        # Return v2 response with deprecation notice
         return v2_response
         
     except Exception as e:
