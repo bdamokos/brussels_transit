@@ -909,38 +909,6 @@ def proper_title(text):
     
     return ' '.join(formatted_words)
 
-# Add this function near the top with other utility functions
-def calculate_minutes_until(target_time: str, now: datetime = None) -> str:
-    """Calculate minutes until a target time, using fresh now time"""
-    if now is None:
-        now = datetime.now(TIMEZONE)
-    else:
-        now = now.astimezone(TIMEZONE)
-    
-    # Parse the target time
-    if isinstance(target_time, str):
-        if 'T' in target_time:  # ISO format
-            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-            target_dt = target_dt.astimezone(TIMEZONE)
-        else:  # HH:MM format
-            target_dt = datetime.strptime(target_time, "%H:%M").replace(
-                year=now.year,
-                month=now.month,
-                day=now.day,
-                tzinfo=TIMEZONE
-            )
-            
-            # If the time is more than 4 hours in the past, assume it's for tomorrow
-            if (now - target_dt).total_seconds() > 4 * 3600:
-                target_dt += timedelta(days=1)
-    else:
-        target_dt = target_time.astimezone(TIMEZONE)
-        
-    # Calculate difference directly in minutes
-    diff = (target_dt - now).total_seconds() / 60
-    minutes = int(diff)
-    return f"{minutes}'"
-
 # Update the get_data route to recalculate times before sending
 @app.route('/api/data')
 async def get_data():
