@@ -970,7 +970,7 @@ async def get_data():
 
 @app.route('/api/stop_coordinates/<stop_id>')
 async def get_stop_coordinates(stop_id):
-    """API endpoint to get stop coordinates from cache"""
+    """Legacy v1 endpoint to get stop coordinates from cache"""
     try:
         # Create StibProvider instance
         from transit_providers.be.stib import StibProvider
@@ -983,7 +983,10 @@ async def get_stop_coordinates(stop_id):
         if 'error' in v2_response:
             return v2_response, 500
             
-        # Return coordinates (v2 format matches v1 format)
+        # Add deprecation notice
+        v2_response['_deprecated'] = 'This endpoint is deprecated. Please use /api/stib/stop/{id}/coordinates instead.'
+            
+        # Return coordinates with deprecation notice
         return v2_response
     except Exception as e:
         logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
