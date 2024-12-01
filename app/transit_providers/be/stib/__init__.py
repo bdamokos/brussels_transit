@@ -296,9 +296,13 @@ class StibProvider(TransitProvider):
     async def get_stop_coordinates(self, stop_id: str):
         """Get coordinates for a specific stop"""
         try:
-            # Use the same cache file as v1
-            with open(STOPS_CACHE_FILE, 'r') as f:
-                stops_data = json.load(f)
+            try:
+                    # Use the same cache file as v1
+                with open(STOPS_CACHE_FILE, 'r') as f:
+                    stops_data = json.load(f)
+            except FileNotFoundError:
+                logger.warning(f"File {STOPS_CACHE_FILE} not found. Maybe the GTFS data is not available?")
+                return {'coordinates': None}
                 
             # First try the original stop ID
             if stop_id in stops_data:

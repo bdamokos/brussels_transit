@@ -317,8 +317,8 @@ async def get_route_colors(monitored_lines=None):
             with open(ROUTES_CACHE_FILE, 'r') as f:
                 cache_data = json.load(f)
                 routes_cache['data'] = cache_data.get('data', {})
-                routes_cache['timestamp'] = datetime.fromisoformat(cache_data['timestamp'])
-                logger.debug(f"Loaded route colors from file cache: {routes_cache['data']}")
+                routes_cache['timestamp'] = datetime.fromisoformat(cache_data.get('timestamp', ''))
+                logger.debug(f"Loaded route colors from file cache: {routes_cache.get('data', 'Error no data in cache')}")
     except Exception as e:
         logger.error(f"Error loading route colors from file cache: {e}")
 
@@ -391,9 +391,9 @@ async def get_route_colors(monitored_lines=None):
             if ROUTES_CACHE_FILE.exists():
                 with open(ROUTES_CACHE_FILE, 'r') as f:
                     cache_data = json.load(f)
-                    cache_timestamp = datetime.fromisoformat(cache_data['timestamp'])
-                    if datetime.now() - cache_timestamp < CACHE_DURATION:
-                        return cache_data['data']
+                    cache_timestamp = datetime.fromisoformat(cache_data.get('timestamp', ''))
+                    if cache_timestamp and datetime.now() - cache_timestamp < CACHE_DURATION:
+                        return cache_data.get('data', {})
         except Exception as cache_e:
             logger.error(f"Error loading routes cache: {cache_e}\n{traceback.format_exc()}")
         

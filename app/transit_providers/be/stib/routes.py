@@ -48,21 +48,24 @@ def load_cached_shape(line: str) -> tuple[List[Dict], bool]:
         try:
             with open(cache_file, 'r') as f:
                 cache_data = json.load(f)
+            if cache_data:  
+                # Check if cache is expired based on date_fin
+                current_date = datetime.now().date()
+                cache_expiry = datetime.strptime(cache_data['date_fin'], '%d/%m/%Y').date()
                 
-            # Check if cache is expired based on date_fin
-            current_date = datetime.now().date()
-            cache_expiry = datetime.strptime(cache_data['date_fin'], '%d/%m/%Y').date()
-            
-            logger.debug(f"Cache found for line {line}:")
-            logger.debug(f"  Current date: {current_date}")
-            logger.debug(f"  Cache expiry: {cache_expiry}")
-            
-            if current_date > cache_expiry:
-                logger.debug(f"  Cache expired")
+                logger.debug(f"Cache found for line {line}:")
+                logger.debug(f"  Current date: {current_date}")
+                logger.debug(f"  Cache expiry: {cache_expiry}")
+                
+                if current_date > cache_expiry:
+                    logger.debug(f"  Cache expired")
+                    return [], True
+                        
+                logger.debug(f"  Cache valid")
+                return cache_data['variants'], False
+            else:
+                logger.warning(f"Cache file for line {line} is empty")
                 return [], True
-                
-            logger.debug(f"  Cache valid")
-            return cache_data['variants'], False
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Error reading cache for line {line}: {e}")
             return [], True
@@ -181,14 +184,18 @@ def load_cached_stops(line: str) -> tuple[Dict, bool]:
         try:
             with open(cache_file, 'r') as f:
                 cache_data = json.load(f)
+            if cache_data:
                 
-            cache_date = datetime.fromisoformat(cache_data['cached_at'])
-            if datetime.now() - cache_date < CACHE_DURATION:
-                logger.debug(f"Using cached stops data for line {line}")
-                return cache_data['stops'], False
-                
-            logger.info(f"Stops cache expired for line {line}")
-            return cache_data['stops'], True
+                cache_date = datetime.fromisoformat(cache_data['cached_at'])
+                if datetime.now() - cache_date < CACHE_DURATION:
+                    logger.debug(f"Using cached stops data for line {line}")
+                    return cache_data['stops'], False
+                    
+                logger.info(f"Stops cache expired for line {line}")
+                return cache_data['stops'], True
+            else:
+                logger.warning(f"Stops cache file for line {line} is empty")
+                return {}, True
         except Exception as e:
             logger.error(f"Error reading stops cache for line {line}: {e}")
             return {}, True

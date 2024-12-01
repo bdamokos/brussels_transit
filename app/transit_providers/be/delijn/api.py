@@ -154,7 +154,6 @@ async def cache_get(cache_key: str) -> Optional[Any]:
         else:
             logger.debug(f"Cache expired for {cache_key}")
             return None
-            
     except Exception as e:
         logger.error(f"Error reading cache for {cache_key}: {str(e)}", exc_info=True)
         return None

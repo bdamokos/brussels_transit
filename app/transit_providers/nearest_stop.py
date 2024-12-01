@@ -69,7 +69,10 @@ def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
                     
         logger.info(f"Successfully loaded {len(stops)} stops from GTFS data")
         return stops
+    except FileNotFoundError:
+        logger.warning(f"File {stops_path} not found. Maybe the GTFS data is not available?")
         
+        return {}
     except Exception as e:
         logger.error(f"Error reading stops.txt: {e}")
         return {}
@@ -132,6 +135,11 @@ def get_cached_stops(cache_path: Path) -> Optional[Dict[str, Stop]]:
     """Get the cached stops from disk."""
     try:
         if not cache_path.exists():
+            logger.warning(f"File {cache_path} not found. Creating empty cache.")
+            # Create empty cache file
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+            logger.info(f"Created empty {cache_path} file")
             return None
             
         with open(cache_path, 'r', encoding='utf-8') as f:

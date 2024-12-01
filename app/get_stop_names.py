@@ -33,6 +33,13 @@ def load_cached_stops():
         try:
             with open(STOPS_CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
+        except FileNotFoundError:
+            logger.warning("Stops cache file not found, creating empty cache")
+            # Create empty cache file
+            with open(STOPS_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+            logger.info("Created empty stops cache file")
+            return {}
         except Exception as e:
             logger.error(f"Error loading stops cache: {e}", exc_info=True)
     return {}

@@ -259,6 +259,12 @@ async def get_route_colors(monitored_lines=None):
                 routes_cache['data'] = cache_data.get('data', {})
                 routes_cache['timestamp'] = datetime.fromisoformat(cache_data['timestamp'])
                 logger.debug(f"Loaded route colors from file cache: {routes_cache['data']}")
+        elif not ROUTES_CACHE_FILE.exists():
+            logger.warning("Routes cache file not found, creating empty cache")
+            # Create empty cache file
+            with open(ROUTES_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+            logger.info("Created empty routes cache file")
     except Exception as e:
         logger.error(f"Error loading route colors from file cache: {e}")
 
@@ -334,6 +340,12 @@ async def get_route_colors(monitored_lines=None):
                     cache_timestamp = datetime.fromisoformat(cache_data['timestamp'])
                     if datetime.now() - cache_timestamp < CACHE_DURATION:
                         return cache_data['data']
+            elif not ROUTES_CACHE_FILE.exists():
+                logger.warning("Routes cache file not found, creating empty cache")
+                # Create empty cache file
+                with open(ROUTES_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump({}, f)
+                logger.info("Created empty routes cache file")
         except Exception as cache_e:
             logger.error(f"Error loading routes cache: {cache_e}\n{traceback.format_exc()}")
         
@@ -458,6 +470,12 @@ def stop_coordinate_filter(stop_id: str) -> dict:
                     return coords
                     
             logger.warning(f"Stop {stop_id} not found in cache (including letter suffixes)")
+    except FileNotFoundError:
+        logger.warning(f"Stops cache file not found, creating empty cache")
+        # Create empty cache file
+        with open(STOPS_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump({}, f)
+        logger.info("Created empty stops cache file")
     except Exception as e:
         logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
     return {}
@@ -832,6 +850,12 @@ async def index():
                 with open(ROUTES_CACHE_FILE, 'r') as f:
                     cache_data = json.load(f)
                     route_colors = cache_data.get('data', {})
+            elif not ROUTES_CACHE_FILE.exists():
+                logger.warning("Routes cache file not found, creating empty cache")
+                # Create empty cache file
+                with open(ROUTES_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump({}, f)
+                logger.info("Created empty routes cache file")
         except Exception as e:
             logger.error(f"Error loading cached route colors: {e}")
 

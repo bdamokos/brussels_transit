@@ -92,10 +92,14 @@ def get_cached_coordinates() -> Dict[str, StopCoordinates]:
             
         with open(STOPS_CACHE_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            return {
-                stop_id: StopCoordinates(**coords)
-                for stop_id, coords in data.items()
-            }
+            if data:
+                return {
+                    stop_id: StopCoordinates(**coords)
+                    for stop_id, coords in data.items()
+                }
+            else:
+                logger.warning(f"Stops cache file {STOPS_CACHE_FILE} is empty")
+                return {}
     except Exception as e:
         logger.error(f"Error loading cached coordinates: {e}")
         return {}

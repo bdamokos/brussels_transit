@@ -45,8 +45,15 @@ class Terminus:
 
 def load_stops_data() -> Dict[str, Dict]:
     """Load the master stops data with coordinates"""
-    with open('cache/stops.json', 'r') as f:
-        return json.load(f)
+    try:
+        with open('cache/stops.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.warning(f"File cache/stops.json not found. Initializing empty cache.")
+        # Create empty cache file
+        with open('cache/stops.json', 'w') as f:
+            json.dump({}, f)
+        return {}
 
 async def load_line_stops(line: str) -> Dict:
     """Load stops data for a line, fetching from API if needed"""
@@ -54,7 +61,11 @@ async def load_line_stops(line: str) -> Dict:
     
     try:
         with open(cache_path, 'r') as f:
-            return json.load(f)['stops']
+            if data := json.load(f):
+                return data['stops']
+            else:
+                logger.warning(f"Cache file {cache_path} is empty")
+                return {}
     except FileNotFoundError:
         logger.info(f"No cache found for line {line}, fetching from API...")
         # Import here to avoid circular imports
@@ -157,7 +168,11 @@ async def validate_line_stops(line):
 def load_json_file(file_path: str) -> Dict:
     """Load a JSON file and return its contents as a dictionary"""
     with open(file_path, 'r') as f:
-        return json.load(f)
+        if data := json.load(f):
+            return data
+        else:
+            logger.warning(f"Cache file {file_path} is empty")
+            return {}
 
 def load_route_shape(line: str, direction: str = None) -> List[List[float]]:
     """
