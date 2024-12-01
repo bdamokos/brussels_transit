@@ -1008,10 +1008,33 @@ def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:
         "messages": {"messages": []},
         "processed_vehicles": [],
         "errors": [],
-        "shapes": v2_data.get("shapes", {}),  # Copy shapes directly
+        "shapes": {},  # Will be transformed below
         "route_colors": v2_data.get("route_colors", {}),  # Copy route colors directly
         "display_stops": v2_data.get("display_stops", [])  # Copy display stops directly
     }
+    
+    # Transform shapes - swap coordinates from [lon, lat] to [lat, lon]
+    shapes_data = v2_data.get("shapes", {})
+    for line, variants in shapes_data.items():
+        if not isinstance(variants, list):
+            continue
+        v1_data["shapes"][line] = []
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            # Get shape coordinates and swap them
+            shape_coords = variant.get('shape', [])
+            if shape_coords:
+                # Create a new variant with swapped coordinates
+                v1_variant = {
+                    "date_fin": variant.get("date_fin"),
+                    "destination": variant.get("destination", {}),
+                    "direction": variant.get("direction", ""),
+                    "shape": [[lat, lon] for lon, lat in shape_coords],  # Swap coordinates
+                    "stops": variant.get("stops", []),
+                    "variante": variant.get("variante")
+                }
+                v1_data["shapes"][line].append(v1_variant)
     
     # Convert stops data - handle both "stops" and "stops_data" keys
     stops_data = v2_data.get("stops", {}) or v2_data.get("stops_data", {})

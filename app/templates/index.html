@@ -1477,14 +1477,22 @@
         
         // Add route shapes
         if (data.shapes) {
+            console.log('Processing shapes data:', data.shapes);
             for (const [line, shapeData] of Object.entries(data.shapes)) {
                 console.log(`Processing shape for line ${line}:`, shapeData);
                 
                 // Handle STIB shapes (array format)
                 if (Array.isArray(shapeData)) {
-                    shapeData.forEach(variant => {
-                        if (variant && variant.coordinates) {
-                            const convertedCoords = variant.coordinates.map(coord => [coord[1], coord[0]]);
+                    console.log(`Line ${line} has array format with ${shapeData.length} variants`);
+                    shapeData.forEach((variant, index) => {
+                        console.log(`Processing variant ${index} for line ${line}:`, variant);
+                        if (variant && variant.shape) {
+                            console.log(`Shape coordinates for line ${line} variant ${index}:`, variant.shape.slice(0, 3), '... (first 3 points)');
+                            const convertedCoords = variant.shape.map(coord => {
+                                console.log(`Converting coordinate:`, coord);
+                                return [coord[1], coord[0]];
+                            });
+                            console.log(`Converted coordinates for line ${line} variant ${index}:`, convertedCoords.slice(0, 3), '... (first 3 points)');
                             L.polyline(convertedCoords, {
                                 color: lineColors[line] || '#666',
                                 weight: 3,
@@ -1492,13 +1500,18 @@
                                 pane: 'routesPane',
                                 interactive: false
                             }).addTo(routesLayer);
+                        } else {
+                            console.warn(`No shape data for line ${line} variant ${index}`);
                         }
                     });
                 }
                 // Handle De Lijn shapes (object format with variants)
                 else if (shapeData.variants) {
-                    shapeData.variants.forEach(variant => {
+                    console.log(`Line ${line} has object format with variants`);
+                    shapeData.variants.forEach((variant, index) => {
+                        console.log(`Processing De Lijn variant ${index} for line ${line}:`, variant);
                         if (variant && variant.coordinates) {
+                            console.log(`Coordinates for line ${line} variant ${index}:`, variant.coordinates.slice(0, 3), '... (first 3 points)');
                             const lineColor = typeof lineColors[line] === 'object' 
                                 ? lineColors[line].background 
                                 : lineColors[line] || '#666';
@@ -1510,10 +1523,14 @@
                                 pane: 'routesPane',
                                 interactive: false
                             }).addTo(routesLayer);
+                        } else {
+                            console.warn(`No coordinates for line ${line} variant ${index}`);
                         }
                     });
                 }
             }
+        } else {
+            console.warn('No shapes data in response');
         }
         
         // Add stops
