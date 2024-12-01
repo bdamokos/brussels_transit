@@ -25,6 +25,7 @@ from config import get_config, get_required_config
 from dataclasses import asdict
 import os
 from pathlib import Path
+from flask_cors import CORS
 
 # Ensure logs directory exists
 Path('logs').mkdir(exist_ok=True)
@@ -41,6 +42,14 @@ api_logger = logging.getLogger('main.api')
 vehicle_logger = logging.getLogger('main.vehicles')
 
 app = Flask(__name__)
+# Enable CORS for all routes
+CORS(app, resources={
+    r"/api/*": {  # This will enable CORS for all routes under /api/
+        "origins": ["*"],  # Allow all origins
+        "methods": ["GET", "POST", "OPTIONS"],  # Allow these methods
+        "allow_headers": ["Content-Type", "Authorization"]  # Allow these headers
+    }
+})
 FILTER_VEHICLES = True
 
 # Get API key from environment variable
