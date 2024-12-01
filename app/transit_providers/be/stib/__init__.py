@@ -10,6 +10,8 @@ from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider
 from .gtfs import ensure_gtfs_data
+from flask import request
+import asyncio
 
 from .api import (
     get_waiting_times,
@@ -151,15 +153,15 @@ class StibProvider(TransitProvider):
             formatted_stops = {}
             
             for stop_id in stop_ids:
-                coordinates_data = get_stop_coordinates(stop_id)
                 if stop_id in stops_data:
+                    stop_data = stops_data[stop_id]
                     formatted_stops[stop_id] = {
-                        "name": stops_data[stop_id]["name"],
-                        "coordinates": coordinates_data["coordinates"]
+                        "name": stop_data.get("name", stop_data.get("names", {}).get("fr", stop_id)),
+                        "coordinates": stop_data["coordinates"]
                     }
                     metadata["sources"][stop_id] = {
-                        "source": coordinates_data["metadata"]["source"],
-                        "warning": coordinates_data["metadata"].get("warning")
+                        "source": stop_data.get("_metadata", {}).get("source", "unknown"),
+                        "warning": stop_data.get("_metadata", {}).get("warning")
                     }
             
             return {
@@ -168,7 +170,7 @@ class StibProvider(TransitProvider):
             }
             
         except Exception as e:
-            logger.error(f"Error getting stops data: {e}")
+            logger.error(f"Error getting stops data: {e}", exc_info=True)
             return {"error": str(e)}
 
     async def get_stop_details(self, stop_id: str):
@@ -404,7 +406,21 @@ class StibProvider(TransitProvider):
             return {"error": str(e)}
         
 def get_stops():
-    pass
+    """Get stop details from request body"""
+    try:
+        # Get stop IDs from request body
+        stop_ids = request.get_json()
+        if not isinstance(stop_ids, list):
+            return {'error': 'Expected list of stop IDs'}, 400
+            
+        # Create provider instance
+        provider = StibProvider()
+        
+        # Call the async method
+        return asyncio.run(provider.get_stops(stop_ids))
+    except Exception as e:
+        logger.error(f"Error in stops endpoint: {e}")
+        return {"error": str(e)}, 500
 
 # Create provider instance and register if enabled
 if 'stib' in get_config('ENABLED_PROVIDERS', []):

@@ -519,6 +519,10 @@ def get_stop_names(stop_ids, preferred_language=None):
             '_metadata': {'source': 'fallback'}
         })
         
+        # Ensure we have a names field
+        if 'names' not in stop_data:
+            stop_data['names'] = {'fr': stop_data.get('name', stop_id), 'nl': stop_data.get('name', stop_id)}
+        
         # Apply language selection
         name_with_metadata, _metadata = select_language(content=stop_data['names'], provider_languages=language_precedence, requested_language=preferred_language)
         

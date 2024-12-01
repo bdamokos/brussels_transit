@@ -970,14 +970,31 @@ async def get_stop_coordinates(stop_id):
 async def get_stop_names_api():
     """API endpoint to get stop names from cache"""
     try:
-        # Get stop IDs from request body - remove await
+        # Get stop IDs from request body
         stop_ids = request.get_json()
         if not isinstance(stop_ids, list):
             return {'error': 'Expected list of stop IDs'}, 400
             
-        # Use existing function to get stop names
-        stop_names = get_stop_names(stop_ids)
-        return {'stops': stop_names}
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        provider = StibProvider()
+            
+        # Get data from v2 endpoint
+        v2_response = await provider.get_stops(stop_ids)
+        
+        # Check for error
+        if 'error' in v2_response:
+            return v2_response, 500
+            
+        # Convert v2 format to v1 format
+        v1_response = {}
+        for stop_id, stop_data in v2_response.get('stops', {}).items():
+            v1_response[stop_id] = {
+                'name': stop_data['name'],
+                'coordinates': stop_data['coordinates']
+            }
+            
+        return {'stops': v1_response}
     except Exception as e:
         logger.error(f"Error getting stop names: {e}")
         return {'error': str(e)}, 500
