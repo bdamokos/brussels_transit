@@ -812,7 +812,8 @@
                 interpolated_position: [vehicle.position.lat, vehicle.position.lon],
                 bearing: vehicle.bearing,
                 is_valid: vehicle.is_valid,
-                delay: vehicle.delay
+                delay: vehicle.delay,
+                headsign: vehicle.headsign
             }));
 
             // Transform service messages
@@ -1307,11 +1308,15 @@
                     });
                     existingMarker.setIcon(newIcon);
                     
+                    // Format direction display
+                    const directionDisplay = vehicle.headsign || vehicle.direction;
                     const segmentInfo = getSegmentInfo(vehicle);
+                    
                     existingMarker.setPopupContent(`
                         <strong>Line ${vehicle.line}</strong><br>
-                        Direction: ${vehicle.direction}<br>
+                        To: ${directionDisplay}<br>
                         ${segmentInfo}
+                        ${vehicle.delay ? `<br>Delay: ${Math.round(vehicle.delay / 60)} minutes` : ''}
                     `);
                     
                     // Mark this position as seen
@@ -1375,11 +1380,15 @@
             zIndexOffset: 1000
         });
         
+        // Format direction display
+        const directionDisplay = vehicle.headsign || vehicle.direction;
         const segmentInfo = getSegmentInfo(vehicle);
+        
         marker.bindPopup(`
             <strong>Line ${vehicle.line}</strong><br>
-            Direction: ${vehicle.direction}<br>
+            To: ${directionDisplay}<br>
             ${segmentInfo}
+            ${vehicle.delay ? `<br>Delay: ${Math.round(vehicle.delay / 60)} minutes` : ''}
         `);
         
         marker.addTo(vehiclesLayer);

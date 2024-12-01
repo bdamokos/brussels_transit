@@ -33,7 +33,7 @@ dictConfig(logging_config)
 
 # Get logger
 logger = logging.getLogger('delijn')
-
+logger.setLevel(logging.DEBUG)
 # Get provider configuration
 provider_config = get_provider_config('delijn')
 logger.debug(f"Provider config: {provider_config}")
@@ -732,25 +732,49 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
 async def get_vehicle_positions(line_number: str = "272", direction: str = "TERUG") -> List[Dict]:
     """Get real-time positions of vehicles for a specific line"""
     try:
-        logger.info(f"Fetching vehicle positions for line {line_number}")
+        logger.info(f"\n=== Fetching vehicle positions for line {line_number} ===")
         
         # First get the route ID from GTFS data
-        logger.debug(f"Ensuring GTFS data is available. Ensuring triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
         gtfs_dir = await ensure_gtfs_data()
         if not gtfs_dir:
             logger.error("Could not get GTFS data")
             return []
             
         routes_df = pd.read_csv(gtfs_dir / 'routes.txt')
-
         route = routes_df[routes_df['route_short_name'] == str(line_number)]
         if route.empty:
             logger.warning(f"Route {line_number} not found in GTFS data")
             return []
             
-        route_id = route.iloc[0]['route_id']
-        logger.debug(f"Found route_id: {route_id} for line {line_number}")
+        route_ids = route['route_id'].tolist()
+        logger.info(f"Found route_ids: {route_ids} for line {line_number}")
         
+        # Get trips for this route to map trip_ids to directions and headsigns
+        trips_df = pd.read_csv(gtfs_dir / 'trips.txt')
+        route_trips = trips_df[trips_df['route_id'].isin(route_ids)]
+        
+        logger.info(f"Found {len(route_trips)} trips in GTFS data for routes {route_ids}")
+        
+        # Create trip mapping and store valid trip IDs for this route
+        trip_directions = {}
+        valid_trip_ids = set()  # Store valid trip IDs for this route
+        for _, trip in route_trips.iterrows():
+            trip_id = trip['trip_id']
+            trip_directions[trip_id] = {
+                'direction': f"TERUG" if trip['direction_id'] == 1 else f"HEEN",
+                'headsign': trip['trip_headsign'],
+                '_direction_id': trip['direction_id']
+            }
+            valid_trip_ids.add(trip_id)  # Add to set of valid trip IDs
+
+        logger.info(f"Mapped {len(trip_directions)} trips to directions/headsigns")
+        logger.debug("Sample GTFS trip data:")
+        if route_trips.shape[0] > 0:
+            sample_trip = route_trips.iloc[0]
+            logger.debug(f"  Trip ID: {sample_trip['trip_id']}")
+            logger.debug(f"  Headsign: {sample_trip['trip_headsign']}")
+            logger.debug(f"  Direction: {'HEEN' if sample_trip['direction_id'] == 0 else 'TERUG'}")
+
         # Get real-time vehicle positions
         headers = {
             'Cache-Control': 'no-cache',
@@ -764,7 +788,7 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
         }
         
         async with httpx.AsyncClient() as client:
-            await rate_limit()  # Add rate limiting
+            await rate_limit()
             response = await client.get(
                 'https://api.delijn.be/gtfs/v3/realtime',
                 headers=headers,
@@ -777,6 +801,8 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
             
             data = response.json()
             vehicles = []
+            matched_trips = 0
+            unmatched_trips = 0
             
             for entity in data.get('entity', []):
                 if 'vehicle' not in entity:
@@ -786,51 +812,65 @@ async def get_vehicle_positions(line_number: str = "272", direction: str = "TERU
                 trip_info = vehicle.get('trip', {})
                 trip_id = trip_info.get('tripId', '')
                 
-                if trip_id and route_id.split('_')[0] in trip_id:
-                    # Determine direction but don't filter on it
-                    trip_parts = trip_id.split('_')
-                    if len(trip_parts) >= 4:
-                        trip_direction = "TERUG" if any(x in trip_parts[3].upper() for x in ["TERUG", "-19", "-19_"]) else "HEEN"
-                        
-                        position = vehicle.get('position', {})
-                        if not position:
-                            continue
-                            
-                        delay = None
-                        if 'tripUpdate' in entity:
-                            stop_time_updates = entity['tripUpdate'].get('stopTimeUpdate', [])
-                            if stop_time_updates:
-                                delay = stop_time_updates[0].get('departure', {}).get('delay')
-                        
-                        vehicle_data = {
-                            'line': line_number,
-                            'direction': trip_direction,  # Use actual direction from trip
-                            'position': {
-                                'lat': position.get('latitude'),
-                                'lon': position.get('longitude')
-                            },
-                            'bearing': position.get('bearing', 0),
-                            'timestamp': datetime.fromtimestamp(
-                                int(vehicle.get('timestamp', 0)),
-                                tz=TIMEZONE
-                            ).isoformat(),
-                            'vehicle_id': vehicle.get('vehicle', {}).get('id'),
-                            'trip_id': trip_id,
-                            'delay': delay if delay is not None else 0,
-                            'is_valid': True
+                if trip_id in valid_trip_ids:  # Only process vehicles with matching trip_ids
+                    # Get direction and headsign from our trip_directions mapping
+                    trip_data = trip_directions.get(trip_id)
+                    
+                    if trip_data:
+                        matched_trips += 1
+                    else:
+                        unmatched_trips += 1
+                        trip_data = {
+                            'direction': "Unknown Direction",
+                            'headsign': "Unknown Destination"
                         }
+                        logger.debug(f"No match found for trip_id: {trip_id}")
+                    
+                    position = vehicle.get('position', {})
+                    if not position:
+                        continue
                         
-                        # Get the shape data for this line
-                        shape = await get_line_shape(line_number)
-                        if shape and shape.get('variants'):
-                            # Match variant to actual direction
-                            variant_idx = 0 if trip_direction == "HEEN" else 1
-                            if len(shape['variants']) > variant_idx:
-                                vehicle_data['shape'] = shape['variants'][variant_idx]['coordinates']
-                        
-                        vehicles.append(vehicle_data)
+                    delay = None
+                    if 'tripUpdate' in entity:
+                        stop_time_updates = entity['tripUpdate'].get('stopTimeUpdate', [])
+                        if stop_time_updates:
+                            delay = stop_time_updates[0].get('departure', {}).get('delay', 0)
+                    
+                    vehicle_data = {
+                        'line': line_number,
+                        'direction': trip_data['direction'],
+                        'headsign': trip_data['headsign'],
+                        'position': {
+                            'lat': position.get('latitude'),
+                            'lon': position.get('longitude')
+                        },
+                        'bearing': position.get('bearing', 0),
+                        'timestamp': datetime.fromtimestamp(
+                            int(vehicle.get('timestamp', 0)),
+                            tz=TIMEZONE
+                        ).isoformat(),
+                        'vehicle_id': vehicle.get('vehicle', {}).get('id'),
+                        'trip_id': trip_id,
+                        'delay': delay if delay is not None else 0,
+                        'is_valid': True
+                    }
+                    
+                    vehicles.append(vehicle_data)
             
-            logger.info(f"Found {len(vehicles)} vehicles for line {line_number}")
+            logger.info(f"\n=== Results for line {line_number} ===")
+            logger.info(f"Total vehicles found: {len(vehicles)}")
+            logger.info(f"Trips matched: {matched_trips}")
+            logger.info(f"Trips unmatched: {unmatched_trips}")
+            
+            # Log details of first few vehicles
+            for i, vehicle in enumerate(vehicles[:3]):
+                logger.info(f"\nVehicle {i+1}:")
+                logger.info(f"  Trip ID: {vehicle['trip_id']}")
+                logger.info(f"  Headsign: {vehicle['headsign']}")
+                logger.info(f"  Direction: {vehicle['direction']}")
+                logger.info(f"  Position: {vehicle['position']}")
+                logger.info(f"  Delay: {vehicle['delay']} seconds")
+            
             return vehicles
             
     except Exception as e:
