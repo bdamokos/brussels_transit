@@ -151,7 +151,7 @@ def get_stop_id_variants(stop_id: str) -> List[str]:
     # 2. ID with suffixes (e.g., 5710F, 5710G)
     return [stop_id] + [f"{base_id}{suffix}" for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']]
 
-async def get_stop_info_from_gtfs(stop_id: str) -> Optional[StopInfo]:
+def get_stop_info_from_gtfs(stop_id: str) -> Optional[StopInfo]:
     """Get stop information from GTFS data."""
     try:
         # First try to get translations
@@ -165,7 +165,7 @@ async def get_stop_info_from_gtfs(stop_id: str) -> Optional[StopInfo]:
                 trans_data = translations[trans_id]
                 if 'fr' in trans_data and 'nl' in trans_data:
                     # Get coordinates from GTFS
-                    coords = await get_coordinates_from_gtfs(variant_id)
+                    coords = get_coordinates_from_gtfs(variant_id)
                     
                     return StopInfo(
                         names={
@@ -293,7 +293,7 @@ def resolve_stop_name(stop_id, name_data=None):
 
     return result
 
-async def get_stop_names(stop_ids, preferred_language=None):
+def get_stop_names(stop_ids, preferred_language=None):
     """Fetch stop names and coordinates for a list of stop IDs, using cache when possible"""
     global cached_stops
 
@@ -305,7 +305,7 @@ async def get_stop_names(stop_ids, preferred_language=None):
     for stop_id in unique_stops:
         if stop_id not in cached_stops:
             # Try GTFS first
-            gtfs_info = await get_stop_info_from_gtfs(stop_id)
+            gtfs_info = get_stop_info_from_gtfs(stop_id)
             if gtfs_info:
                 logger.debug(f"Found complete GTFS info for stop {stop_id}")
                 cached_stops[stop_id] = {

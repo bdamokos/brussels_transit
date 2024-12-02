@@ -146,7 +146,7 @@ class StibProvider(TransitProvider):
             
             # Use existing get_stop_names function which already has caching
             from .get_stop_names import get_stop_names
-            stops_data = await get_stop_names(stop_ids)
+            stops_data = get_stop_names(stop_ids)
             
             # Get coordinates with source information for each stop
             metadata = {"sources": {}}
@@ -322,7 +322,7 @@ class StibProvider(TransitProvider):
                         
             # If still not found, try to fetch from API
             from .get_stop_names import get_stop_names
-            stop_data = await get_stop_names([stop_id])
+            stop_data = get_stop_names([stop_id])
             if stop_id in stop_data:
                 coords = stop_data[stop_id].get('coordinates', None)
                 if coords and coords.get('lat') and coords.get('lon'):

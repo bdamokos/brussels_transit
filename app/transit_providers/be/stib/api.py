@@ -248,7 +248,7 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
                     # Get stop names
                     stop_names = []
                     try:
-                        stop_info = await get_stop_names(affected_stop_ids)
+                        stop_info = get_stop_names(affected_stop_ids)
                         if stop_info:
                             stop_names = [info.get('name', stop_id) for stop_id, info in stop_info.items()]
                         else:
@@ -835,8 +835,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             continue
                             
                 except Exception as e:
-                    import traceback
-                    logger.error(f"Error processing record: {e}, {traceback.format_exc()}")
+                    logger.error(f"Error processing record: {e}")
                     continue
             
             # Remove any stops that ended up with no valid data
