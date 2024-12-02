@@ -1193,3 +1193,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 });
+
+// Get a token when the app starts
+async function getSettingsToken() {
+    try {
+        const response = await fetch('/api/auth/token');
+        if (!response.ok) throw new Error('Failed to get token');
+        const data = await response.json();
+        return data.token;
+    } catch (error) {
+        console.error('Error getting settings token:', error);
+        return null;
+    }
+}
+
+// Use the token when fetching settings
+async function getSettings() {
+    try {
+        const token = await getSettingsToken();
+        if (!token) throw new Error('No token available');
+
+        const response = await fetch('/api/settings', {
+            headers: {
+                'X-Settings-Token': token
+            }
+        });
+        if (!response.ok) throw new Error('Failed to get settings');
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching settings:', error);
+        return null;
+    }
+} 

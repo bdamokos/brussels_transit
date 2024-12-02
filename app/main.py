@@ -19,6 +19,8 @@ from dataclasses import asdict
 import os
 from pathlib import Path
 from flask_cors import CORS
+import secrets
+from functools import wraps
 
 # Ensure logs directory exists
 Path('logs').mkdir(exist_ok=True)
@@ -357,6 +359,68 @@ def get_providers():
             'endpoints': list(provider.endpoints.keys())
         }
     return jsonify(providers_data)
+
+# Store valid tokens with their expiration time
+# In a production environment, you might want to use Redis or a similar solution
+valid_tokens = {}
+
+def generate_token():
+    """Generate a new token and store it with expiration time"""
+    token = secrets.token_urlsafe(32)
+    valid_tokens[token] = datetime.now() + timedelta(minutes=30)  # Token expires in 30 minutes
+    return token
+
+def clean_expired_tokens():
+    """Remove expired tokens"""
+    now = datetime.now()
+    expired = [token for token, expiry in valid_tokens.items() if expiry < now]
+    for token in expired:
+        valid_tokens.pop(token)
+
+def require_valid_token(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('X-Settings-Token')
+        clean_expired_tokens()  # Clean expired tokens
+        
+        if not token or token not in valid_tokens:
+            logger.warning(f"Unauthorized settings access attempt from {request.remote_addr}")
+            return jsonify({
+                'error': 'Unauthorized',
+                'message': 'Invalid or missing token'
+            }), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/api/auth/token')
+def get_token():
+    """Endpoint to get a new token. This should only be called once when the frontend loads."""
+    # Basic protection: only allow requests from our own domain
+    origin = request.headers.get('Origin', '')
+    referer = request.headers.get('Referer', '')
+    
+    if not (origin.startswith(request.host_url) or referer.startswith(request.host_url)):
+        logger.warning(f"Token request from unauthorized origin: {origin}")
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    token = generate_token()
+    return jsonify({'token': token})
+
+@app.route('/api/settings')
+@require_valid_token
+def get_settings():
+    '''Returns the settings that are relevant for the frontend'''
+    settings = {
+        'refresh_interval': REFRESH_INTERVAL,
+        'location_update_interval': LOCATION_UPDATE_INTERVAL,
+        'walking_speed': WALKING_SPEED,
+        'language_precedence': get_config('LANGUAGE_PRECEDENCE'),
+        'enabled_providers': get_config('ENABLED_PROVIDERS'),
+        'port': get_config('PORT'),
+        'timezone': get_config('TIMEZONE'),
+        'map_config': get_config('MAP_CONFIG')
+    }
+    return jsonify(settings)
 
 # Add these routes after your existing routes
 
