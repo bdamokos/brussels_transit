@@ -745,7 +745,18 @@
         return routes;
     }
 
-    // Update the fetchAndUpdateData function
+    // Add this helper near the top with other utility functions
+    async function isDelijnEnabled() {
+        try {
+            const response = await fetch('/api/delijn/config');
+            return response.ok;
+        } catch (error) {
+            console.log('De Lijn provider not enabled');
+            return false;
+        }
+    }
+
+    // Modify the fetchAndUpdateData function to add checks
     async function fetchAndUpdateData() {
         try {
             console.log("Starting data fetch...");
@@ -753,108 +764,45 @@
             // Fetch STIB data
             const stibResponse = await fetch('/api/data');
             console.log("STIB response status:", stibResponse.status);
-            
-            // Fetch De Lijn data
-            const delijnResponse = await fetch('/api/delijn/data');
-            console.log("De Lijn response status:", delijnResponse.status);
-            
-            // Fetch De Lijn messages
-            const delijnMessagesResponse = await fetch('/api/delijn/messages');
-            console.log("De Lijn messages response status:", delijnMessagesResponse.status);
-            
-            // Fetch De Lijn vehicles for each monitored line
-            const delijnVehiclesPromises = delijnConfig.monitored_lines.map(line => 
-                fetch(`/api/delijn/vehicles/${line}`)
-            );
-            const delijnVehiclesResponses = await Promise.all(delijnVehiclesPromises);
-            console.log("De Lijn vehicles responses:", delijnVehiclesResponses.map(r => r.status));
-            
-            if (stibResponse.status === 429) {
-                // Handle rate limiting as before...
-                return;
-            }
-
-            if (!stibResponse.ok || !delijnResponse.ok) {
-                throw new Error(`HTTP error! STIB status: ${stibResponse.status}, De Lijn status: ${delijnResponse.status}`);
-            }
-
             const stibData = await stibResponse.json();
-            const delijnData = await delijnResponse.json();
-            const delijnMessages = delijnMessagesResponse.ok ? await delijnMessagesResponse.json() : { messages: [] };
-            const delijnVehiclesData = await Promise.all(
-                delijnVehiclesResponses.map(async r => {
-                    if (!r.ok) return [];
-                    const data = await r.json();
-                    // Handle both array and object formats
-                    return Array.isArray(data) ? data : data.vehicles || [];
-                })
-            );
             
-            console.log('STIB data:', stibData);
-            console.log('De Lijn data:', delijnData);
-            console.log('De Lijn messages:', delijnMessages);
-            console.log('De Lijn vehicles:', delijnVehiclesData);
-
-            // Transform De Lijn data to match STIB format
-            const transformedDelijnData = {
-                stops_data: {},
-                messages: { messages: [] },
-                processed_vehicles: [],
-                errors: []
-            };
-
-            // Transform vehicle positions
-            const allDelijnVehicles = delijnVehiclesData.flat();
-            console.log("Processing De Lijn vehicles:", allDelijnVehicles);
-            transformedDelijnData.processed_vehicles = allDelijnVehicles.map(vehicle => ({
-                line: vehicle.line,
-                direction: vehicle.direction,
-                interpolated_position: [vehicle.position.lat, vehicle.position.lon],
-                bearing: vehicle.bearing,
-                is_valid: vehicle.is_valid,
-                delay: vehicle.delay,
-                headsign: vehicle.headsign
-            }));
-
-            // Transform service messages
-            console.log("Processing De Lijn messages:", delijnMessages);
-            transformedDelijnData.messages.messages = Array.isArray(delijnMessages) ? 
-                delijnMessages.map(msg => ({
-                    text: msg.description || msg.title,
-                    lines: msg.affected_lines,
-                    stops: msg.affected_stops?.map(stop => stop.name || stop.id) || [],
-                    is_monitored: msg.is_monitored,
-                    priority: 1,
-                    title: msg.title,
-                    description: msg.description,
-                    line_colors: msg.line_colors,
-                    affected_lines: msg.affected_lines,
-                    affected_stops: msg.affected_stops,
-                    period: msg.period,
-                    type: msg.type
-                })) :
-                // If delijnMessages is not an array, check if it has a messages property
-                delijnMessages?.messages?.map(msg => ({
-                    text: msg.description || msg.title,
-                    lines: msg.affected_lines,
-                    stops: msg.affected_stops?.map(stop => stop.name || stop.id) || [],
-                    is_monitored: msg.is_monitored,
-                    priority: 1,
-                    title: msg.title,
-                    description: msg.description,
-                    line_colors: msg.line_colors,
-                    affected_lines: msg.affected_lines,
-                    affected_stops: msg.affected_stops,
-                    period: msg.period,
-                    type: msg.type
-                })) || [];
-
-            // Update line colors
-            if (delijnData.colors) {
-                console.log("Updating De Lijn line colors:", delijnData.colors);
-                Object.entries(delijnData.colors).forEach(([line, colors]) => {
-                    lineColors[line] = colors;
-                });
+            // Check if De Lijn is enabled before making any De Lijn API calls
+            const delijnEnabled = await isDelijnEnabled();
+            
+            // Initialize De Lijn data with empty defaults
+            let delijnData = { stops_data: {}, messages: [], processed_vehicles: [] };
+            let delijnMessages = { messages: [] };
+            let delijnVehiclesData = [];
+            
+            if (delijnEnabled) {
+                // Only make De Lijn API calls if the provider is enabled
+                const delijnResponse = await fetch('/api/delijn/data');
+                if (delijnResponse.ok) {
+                    delijnData = await delijnResponse.json();
+                    console.log("De Lijn data:", delijnData);
+                }
+                
+                const delijnMessagesResponse = await fetch('/api/delijn/messages');
+                if (delijnMessagesResponse.ok) {
+                    delijnMessages = await delijnMessagesResponse.json();
+                    console.log("De Lijn messages:", delijnMessages);
+                }
+                
+                if (delijnConfig?.monitored_lines) {
+                    const delijnVehiclesPromises = delijnConfig.monitored_lines.map(async line => {
+                        try {
+                            const response = await fetch(`/api/delijn/vehicles/${line}`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                return Array.isArray(data) ? data : data.vehicles || [];
+                            }
+                        } catch (error) {
+                            console.warn(`Error fetching vehicles for line ${line}:`, error);
+                        }
+                        return [];
+                    });
+                    delijnVehiclesData = await Promise.all(delijnVehiclesPromises);
+                }
             }
 
             // Combine the data

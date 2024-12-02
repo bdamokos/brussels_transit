@@ -181,12 +181,14 @@ async def index():
         else:
             delijn_config = {}
             delijn_config['stops'] = []
+            delijn_config['monitored_lines'] = []
 
         return render_template('index.html',
             stops=STIB_STOPS,
             initial_load=True,
             route_colors=route_colors,
             DELIJN_STOP_IDS=delijn_config['stops'],
+            DELIJN_MONITORED_LINES=delijn_config['monitored_lines'],
             map_config=MAP_CONFIG,
             refresh_interval=REFRESH_INTERVAL,
             location_update_interval=LOCATION_UPDATE_INTERVAL,
