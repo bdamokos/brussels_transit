@@ -122,12 +122,11 @@ def cache_coordinates(coordinates: Dict[str, StopCoordinates]) -> None:
     except Exception as e:
         logger.error(f"Error caching coordinates: {e}")
 
-async def get_coordinates_from_gtfs(stop_id: str) -> Optional[StopCoordinates]:
+def get_coordinates_from_gtfs(stop_id: str) -> Optional[StopCoordinates]:
     """Get stop coordinates from GTFS data."""
     try:
         # Ensure GTFS data is available
-        gtfs_dir = await ensure_gtfs_data()
-        if gtfs_dir is None:
+        if not ensure_gtfs_data():
             logger.error("Could not ensure GTFS data")
             return None
             

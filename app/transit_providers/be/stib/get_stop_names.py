@@ -57,7 +57,7 @@ class StopInfo:
     metadata: Dict[str, Any]
     failures: Optional[Dict[str, Any]] = None
 
-async def load_stops_trans_ids():
+def load_stops_trans_ids():
     """Load stop_id to trans_id mapping from GTFS stops.txt"""
     global _stops_trans_id_cache
     
@@ -69,10 +69,7 @@ async def load_stops_trans_ids():
         stops_file = GTFS_DIR / 'stops.txt'
         if not stops_file.exists():
             logger.warning("stops.txt not found, triggering GTFS download")
-            gtfs_dir = await ensure_gtfs_data()
-            if gtfs_dir is None:
-                logger.error("Could not get GTFS data")
-                return {}
+            ensure_gtfs_data()
             
         with open(stops_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -89,7 +86,7 @@ async def load_stops_trans_ids():
     
     return _stops_trans_id_cache
 
-async def load_translations(trans_id_to_return=None):
+def load_translations(trans_id_to_return=None):
     """Load stop name translations from GTFS translations.txt"""
     global _translations_cache
     
@@ -104,10 +101,7 @@ async def load_translations(trans_id_to_return=None):
         translations_file = GTFS_DIR / 'translations.txt'
         if not translations_file.exists():
             logger.warning("translations.txt not found, triggering GTFS download")
-            gtfs_dir = await ensure_gtfs_data()
-            if gtfs_dir is None:
-                logger.error("Could not get GTFS data")
-                return {}
+            ensure_gtfs_data()
             
         with open(translations_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
