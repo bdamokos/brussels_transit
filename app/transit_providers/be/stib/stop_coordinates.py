@@ -165,7 +165,7 @@ async def get_coordinates_from_gtfs(stop_id: str) -> Optional[StopCoordinates]:
         logger.error(f"Error getting coordinates from GTFS: {e}")
         return None
 
-def get_stop_coordinates(stop_id: str, api_coordinates: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
+async def get_stop_coordinates(stop_id: str, api_coordinates: Optional[Tuple[float, float]] = None) -> Dict[str, Any]:
     """Get stop coordinates with cache-first, GTFS-second, API-last approach.
     
     Args:
@@ -203,7 +203,7 @@ def get_stop_coordinates(stop_id: str, api_coordinates: Optional[Tuple[float, fl
             break
     
         # 2. Try GTFS data
-        gtfs_coordinates = get_coordinates_from_gtfs(variant_id)
+        gtfs_coordinates = await get_coordinates_from_gtfs(variant_id)
         if gtfs_coordinates:
             logger.debug(f"Found coordinates in GTFS for stop variant {variant_id}")
             result['coordinates'] = {'lat': gtfs_coordinates.lat, 'lon': gtfs_coordinates.lon}
