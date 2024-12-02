@@ -175,8 +175,12 @@ async def index():
             logger.error(f"Error loading cached route colors: {e}")
 
         # Get De Lijn config for stop IDs
-        delijn_provider = PROVIDERS['delijn']
-        delijn_config = await delijn_provider.endpoints['config']()
+        if 'delijn' in PROVIDERS:
+            delijn_provider = PROVIDERS['delijn']
+            delijn_config = await delijn_provider.endpoints['config']()
+        else:
+            delijn_config = {}
+            delijn_config['stops'] = []
 
         return render_template('index.html',
             stops=STIB_STOPS,
