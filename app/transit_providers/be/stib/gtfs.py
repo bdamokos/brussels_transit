@@ -92,10 +92,10 @@ async def download_gtfs_data():
         logger.error(traceback.format_exc())
         return False
 
-def ensure_gtfs_data():
+async def ensure_gtfs_data():
     '''Ensures the GTFS data is downloaded and available.'''
     if not all((GTFS_DIR / file).exists() for file in GTFS_USED_FILES):
-        return download_gtfs_data()
+        return await download_gtfs_data()
     return True
 
 if __name__ == "__main__":
