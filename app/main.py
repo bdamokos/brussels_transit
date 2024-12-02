@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import json
 from datetime import datetime, timedelta
 import pytz
@@ -344,7 +344,26 @@ async def get_static_data():
         return {"error": str(e)}, 500
     
 
+@app.route('/css/<path:path>')
+def serve_css(path):
+    return send_from_directory('templates/css', path)
 
+@app.route('/js/<path:path>')
+def serve_js(path):
+    return send_from_directory('templates/js', path)
+
+@app.route('/images/<path:path>')
+def serve_images(path):
+    return send_from_directory('templates/images', path)
+
+@app.route('/api/providers')
+def get_providers():
+    providers_data = {}
+    for provider_name, provider in PROVIDERS.items():
+        providers_data[provider_name] = {
+            'endpoints': list(provider.endpoints.keys())
+        }
+    return jsonify(providers_data)
 
 # Add these routes after your existing routes
 
