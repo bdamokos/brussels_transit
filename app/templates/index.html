@@ -809,21 +809,21 @@
             const combinedData = {
                 stops_data: {
                     ...stibData.stops_data,
-                    ...transformedDelijnData.stops_data
+                    ...delijnData.stops_data
                 },
                 messages: {
                     messages: [
                         ...(stibData.messages?.messages || []),
-                        ...transformedDelijnData.messages.messages
+                        ...(delijnMessages.messages || [])
                     ]
                 },
                 processed_vehicles: [
                     ...(stibData.processed_vehicles || []),
-                    ...transformedDelijnData.processed_vehicles
+                    ...delijnVehiclesData.flat()
                 ],
                 errors: [
                     ...(stibData.errors || []),
-                    ...transformedDelijnData.errors
+                    ...(delijnData.errors || [])
                 ]
             };
 
@@ -1437,7 +1437,7 @@
                         if (variant && variant.shape) {
                             console.log(`Shape coordinates for line ${line} variant ${index}:`, variant.shape.slice(0, 3), '... (first 3 points)');
                             const convertedCoords = variant.shape.map(coord => {
-                                console.log(`Converting coordinate:`, coord);
+                                {# console.log(`Converting coordinate:`, coord); #}
                                 return [coord[1], coord[0]];
                             });
                             console.log(`Converted coordinates for line ${line} variant ${index}:`, convertedCoords.slice(0, 3), '... (first 3 points)');
