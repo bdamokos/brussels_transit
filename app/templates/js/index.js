@@ -55,7 +55,7 @@ async function fetchAndUpdateData() {
         
         // Initialize De Lijn data with empty defaults
         let delijnData = { stops_data: {}, messages: [], processed_vehicles: [] };
-        let delijnMessages = { messages: [] };
+        let delijnMessages = [];  // Changed from { messages: [] } to []
         let delijnVehiclesData = [];
         
         if (delijnEnabled) {
@@ -104,7 +104,7 @@ async function fetchAndUpdateData() {
             
             const delijnMessagesResponse = await fetch('/api/delijn/messages');
             if (delijnMessagesResponse.ok) {
-                delijnMessages = await delijnMessagesResponse.json();
+                delijnMessages = await delijnMessagesResponse.json();  // Extract messages array directly
                 console.log("De Lijn messages:", delijnMessages);
             }
             
@@ -134,7 +134,7 @@ async function fetchAndUpdateData() {
             messages: {
                 messages: [
                     ...(stibData.messages?.messages || []),
-                    ...(delijnMessages.messages || [])
+                    ...delijnMessages  // Use the messages array directly
                 ]
             },
             processed_vehicles: [
