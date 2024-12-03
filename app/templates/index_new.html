@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Next Bus Times</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="css/index.css">
+    
+    <!-- Configuration from server -->
+    <script>
+        const map_config = {{ map_config|tojson|safe }};
+        const WALKING_SPEED = {{ walking_speed }};  // meters per second
+        const LOCATION_UPDATE_INTERVAL = {{ location_update_interval }} * 1000;  // Convert to milliseconds
+        const REFRESH_INTERVAL = {{ refresh_interval }} * 1000;  // Convert to milliseconds
+        const lineColors = {{ route_colors|tojson|safe }};  // Initialize before loading index.js
+    </script>
+    
+    <!-- Core modules -->
+    <script type="module" src="js/core/utils.js"></script>
+    <script type="module" src="js/core/provider.js"></script>
+    <script type="module" src="js/core/map.js"></script>
+    <script type="module" src="js/core/stops.js"></script>
+    <script type="module" src="js/core/vehicles.js"></script>
+    <script type="module" src="js/core/messages.js"></script>
+    
+    <!-- Main initialization -->
+    <script type="module" src="js/core/init.js"></script>
+</head>
+<body>
+    <h1>Next Buses</h1>
+    <div id="map"></div>
+    <div class="map-controls">
+        <a onclick="resetMapView()">Reset map view</a>
+    </div>
+    <div id="distance-info" class="distance-info loading">
+        Calculating distances...
+    </div>
+    <div id="errors-container"></div>
+    <div id="primary-messages-container"></div>
+    <div id="stops-container">
+        <!-- Initial loading state - grouped by name -->
+        {% set grouped_stops = {} %}
+        {% for stop in stops %}
+            {% if stop.id in DELIJN_STOP_IDS %}
+                {% set provider = 'delijn' %}
+            {% else %}
+                {% set provider = 'stib' %}
+            {% endif %}
+            {% set _ = grouped_stops.setdefault(stop.name, {'stops': [], 'provider': provider}).stops.append(stop) %}
+        {% endfor %}
+        
+        {% for stop_name, group in grouped_stops.items() %}
+        <div class="stop-section" data-stop-name="{{ stop_name }}">
+            <h2>{{ stop_name|proper_title }}</h2>
+            <div class="stop-content">
+                {% for stop in group.stops %}
+                    <div class="physical-stop" 
+                         data-stop-id="{{ stop.id }}"
+                         data-provider="{{ 'delijn' if stop.id in DELIJN_STOP_IDS else 'stib' }}">
+                        {% if not loop.first %}
+                            <div class="stop-divider"></div>
+                        {% endif %}
+                        <div class="loading">Loading real-time data...</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div id="secondary-messages-container"></div>
+</body>
+</html>

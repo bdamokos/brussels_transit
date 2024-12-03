@@ -732,6 +732,13 @@ def matches_destination(configured_name: str, destination_data: dict) -> bool:
     
     return configured_name in destination_values
 
+@app.route('/v2/')
+def index_v2():
+    """
+    New version of the index page using modular architecture.
+    """
+    return render_template('index_new.html')
+
 if __name__ == '__main__':
     app.debug = True
     config = Config()
