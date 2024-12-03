@@ -1043,6 +1043,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log("Starting initialization...");
         
+        // First fetch De Lijn config
+        const delijnConfigResponse = await fetch('/api/delijn/config');
+        if (!delijnConfigResponse.ok) {
+            throw new Error('Error fetching De Lijn configuration');
+        }
+        delijnConfig = await delijnConfigResponse.json();
+        console.log('De Lijn config:', delijnConfig);
+
+        // Populate DELIJN_STOP_IDS
+        if (delijnConfig && delijnConfig.stops) {
+            DELIJN_STOP_IDS = new Set(delijnConfig.stops.map(stop => stop.id));
+        }
+
+        // Fetch STIB static data
+        const stibStaticResponse = await fetch('/api/static_data');
+        if (!stibStaticResponse.ok) {
+            throw new Error('Error fetching STIB static data');
+        }
+        const stibStaticData = await stibStaticResponse.json();
+        console.log('STIB static data:', stibStaticData);
+
+        // Update lineColors with STIB colors
+        Object.assign(lineColors, stibStaticData.route_colors);
+
+        // Fetch De Lijn routes and colors
+        if (delijnConfig && delijnConfig.monitored_lines) {
+            console.log("Fetching De Lijn routes and colors...");
+            const [routes, colors] = await Promise.all([
+                fetchDeLijnRoutes(delijnConfig.monitored_lines),
+                Promise.all(delijnConfig.monitored_lines.map(async line => {
+                    const response = await fetch(`/api/delijn/lines/${line}/colors`);
+                    if (response.ok) {
+                        const colorData = await response.json();
+                        lineColors[line] = colorData;
+                        return { line, colors: colorData };
+                    }
+                }))
+            ]);
+            
+            console.log("De Lijn routes:", routes);
+            console.log("De Lijn colors:", colors);
+            
+            // Add routes to static data
+            stibStaticData.shapes = {
+                ...stibStaticData.shapes,
+                ...routes
+            };
+        }
+
+        // Initialize map with combined static data
+        const combinedStaticData = {
+            ...stibStaticData,
+            display_stops: [
+                ...stibStaticData.display_stops,
+                ...(delijnConfig?.stops || [])
+            ]
+        };
+        
         // Initialize map
         map = L.map('map', {
             center: [
@@ -1092,17 +1150,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         L.control.layers(null, overlays).addTo(map);
 
-        // First fetch De Lijn config
-        const delijnConfigResponse = await fetch('/api/delijn/config');
-        if (!delijnConfigResponse.ok) {
-            throw new Error('Error fetching De Lijn configuration');
-        }
-        delijnConfig = await delijnConfigResponse.json();
-        console.log('De Lijn config:', delijnConfig);
+        console.log("Initializing map with combined data:", combinedStaticData);
+        await initializeMapLayers(combinedStaticData);
 
-        // Populate DELIJN_STOP_IDS
-        if (delijnConfig && delijnConfig.stops) {
-            DELIJN_STOP_IDS = new Set(delijnConfig.stops.map(stop => stop.id));
+        // Handle any errors
+        if (stibStaticData.errors?.length > 0) {
+            updateErrors([], stibStaticData.errors);
         }
 
         // Initial fetch
