@@ -62,8 +62,44 @@ async function fetchAndUpdateData() {
             // Only make De Lijn API calls if the provider is enabled
             const delijnResponse = await fetch('/api/delijn/data');
             if (delijnResponse.ok) {
-                delijnData = await delijnResponse.json();
+                const responseData = await delijnResponse.json();
+                // Ensure we preserve the stops_data structure
+                delijnData = {
+                    ...responseData,
+                    stops_data: delijnData.stops_data
+                };
                 console.log("De Lijn data:", delijnData);
+            }
+            
+            // Fetch global De Lijn waiting times
+            const delijnWaitingTimesResponse = await fetch('/api/delijn/waiting_times');
+            if (delijnWaitingTimesResponse.ok) {
+                const waitingTimesData = await delijnWaitingTimesResponse.json();
+                console.log("De Lijn waiting times raw data:", waitingTimesData);
+                
+                // Store colors for later use
+                if (waitingTimesData.colors) {
+                    Object.entries(waitingTimesData.colors).forEach(([line, colors]) => {
+                        lineColors[line] = colors;
+                    });
+                }
+                
+                // Transform waiting times data into the expected format
+                if (waitingTimesData.stops) {
+                    console.log("Processing De Lijn stops:", Object.keys(waitingTimesData.stops));
+                    Object.entries(waitingTimesData.stops).forEach(([stopId, stopInfo]) => {
+                        console.log(`Processing stop ${stopId}:`, stopInfo);
+                        if (stopInfo.lines) {
+                            console.log(`Stop ${stopId} has lines:`, stopInfo.lines);
+                            delijnData.stops_data[stopId] = {
+                                name: stopInfo.name,
+                                coordinates: stopInfo.coordinates,
+                                lines: stopInfo.lines
+                            };
+                        }
+                    });
+                    console.log("Transformed De Lijn stops data:", delijnData.stops_data);
+                }
             }
             
             const delijnMessagesResponse = await fetch('/api/delijn/messages');
@@ -140,7 +176,6 @@ async function fetchAndUpdateData() {
         }
     }
 }
-
 function updateStopsData(stopsData) {
     console.log("Updating stops data with:", stopsData);
     const sections = document.querySelectorAll('.stop-section');
@@ -163,7 +198,9 @@ function updateStopsData(stopsData) {
                 isDelijn,
                 hasData: !!stopInfo,
                 hasLines: stopInfo?.lines,
-                data: stopInfo
+                data: stopInfo,
+                inDelijnSet: DELIJN_STOP_IDS.has(stopId),
+                delijnStopIds: Array.from(DELIJN_STOP_IDS)
             });
             
             // Clear existing content but keep divider if it exists
@@ -182,6 +219,7 @@ function updateStopsData(stopsData) {
                         lineContainer.className = 'line-container';
                         
                         const lineColor = lineColors[line];
+                        console.log(`Line ${line} color:`, lineColor);
                         const style = isDelijn && typeof lineColor === 'object'
                             ? `
                                 --text-color: ${lineColor.text};
@@ -195,7 +233,7 @@ function updateStopsData(stopsData) {
                         const timeGroups = [];
                         for (let i = 0; i < times.length; i++) {
                             const time = times[i];
-                            console.log('Processing time entry:', time);  // Debug log
+                            console.log(`Processing time entry for ${line} to ${destination}:`, time);  // Debug log
                             
                             if (time.message) {
                                 timeGroups.push({
@@ -1056,6 +1094,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             DELIJN_STOP_IDS = new Set(delijnConfig.stops.map(stop => stop.id));
         }
 
+        // Add De Lijn stops to the page
+        if (delijnConfig.stops && delijnConfig.stops.length > 0) {
+            const stopsContainer = document.getElementById('stops-container');
+            
+            delijnConfig.stops.forEach(stop => {
+                const stopSection = document.createElement('div');
+                stopSection.className = 'stop-section';
+                stopSection.dataset.stopName = stop.name;
+                
+                stopSection.innerHTML = `
+                    <h2>${properTitle(stop.name)}</h2>
+                    <div class="stop-content">
+                        <div class="physical-stop" data-stop-id="${stop.id}" data-provider="delijn">
+                            <div class="loading">Loading real-time data...</div>
+                        </div>
+                    </div>
+                `;
+                
+                stopsContainer.appendChild(stopSection);
+            });
+        }
+
         // Fetch STIB static data
         const stibStaticResponse = await fetch('/api/static_data');
         if (!stibStaticResponse.ok) {
@@ -1247,7 +1307,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Get a token when the app starts
 async function getSettingsToken() {
     try {
         const response = await fetch('/api/auth/token');
@@ -1278,3 +1337,4 @@ async function getSettings() {
         return null;
     }
 } 
+
