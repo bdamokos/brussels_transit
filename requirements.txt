@@ -71,14 +71,14 @@ python-dateutil==2.8.2
     # via
     #   -r requirements.in
     #   pandas
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
     # via -r requirements.in
 pytz==2024.2
     # via
     #   -r requirements.in
     #   apscheduler
     #   pandas
-requests==2.31.0
+requests>=2.31.0
     # via -r requirements.in
 six==1.16.0
     # via
