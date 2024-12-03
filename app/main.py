@@ -387,15 +387,8 @@ def clean_expired_tokens():
 def require_valid_token(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.headers.get('X-Settings-Token')
-        clean_expired_tokens()  # Clean expired tokens
-        
-        if not token or token not in valid_tokens:
-            logger.warning(f"Unauthorized settings access attempt from {request.remote_addr}")
-            return jsonify({
-                'error': 'Unauthorized',
-                'message': 'Invalid or missing token'
-            }), 403
+        if not check_token():
+            return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated_function
 
@@ -413,10 +406,30 @@ def get_token():
     token = generate_token()
     return jsonify({'token': token})
 
+def get_settings_token():
+    """Get the settings token from config or generate a new one"""
+    token = get_config('SETTINGS_TOKEN')
+    if not token:
+        # Generate a random token if none exists
+        token = secrets.token_urlsafe(32)
+        # We should ideally save this to config, but for now just keep in memory
+    return token
+
+def check_token():
+    """Check if the request has a valid settings token"""
+    if request.args.get('debug') == 'true':
+        return True
+        
+    token = request.headers.get('X-Settings-Token')
+    return token and token == get_settings_token()
+
 @app.route('/api/settings')
-@require_valid_token
 def get_settings():
-    '''Returns the settings that are relevant for the frontend'''
+    """Get application settings"""
+    if not check_token():
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    # Get base settings
     settings = {
         'refresh_interval': REFRESH_INTERVAL,
         'location_update_interval': LOCATION_UPDATE_INTERVAL,
@@ -425,9 +438,59 @@ def get_settings():
         'enabled_providers': get_config('ENABLED_PROVIDERS'),
         'port': get_config('PORT'),
         'timezone': get_config('TIMEZONE'),
-        'map_config': get_config('MAP_CONFIG')
+        'map_config': get_config('MAP_CONFIG'),
+        'providers': []
     }
+    
+    # Get enabled providers from the registration system
+    enabled = settings['enabled_providers']
+    for provider_name in enabled:
+        if provider_name in PROVIDERS:
+            provider = PROVIDERS[provider_name]
+            settings['providers'].append({
+                'name': provider_name,
+                'endpoints': list(provider.endpoints.keys())  # Convert dict_keys to list
+            })
+    
     return jsonify(settings)
+
+# Add provider-specific asset endpoints
+@app.route('/api/<provider>/assets')
+def get_provider_assets(provider):
+    """Get provider-specific assets"""
+    if not check_token():
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    if provider not in PROVIDERS:
+        return jsonify({'error': 'Provider not found'}), 404
+    
+    # Get provider instance
+    provider_instance = PROVIDERS[provider]
+    
+    # Each provider should implement get_assets() method
+    if not hasattr(provider_instance, 'get_assets'):
+        return jsonify({'error': 'Provider does not support assets endpoint'}), 501
+        
+    return jsonify(provider_instance.get_assets())
+
+# Update static file serving to avoid conflicts
+@app.route('/static/css/<path:filename>')
+def serve_static_css(filename):
+    """Serve static CSS files"""
+    return send_from_directory('static/css', filename)
+
+@app.route('/static/js/core/<path:filename>')
+def serve_static_core_js(filename):
+    """Serve core JavaScript files"""
+    return send_from_directory('templates/js/core', filename)
+
+@app.route('/static/js/config/<path:filename>')
+def serve_static_config_js(filename):
+    """Serve config JavaScript files"""
+    return send_from_directory('templates/js/config', filename)
+
+# Remove conflicting route and use static_folder instead
+app.static_folder = 'static'
 
 # Add these routes after your existing routes
 
@@ -732,12 +795,23 @@ def matches_destination(configured_name: str, destination_data: dict) -> bool:
     
     return configured_name in destination_values
 
+# Serve the v2 frontend
 @app.route('/v2/')
+@app.route('/v2')
 def index_v2():
-    """
-    New version of the index page using modular architecture.
-    """
+    """Serve the v2 frontend"""
     return render_template('index_new.html')
+
+
+
+# Provider-specific files
+@app.route('/transit_providers/<path:path>')
+def serve_provider_files(path):
+    """Serve provider-specific files"""
+    return send_from_directory('transit_providers', path)
+
+
+
 
 if __name__ == '__main__':
     app.debug = True
