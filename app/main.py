@@ -800,7 +800,18 @@ def matches_destination(configured_name: str, destination_data: dict) -> bool:
 @app.route('/v2')
 def index_v2():
     """Serve the v2 frontend"""
-    return render_template('index_new.html')
+    # Get base configuration
+    config = {
+        'map_config': get_config('MAP_CONFIG', {}),
+        'walking_speed': WALKING_SPEED,
+        'location_update_interval': LOCATION_UPDATE_INTERVAL,
+        'refresh_interval': REFRESH_INTERVAL,
+        'route_colors': {},  # This will be populated by providers
+        'stops': [],  # This will be populated by providers
+        'DELIJN_STOP_IDS': []  # This will be populated by De Lijn provider
+    }
+    
+    return render_template('index_new.html', **config)
 
 
 
