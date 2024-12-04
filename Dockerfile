@@ -19,7 +19,7 @@ RUN mkdir -p cache
 
 # Copy the application files
 COPY app/ .
-COPY cache/ /app/cache/
+RUN if [ -d "cache" ]; then cp -r cache /app/cache; elif [ -d "app/cache" ]; then cp -r app/cache /app/cache; else mkdir -p /app/cache; fi
 
 # Create logs directory and set permissions
 RUN mkdir -p /app/logs && \
