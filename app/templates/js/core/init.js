@@ -1,5 +1,10 @@
+/**
+ * @fileoverview Transit display initialization
+ */
+
 import { TransitProvider, getSettingsToken } from './provider.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
+import L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
 
 /**
  * Main transit display controller
@@ -8,8 +13,26 @@ class TransitDisplay {
     constructor() {
         this.providers = new Map();
         this.map = null;
-        this.refreshInterval = REFRESH_INTERVAL;
+        this.refreshInterval = null;  // Will be set from settings
         this.refreshTimer = null;
+    }
+
+    /**
+     * Load CSS dynamically
+     * @param {string} url - URL of the CSS file
+     * @returns {Promise} Resolves when CSS is loaded
+     */
+    loadCSS(url) {
+        return new Promise((resolve, reject) => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = url;
+            
+            link.onload = () => resolve();
+            link.onerror = () => reject(new Error(`Failed to load CSS: ${url}`));
+            
+            document.head.appendChild(link);
+        });
     }
 
     /**
@@ -18,6 +41,10 @@ class TransitDisplay {
     async initialize() {
         try {
             console.log("Starting initialization...");
+            
+            // Get settings first
+            const settings = await this.getEnabledProviders();
+            this.refreshInterval = settings.refresh_interval;
             
             // Initialize providers
             await this.initializeProviders();
@@ -108,38 +135,50 @@ class TransitDisplay {
      * Initialize the map
      */
     async initializeMap() {
-        // Initialize map with configuration
-        this.map = L.map('map', {
-            center: [map_config.center.lat, map_config.center.lon],
-            zoom: map_config.zoom,
-            zoomControl: true
-        });
-        
-        // Add tile layer
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            minZoom: 11,
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(this.map);
-        
-        // Create map panes
-        this.map.createPane('routesPane').style.zIndex = 400;
-        this.map.createPane('stopsPane').style.zIndex = 450;
-        this.map.createPane('vehiclesPane').style.zIndex = 500;
-        
-        // Initialize layers
-        this.layers = {
-            routes: L.featureGroup([], { pane: 'routesPane' }).addTo(this.map),
-            stops: L.featureGroup([], { pane: 'stopsPane' }).addTo(this.map),
-            vehicles: L.featureGroup([], { pane: 'vehiclesPane' }).addTo(this.map)
-        };
-        
-        // Add layer control
-        L.control.layers(null, {
-            "Routes": this.layers.routes,
-            "Stops": this.layers.stops,
-            "Vehicles": this.layers.vehicles
-        }).addTo(this.map);
+        try {
+            // Load Leaflet CSS
+            await this.loadCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+            
+            // Get map config from settings
+            const settings = await this.getEnabledProviders();
+            const mapConfig = settings.map_config;
+
+            // Initialize map with configuration
+            this.map = L.map('map', {
+                center: [mapConfig.center.lat, mapConfig.center.lon],
+                zoom: mapConfig.zoom,
+                zoomControl: true
+            });
+            
+            // Add tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                minZoom: 11,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(this.map);
+            
+            // Create map panes
+            this.map.createPane('routesPane').style.zIndex = 400;
+            this.map.createPane('stopsPane').style.zIndex = 450;
+            this.map.createPane('vehiclesPane').style.zIndex = 500;
+            
+            // Initialize layers
+            this.layers = {
+                routes: L.featureGroup([], { pane: 'routesPane' }).addTo(this.map),
+                stops: L.featureGroup([], { pane: 'stopsPane' }).addTo(this.map),
+                vehicles: L.featureGroup([], { pane: 'vehiclesPane' }).addTo(this.map)
+            };
+            
+            // Add layer control
+            L.control.layers(null, {
+                "Routes": this.layers.routes,
+                "Stops": this.layers.stops,
+                "Vehicles": this.layers.vehicles
+            }).addTo(this.map);
+        } catch (error) {
+            handleError('Failed to initialize map', error);
+            throw error;
+        }
     }
 
     /**

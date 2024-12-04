@@ -5,6 +5,31 @@
 // List of words that should remain uppercase
 const UPPERCASE_WORDS = new Set(['uz', 'vub', 'ulb']);
 
+// Settings constants with defaults
+export const settings = {
+    WALKING_SPEED: 1.4,  // m/s
+    REFRESH_INTERVAL: 30000,  // ms
+    LOCATION_UPDATE_INTERVAL: 10000,  // ms
+    map_config: {
+        center: { lat: 50.8465, lon: 4.3517 },  // Brussels default
+        zoom: 13
+    },
+    lineColors: {}  // Will be populated from provider data
+};
+
+/**
+ * Update settings from server response
+ * @param {Object} serverSettings - Settings from server
+ */
+export function updateSettings(serverSettings) {
+    Object.assign(settings, {
+        WALKING_SPEED: serverSettings.walking_speed || settings.WALKING_SPEED,
+        REFRESH_INTERVAL: (serverSettings.refresh_interval || 30) * 1000,
+        LOCATION_UPDATE_INTERVAL: (serverSettings.location_update_interval || 10) * 1000,
+        map_config: serverSettings.map_config || settings.map_config
+    });
+}
+
 /**
  * Format a title with proper capitalization rules
  * @param {string} text - The text to format
@@ -49,7 +74,7 @@ export function properTitle(text) {
  * @returns {number} - Walking time in minutes
  */
 export function calculateWalkingTime(meters) {
-    const seconds = meters / WALKING_SPEED;
+    const seconds = meters / settings.WALKING_SPEED;
     return Math.round(seconds / 60);
 }
 
@@ -100,5 +125,33 @@ export async function getSettings() {
     } catch (error) {
         console.error('Error fetching settings:', error);
         return null;
+    }
+}
+
+/**
+ * Check if geolocation is available
+ * @returns {boolean} True if geolocation is available
+ */
+export function isGeolocationAvailable() {
+    return 'geolocation' in navigator && 
+           (window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost');
+}
+
+/**
+ * Handle and display an error
+ * @param {string} message - Error message
+ * @param {Error} error - Error object
+ */
+export function handleError(message, error) {
+    console.error(message, error);
+    const errorsContainer = document.getElementById('errors-container');
+    if (errorsContainer) {
+        errorsContainer.innerHTML = `
+            <div class="error-section">
+                <div class="error-message">
+                    ${message}: ${error.message}
+                </div>
+            </div>
+        `;
     }
 } 
