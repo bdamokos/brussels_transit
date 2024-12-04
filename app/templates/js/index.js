@@ -745,6 +745,12 @@ async function initializeMapLayers(data) {
         for (const [line, shapeData] of Object.entries(data.shapes)) {
             console.log(`Processing shape for line ${line}:`, shapeData);
             
+            // Add null check here
+            if (!shapeData) {
+                console.warn(`No shape data available for line ${line}`);
+                continue;
+            }
+            
             // Handle STIB shapes (array format)
             if (Array.isArray(shapeData)) {
                 console.log(`Line ${line} has array format with ${shapeData.length} variants`);
@@ -790,6 +796,9 @@ async function initializeMapLayers(data) {
                         console.warn(`No coordinates for line ${line} variant ${index}`);
                     }
                 });
+            }
+            else {
+                console.warn(`Unknown shape data format for line ${line}:`, shapeData);
             }
         }
     } else {

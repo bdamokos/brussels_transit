@@ -676,7 +676,7 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
         gtfs_dir = await ensure_gtfs_data()
         if gtfs_dir is None:
             logger.error("Could not get GTFS data")
-            return None
+            return {"error": "GTFS data not available"}
             
         # Read the GTFS files
         routes_df = pd.read_csv(gtfs_dir / 'routes.txt')
@@ -687,7 +687,7 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
         route = routes_df[routes_df['route_short_name'] == str(line_number)]
         if route.empty:
             logger.warning(f"Route {line_number} not found in GTFS data")
-            return None
+            return {"error": f"Route {line_number} not found in GTFS data"}
             
         route_id = route.iloc[0]['route_id']
         logger.debug(f"Found route_id: {route_id} for line {line_number}")
@@ -727,7 +727,7 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
         
     except Exception as e:
         logger.error(f"Error getting shape for line {line_number}: {str(e)}", exc_info=True)
-        return None
+        return {"error": str(e)}
 
 async def get_vehicle_positions(line_number: str = "272", direction: str = "TERUG") -> List[Dict]:
     """Get real-time positions of vehicles for a specific line"""

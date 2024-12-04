@@ -8,7 +8,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 import pytz
-dotenv.load_dotenv()
+dotenv.load_dotenv(override=True)
 
 # Provider Configuration
 ENABLED_PROVIDERS = [
