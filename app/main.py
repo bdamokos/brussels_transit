@@ -318,7 +318,9 @@ async def get_stop_names_api():
         }
     except Exception as e:
         logger.error(f"Error getting stop names: {e}")
-        return {'error': str(e)}, 500
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {'error': "Error fetching stop names"}, 500
 
 @app.route('/api/static_data')
 async def get_static_data():
@@ -342,8 +344,10 @@ async def get_static_data():
         return v2_response
         
     except Exception as e:
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         logger.error(f"Error fetching static data: {e}")
-        return {"error": str(e)}, 500
+        return {"error": "Error fetching static data"}, 500
     
 
 @app.route('/css/<path:path>')
