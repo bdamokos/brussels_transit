@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
+import html
 import json
 from datetime import datetime, timedelta
 import pytz
@@ -280,10 +281,10 @@ async def get_stop_coordinates(stop_id):
         # Return coordinates with deprecation notice
         return v2_response
     except Exception as e:
-        logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
+        logger.error(f"Error getting coordinates for stop {html.escape(stop_id)}: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return {'error': f"Error getting coordinates for stop {stop_id}"}, 500
+        return {'error': f"Error getting coordinates for stop {html.escape(stop_id)}"}, 500
 
 @app.route('/api/stop_names', methods=['POST'])
 async def get_stop_names_api():
