@@ -200,7 +200,7 @@ async def index():
         logger.error(f"Error in index route: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return f"Error: {str(e)}", 500
+        return f"Error: Error in index route", 500
 
 # Add error handling for missing API key
 if not API_KEY:
@@ -257,7 +257,7 @@ async def get_data():
         logger.error(f"Error in data route: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return {"error": str(e)}, 500
+        return {"error": "Error in data route"}, 500
 
 @app.route('/api/stop_coordinates/<stop_id>')
 async def get_stop_coordinates(stop_id):
@@ -281,7 +281,9 @@ async def get_stop_coordinates(stop_id):
         return v2_response
     except Exception as e:
         logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
-        return {'error': str(e)}, 500
+        import traceback
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
+        return {'error': f"Error getting coordinates for stop {stop_id}"}, 500
 
 @app.route('/api/stop_names', methods=['POST'])
 async def get_stop_names_api():
@@ -579,7 +581,7 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
         logger.error(f"Error in provider endpoint {provider}/{endpoint}: {e}")
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f"Error in provider endpoint {provider}/{endpoint}"}), 500
 
 
 @app.route('/api/<provider>/lines/<line>/<endpoint>')
