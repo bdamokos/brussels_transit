@@ -10,6 +10,7 @@ from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider
 from .gtfs import ensure_gtfs_data
+from .get_stop_names import get_stop_names as get_stop_names_from_backend
 from flask import request
 import asyncio
 
@@ -221,9 +222,11 @@ class StibProvider(TransitProvider):
             waiting_times = await get_waiting_times(stop_id)
             
             if not waiting_times or stop_id not in waiting_times.get("stops", {}):
+            
                 response = {
                     "id": stop_id,
-                    "name": "Unknown Stop",
+                    "name": get_stop_names_from_backend([stop_id])[stop_id]['name'],
+    
                     "coordinates": coordinates,
                     "lines": {},
                     "_metadata": {

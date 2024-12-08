@@ -46,6 +46,7 @@ def load_cached_stops():
 
 # Load cached stops at startup
 cached_stops = load_cached_stops()
+logger.debug(f"Loaded {len(cached_stops)} stops from cache for STIB")
 
 def save_cached_stops(stops_data):
     """Save stop names to cache file"""

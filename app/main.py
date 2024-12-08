@@ -30,6 +30,7 @@ from flask_cors import CORS
 import secrets
 from functools import wraps
 from transit_providers.config import get_provider_config
+from functools import lru_cache
 
 # Ensure logs directory exists
 Path('logs').mkdir(exist_ok=True)
@@ -120,42 +121,48 @@ routes_cache = {
 }
 
 @app.template_filter('stop_name')
+@lru_cache(maxsize=128)  # Cache up to 128 stop names
 def stop_name_filter(stop_id: str) -> str:
-    """Template filter to convert stop ID to name"""
-    return get_stop_names([stop_id])[stop_id]['name']
+    """Template filter to convert stop ID to name using the v2 API endpoint"""
+    try:
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        provider = StibProvider()
+        
+        # Convert async to sync using asyncio
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        stop_data = loop.run_until_complete(provider.get_stop(stop_id))
+        loop.close()
+        
+        # Return the name from the response
+        return stop_data.get('name', f'Unknown stop {stop_id}')
+    except Exception as e:
+        logger.error(f"Error getting name for stop {stop_id}: {e}")
+        return f'Error: {stop_id}'
 
 @app.template_filter('stop_coordinates')
+@lru_cache(maxsize=128)  # Cache up to 128 sets of coordinates
 def stop_coordinate_filter(stop_id: str) -> dict:
     """Template filter to get stop coordinates from cache"""
     try:
-        with open(STOPS_CACHE_FILE, 'r') as f:
-            stops_data = json.load(f)
-            logger.debug(f"Looking up coordinates for stop {stop_id}")
-            
-            # First try the original stop ID
-            if stop_id in stops_data:
-                coords = stops_data[stop_id].get('coordinates', {})
-                logger.debug(f"Found coordinates for stop {stop_id}: {coords}")
-                return coords
-                
-            # If not found, try appending letters A-G
-            for suffix in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
-                modified_id = f"{stop_id}{suffix}"
-                if modified_id in stops_data:
-                    coords = stops_data[modified_id].get('coordinates', {})
-                    logger.debug(f"Found coordinates for modified stop ID {modified_id}: {coords}")
-                    return coords
-                    
-            logger.warning(f"Stop {stop_id} not found in cache (including letter suffixes)")
-    except FileNotFoundError:
-        logger.warning(f"Stops cache file not found, creating empty cache")
-        # Create empty cache file
-        with open(STOPS_CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump({}, f)
-        logger.info("Created empty stops cache file")
+        # Create StibProvider instance
+        from transit_providers.be.stib import StibProvider
+        provider = StibProvider()
+        
+        # Convert async to sync using asyncio
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        stop_data = loop.run_until_complete(provider.get_stop(stop_id))
+        loop.close()
+        
+        # Return the coordinates from the response
+        return stop_data.get('coordinates', {})
     except Exception as e:
         logger.error(f"Error getting coordinates for stop {stop_id}: {e}")
-    return {}
+        return {}
 
 
 
