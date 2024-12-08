@@ -32,7 +32,14 @@ export class VehicleManager {
                     // Update existing vehicle
                     const marker = this.vehicles.get(vehicle.id);
                     marker.setLatLng(position);
-                    marker.setRotation(vehicle.bearing || 0);
+                    // Update rotation via CSS
+                    const icon = marker.getElement();
+                    if (icon) {
+                        const vehicleIcon = icon.querySelector('.vehicle-icon');
+                        if (vehicleIcon) {
+                            vehicleIcon.style.transform = `rotate(${vehicle.bearing || 0}deg)`;
+                        }
+                    }
                     this.updateVehiclePopup(marker, vehicle, provider);
                 } else {
                     // Add new vehicle
@@ -51,7 +58,7 @@ export class VehicleManager {
         const marker = L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
             icon: L.divIcon({
                 className: 'vehicle-marker',
-                html: `<div class="vehicle-icon" style="background-color: ${color}">
+                html: `<div class="vehicle-icon" style="background-color: ${color}; transform: rotate(${vehicle.bearing || 0}deg)">
                         <span class="line-number">${vehicle.line}</span>
                       </div>`
             })

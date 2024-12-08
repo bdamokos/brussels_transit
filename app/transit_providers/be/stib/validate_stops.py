@@ -187,7 +187,8 @@ def load_route_shape(line: str, direction: str = None) -> List[List[float]]:
     """
     try:
         shape_file = f'cache/shapes/line_{line}.json'
-        if not shape_file.exists():
+
+        if not Path(shape_file).exists():
             logger.error(f"Shape file {shape_file} not found")
             return []
         
