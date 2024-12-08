@@ -111,8 +111,19 @@ class TransitDisplay {
             // Load each provider
             for (const providerInfo of enabledProviders) {
                 try {
-                    // Load provider assets and get provider class
-                    const ProviderClass = await TransitProvider.loadProviderAssets(providerInfo.name);
+                    console.log(`Loading provider: ${providerInfo.name}`);
+                    
+                    // Use the provider path from settings, fallback to name if not set
+                    const providerPath = providerInfo.path || providerInfo.name;
+                    const modulePath = `/transit_providers/${providerPath}/js/provider.js`;
+                    
+                    console.log(`Loading provider module from: ${modulePath}`);
+                    const module = await import(modulePath);
+                    
+                    // Get provider class (should be named [Name]Provider, e.g., STIBProvider)
+                    const className = `${providerInfo.name.charAt(0).toUpperCase()}${providerInfo.name.slice(1)}Provider`;
+                    const ProviderClass = module[className];
+                    
                     if (!ProviderClass) {
                         console.error(`No provider class found for ${providerInfo.name}`);
                         continue;
@@ -125,8 +136,8 @@ class TransitDisplay {
                     await provider.initialize();
                     
                     // Store provider
-                    this.providers.set(provider.name, provider);
-                    console.log(`${provider.name} provider initialized`);
+                    this.providers.set(providerInfo.name, provider);
+                    console.log(`${providerInfo.name} provider initialized`);
                     
                 } catch (error) {
                     console.error(`Failed to initialize provider ${providerInfo.name}:`, error);

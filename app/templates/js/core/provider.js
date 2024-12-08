@@ -103,4 +103,30 @@ export class TransitProvider {
         // Default implementation does nothing
         return element;
     }
+
+    /**
+     * Load provider assets
+     * @param {string} providerName - Name of the provider to load
+     * @returns {Promise<Class>} Provider class
+     */
+    static async loadProviderAssets(providerName) {
+        // Load CSS if it exists
+        try {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = `/static/css/${providerName}.css`;
+            document.head.appendChild(link);
+        } catch (error) {
+            console.warn(`No CSS found for provider ${providerName}`);
+        }
+
+        // Import and return the provider class
+        try {
+            const module = await import(`/transit_providers/${providerName}/js/provider.js`);
+            return module[`${providerName.charAt(0).toUpperCase() + providerName.slice(1)}Provider`];
+        } catch (error) {
+            console.error(`Failed to load provider ${providerName}:`, error);
+            return null;
+        }
+    }
 } 
