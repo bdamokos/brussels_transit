@@ -6,6 +6,9 @@ import { MapManager } from './map.js';
 import { getSettingsToken } from './utils.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
 import { TransitProvider } from './provider.js';
+import { VehicleManager } from './vehicles.js';
+import { StopManager } from './stops.js';
+import { updateServiceMessages } from './messages.js';
 
 /**
  * Main transit display controller
@@ -16,6 +19,8 @@ class TransitDisplay {
         this.map = null;
         this.refreshInterval = null;
         this.settings = null;
+        this.vehicleManager = null;  // Will initialize after map
+        this.stopManager = new StopManager(); // Initialize StopManager
     }
 
     /**
@@ -40,6 +45,9 @@ class TransitDisplay {
             
             // Initialize map with settings
             await this.initializeMap();
+            
+            // Initialize vehicle manager after map
+            this.vehicleManager = new VehicleManager(this.map);
             
             // Then try to initialize providers
             try {
@@ -238,63 +246,64 @@ class TransitDisplay {
                 
                 // Merge data
                 Object.assign(allData.stops, stops);
-                allData.vehicles.push(...vehicles);
+                allData.vehicles.push(...vehicles.map(v => ({ ...v, provider: provider.id })));
                 allData.messages.push(...messages);
                 Object.assign(allData.routes, routes);
             }
             
-            console.log("All merged data:", allData);
-            
-            // Update displays
-            await this.updateDisplays(allData);
-            
-        } catch (error) {
-            handleError('Error refreshing data', error);
-        }
-    }
-
-    /**
-     * Update all displays with new data
-     */
-    async updateDisplays(data) {
-        // Update map with new data
-        if (this.map) {
-            // Clear existing layers
-            this.map.clearLayers();
-            
-            // Update routes for each provider
-            for (const provider of this.providers.values()) {
-                this.map.addRoutes(provider, data.routes);
-            }
-            
-            // Add/update stop markers
-            for (const [stopId, stop] of Object.entries(data.stops)) {
-                // Get the actual provider instance instead of just the ID
-                const provider = this.providers.get(stop.provider);
-                if (!provider) {
-                    console.warn(`No provider instance found for stop ${stopId} (provider: ${stop.provider})`);
-                    continue;
+            // Update map with new data
+            if (this.map) {
+                // Clear existing layers
+                this.map.clearLayers();
+                
+                // Update routes for each provider
+                for (const provider of this.providers.values()) {
+                    this.map.addRoutes(provider, allData.routes);
                 }
-                this.map.addStopMarker(stop, provider);
+                
+                // Add/update stop markers
+                for (const [stopId, stop] of Object.entries(allData.stops)) {
+                    // Get the actual provider instance instead of just the ID
+                    const provider = this.providers.get(stop.provider);
+                    if (!provider) {
+                        console.warn(`No provider instance found for stop ${stopId} (provider: ${stop.provider})`);
+                        continue;
+                    }
+                    this.map.addStopMarker(stop, provider);
+                }
+                
+                // Update vehicle positions using VehicleManager
+                if (allData.vehicles && Array.isArray(allData.vehicles)) {
+                    // Group vehicles by provider
+                    const vehiclesByProvider = new Map();
+                    allData.vehicles.forEach(vehicle => {
+                        if (!vehiclesByProvider.has(vehicle.provider)) {
+                            vehiclesByProvider.set(vehicle.provider, []);
+                        }
+                        vehiclesByProvider.get(vehicle.provider).push(vehicle);
+                    });
+
+                    // Update vehicles for each provider
+                    for (const [providerId, vehicles] of vehiclesByProvider) {
+                        const provider = this.providers.get(providerId);
+                        if (provider) {
+                            this.vehicleManager.updateVehicles(vehicles, provider);
+                        }
+                    }
+                }
             }
             
-            // Update vehicle positions
-            for (const provider of this.providers.values()) {
-                const providerVehicles = data.vehicles.filter(v => v.provider === provider.id);
-                this.map.updateVehicles(providerVehicles, provider);
+            // Update service messages using messages module
+            if (allData.messages) {
+                updateServiceMessages(allData.messages);
             }
-        }
-        
-        // Update message display
-        const messageContainer = document.getElementById('messages');
-        if (messageContainer) {
-            messageContainer.innerHTML = '';
-            for (const message of data.messages) {
-                const div = document.createElement('div');
-                div.className = 'message';
-                div.textContent = message.text;
-                messageContainer.appendChild(div);
+            
+            // Update stops list using StopManager
+            if (allData.stops) {
+                this.stopManager.updateStopsList(allData.stops);
             }
+        } catch (error) {
+            handleError('Error during data refresh', error);
         }
     }
 
@@ -355,8 +364,13 @@ class TransitDisplay {
     }
 }
 
-// Store instance globally for reset function
-window.transitDisplay = new TransitDisplay();
-document.addEventListener('DOMContentLoaded', () => {
-    window.transitDisplay.initialize();
+// Initialize in the correct order
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // Initialize transit display
+        window.transitDisplay = new TransitDisplay();
+        await window.transitDisplay.initialize();
+    } catch (error) {
+        handleError('Failed to initialize transit display', error);
+    }
 }); 

@@ -100,3 +100,172 @@
 .map-controls a:hover {
     text-decoration: underline;
 }
+
+/* Stop list styles */
+.stops-list {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.stop-section {
+    margin-bottom: 15px;
+}
+
+.stop-header {
+    font-size: 16px;
+    font-weight: bold;
+    padding: 5px 0;
+    border-bottom: 2px solid #eee;
+    margin-bottom: 8px;
+}
+
+.stop-content {
+    padding-left: 10px;
+}
+
+.physical-stop {
+    margin-bottom: 10px;
+}
+
+.line-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 5px 0;
+    padding: 5px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.line-info {
+    display: flex;
+    align-items: center;
+}
+
+.line-number {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: white;
+    font-weight: bold;
+    min-width: 24px;
+    text-align: center;
+}
+
+.direction {
+    margin-left: 8px;
+    color: #666;
+}
+
+.times-container {
+    display: flex;
+    gap: 10px;
+}
+
+.time-display {
+    background-color: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid #ddd;
+}
+
+.minutes {
+    font-weight: bold;
+    color: #333;
+}
+
+.actual-time {
+    color: #666;
+    font-size: 0.9em;
+}
+
+.service-message {
+    color: #dc3545;
+    font-style: italic;
+}
+
+/* Map styles */
+.leaflet-popup-content {
+    margin: 10px;
+}
+
+.popup-content {
+    max-width: 300px;
+}
+
+.popup-header {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #eee;
+}
+
+.popup-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.popup-line {
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.popup-line-number {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: white;
+    font-weight: bold;
+    min-width: 24px;
+    text-align: center;
+    margin-right: 8px;
+}
+
+.popup-destination {
+    color: #666;
+}
+
+.popup-times {
+    margin-top: 4px;
+    padding-left: 32px;
+    color: #333;
+}
+
+/* Route line styles */
+.route-line {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+/* Vehicle marker styles */
+.vehicle-marker {
+    background-color: #fff;
+    border: 2px solid;
+    border-radius: 50%;
+    width: 12px !important;
+    height: 12px !important;
+    margin-left: -6px !important;
+    margin-top: -6px !important;
+}
+
+.vehicle-marker::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+    background-color: inherit;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+}

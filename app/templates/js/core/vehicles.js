@@ -2,13 +2,13 @@ import { L } from './map.js';
 import { isValidCoordinate, handleError } from './utils.js';
 
 export class VehicleManager {
-    constructor(map) {
-        this.map = map;
+    constructor(mapManager) {
+        this.mapManager = mapManager;
         this.vehicles = new Map(); // vehicleId -> marker
-        this.layer = L.layerGroup().addTo(map);
+        this.layer = L.layerGroup().addTo(mapManager.map);
     }
 
-    updateVehicles(vehiclesData) {
+    updateVehicles(vehiclesData, provider) {
         try {
             // Remove old vehicles
             const currentIds = new Set(vehiclesData.map(v => v.id));
@@ -33,10 +33,10 @@ export class VehicleManager {
                     const marker = this.vehicles.get(vehicle.id);
                     marker.setLatLng(position);
                     marker.setRotation(vehicle.bearing || 0);
-                    this.updateVehiclePopup(marker, vehicle);
+                    this.updateVehiclePopup(marker, vehicle, provider);
                 } else {
                     // Add new vehicle
-                    const marker = this.createVehicleMarker(vehicle);
+                    const marker = this.createVehicleMarker(vehicle, provider);
                     this.vehicles.set(vehicle.id, marker);
                     marker.addTo(this.layer);
                 }
@@ -46,19 +46,22 @@ export class VehicleManager {
         }
     }
 
-    createVehicleMarker(vehicle) {
+    createVehicleMarker(vehicle, provider) {
+        const color = provider.getLineColor(vehicle.line);
         const marker = L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
             icon: L.divIcon({
                 className: 'vehicle-marker',
-                html: `<div class="vehicle-icon" style="transform: rotate(${vehicle.bearing || 0}deg)"></div>`
+                html: `<div class="vehicle-icon" style="background-color: ${color}">
+                        <span class="line-number">${vehicle.line}</span>
+                      </div>`
             })
         });
 
-        this.updateVehiclePopup(marker, vehicle);
+        this.updateVehiclePopup(marker, vehicle, provider);
         return marker;
     }
 
-    updateVehiclePopup(marker, vehicle) {
+    updateVehiclePopup(marker, vehicle, provider) {
         const content = `
             <div class="vehicle-popup">
                 <h4>Line ${vehicle.line}</h4>

@@ -15,6 +15,7 @@ export class StibProvider extends TransitProvider {
         this.config = null;
         this.monitoredLines = new Set();
         this.stopIds = new Set();
+        this.lineColors = {};
         
         // Bind methods to instance
         this.formatStopPopup = this.formatStopPopup.bind(this);
@@ -33,26 +34,40 @@ export class StibProvider extends TransitProvider {
                 throw new Error('STIB provider is not enabled');
             }
 
-            // Load initial configuration
+            // Get config first
             this.config = await this.getConfig();
-            console.log('STIB config:', this.config);
             
-            // Initialize monitored lines and stops from config
+            // Extract monitored lines and stop IDs from config
             if (this.config.monitored_lines) {
                 this.monitoredLines = new Set(this.config.monitored_lines);
             }
             
-            if (this.config.stop_ids) {
-                this.stopIds = new Set(this.config.stop_ids);
+            if (this.config.stops) {
+                this.stopIds = new Set(this.config.stops.map(stop => stop.id));
             }
             
-            console.log('Monitored lines:', Array.from(this.monitoredLines));
-            console.log('Monitored stops:', Array.from(this.stopIds));
+            // Get line colors for each monitored line
+            this.lineColors = {};
+            if (this.monitoredLines.size > 0) {
+                for (const line of this.monitoredLines) {
+                    try {
+                        const colorResponse = await fetch(`/api/stib/colors/${line}`);
+                        if (colorResponse.ok) {
+                            const colors = await colorResponse.json();
+                            // Just merge the single line color into our collection
+                            Object.assign(this.lineColors, colors);
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to fetch colors for line ${line}:`, error);
+                    }
+                }
+            }
             
             console.log('STIB Provider initialized with:', {
                 monitoredLines: Array.from(this.monitoredLines),
                 stopIds: Array.from(this.stopIds),
-                config: this.config
+                config: this.config,
+                lineColors: this.lineColors
             });
         } catch (error) {
             console.error('Failed to initialize STIB provider:', error);
@@ -213,6 +228,7 @@ export class StibProvider extends TransitProvider {
                 
                 if (data[line] && Array.isArray(data[line])) {
                     routes[line] = {
+                        provider: this.id,  // Add provider ID
                         variants: data[line].map(variant => ({
                             coordinates: variant.shape.map(coord => ({
                                 lat: coord[1],
@@ -261,16 +277,7 @@ export class StibProvider extends TransitProvider {
     }
 
     getLineColor(line) {
-        // Define STIB line colors
-        const lineColors = {
-            '12': '#17375E', // Airport line - dark blue
-            '55': '#D60B52', // Red
-            '56': '#A8005B', // Purple
-            '59': '#6E6E6E', // Gray
-            '64': '#009EE0', // Light blue
-            '92': '#00B7B4'  // Turquoise
-        };
-        return lineColors[line] || '#007bff';  // Default to blue if no color defined
+        return this.lineColors?.[line] || '#007bff';  // Default to blue if no color defined
     }
 
     getVehicleStyle(vehicle) {

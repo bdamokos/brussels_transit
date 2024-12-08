@@ -529,5 +529,33 @@ export class StopManager {
         return `background-color: #666; color: white;`;
     }
 
-    // ... continue with helper methods
-} 
+    /**
+     * Update the stops list in the UI
+     * @param {Object} stops - The stops data
+     */
+    updateStopsList(stops) {
+        this.container.innerHTML = '';  // Clear existing stops
+        this.stopSections.clear();  // Clear the sections map
+
+        // Group stops by name
+        const stopsByName = new Map();
+        Object.values(stops).forEach(stop => {
+            if (!stopsByName.has(stop.name)) {
+                stopsByName.set(stop.name, []);
+            }
+            stopsByName.get(stop.name).push(stop);
+        });
+
+        // Create sections for each stop name
+        for (const [name, stopsAtLocation] of stopsByName) {
+            const section = this.createStopSection(name);
+            this.stopSections.set(name, section);
+            this.container.appendChild(section);
+
+            stopsAtLocation.forEach(stop => {
+                const stopElement = this.createPhysicalStop(stop.id, stop.provider);
+                section.querySelector('.stop-content').appendChild(stopElement);
+            });
+        }
+    }
+}

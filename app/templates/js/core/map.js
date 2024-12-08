@@ -52,7 +52,7 @@ export class MapManager {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 minZoom: 11,
-                attribution: ' OpenStreetMap contributors'
+                attribution: '© OpenStreetMap contributors'
             }).addTo(this.map);
 
             // Create panes with z-index
@@ -73,6 +73,9 @@ export class MapManager {
                 "Stops": this.layers.stops,
                 "Vehicles": this.layers.vehicles
             }).addTo(this.map);
+
+            // Return the map instance
+            return this.map;
 
         } catch (error) {
             handleError('Failed to initialize map', error);
@@ -113,24 +116,36 @@ export class MapManager {
      */
     addRoutes(provider, shapes) {
         console.log(`Adding routes for provider ${provider.id}:`, shapes);
-        if (!shapes) return;
         
-        this.layers.routes.clearLayers();
+        // Filter shapes for this provider
+        const providerShapes = {};
+        Object.entries(shapes).forEach(([line, data]) => {
+            if (data.provider === provider.id) {
+                providerShapes[line] = data;
+            }
+        });
         
-        Object.entries(shapes).forEach(([line, shapeData]) => {
-            console.log(`Processing line ${line}:`, shapeData);
-            shapeData.variants?.forEach(variant => {
-                if (variant?.coordinates?.length > 1) {
-                    const coordinates = variant.coordinates.map(coord => [coord.lat, coord.lon]);
-                    console.log(`Adding polyline for line ${line}, coordinates:`, coordinates);
-                    L.polyline(coordinates, {
-                        color: provider.getLineColor(line),
-                        weight: 3,
-                        opacity: 0.7,
-                        pane: 'routesPane',
-                        interactive: false
-                    }).addTo(this.layers.routes);
-                }
+        // Add each route variant
+        Object.entries(providerShapes).forEach(([line, data]) => {
+            if (!data.variants || !Array.isArray(data.variants)) return;
+            
+            data.variants.forEach((variant, index) => {
+                if (!variant.coordinates || !Array.isArray(variant.coordinates)) return;
+                
+                const color = provider.getLineColor(line);
+                console.log(`Line ${line} color:`, color);
+                
+                const polyline = L.polyline(
+                    variant.coordinates.map(coord => [coord.lat, coord.lon]),
+                    {
+                        color: color,
+                        weight: 4,
+                        opacity: 0.6,
+                        className: 'route-line'
+                    }
+                );
+                
+                polyline.addTo(this.layers.routes);
             });
         });
     }
