@@ -154,4 +154,47 @@ export function handleError(message, error) {
             </div>
         `;
     }
+}
+
+/**
+ * utils.js - Shared utility functions and configurations
+ */
+
+export const lineColors = {};
+
+/**
+ * Returns the CSS style string for a given line based on its color.
+ * Providers can override or extend this function for custom styling.
+ * @param {string} line - The line identifier.
+ * @returns {string} - CSS style string.
+ */
+export function getLineColor(line) {
+    // Check if a custom color handler exists for the line
+    if (lineColors[line]) {
+        // If lineColors[line] is an object, assume it contains detailed styling
+        if (typeof lineColors[line] === 'object') {
+            return `
+                --text-color: ${lineColors[line].text};
+                --bg-color: ${lineColors[line].background};
+                --text-border-color: ${lineColors[line].text_border};
+                --bg-border-color: ${lineColors[line].background_border};
+            `;
+        }
+        // If lineColors[line] is a string, use it as the background color
+        // Calculate contrasting text color based on background color brightness
+        const bgColor = lineColors[line];
+        const rgb = bgColor.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+        if (rgb) {
+            const r = parseInt(rgb[1], 16);
+            const g = parseInt(rgb[2], 16);
+            const b = parseInt(rgb[3], 16);
+            // Calculate relative luminance using W3C formula
+            const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            const textColor = luminance > 0.5 ? 'black' : 'white';
+            return `background-color: ${bgColor}; --text-color: ${textColor};`;
+        }
+        return `background-color: ${bgColor}; --text-color: white;`;
+    }
+    // Fallback to default color
+    return `background-color: #666; --text-color: white;`;
 } 
