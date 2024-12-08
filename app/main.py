@@ -29,6 +29,7 @@ from pathlib import Path
 from flask_cors import CORS
 import secrets
 from functools import wraps
+from transit_providers.config import get_provider_config
 
 # Ensure logs directory exists
 Path('logs').mkdir(exist_ok=True)
@@ -58,9 +59,11 @@ FILTER_VEHICLES = True
 # Get API key from environment variable
 API_KEY = get_required_config('STIB_API_KEY')
 
+# Get provider configs
+stib_config = get_provider_config('stib')
+STIB_STOPS = stib_config.get('STIB_STOPS', [])
 
-# Get configuration
-STIB_STOPS = get_config('STIB_STOPS')
+# Keep these as they are global configs, not provider-specific
 MAP_CONFIG = get_config('MAP_CONFIG')
 REFRESH_INTERVAL = get_config('REFRESH_INTERVAL')
 LOCATION_UPDATE_INTERVAL = get_config('LOCATION_UPDATE_INTERVAL')
@@ -170,14 +173,17 @@ async def index():
                     route_colors = cache_data.get('data', {})
             elif not ROUTES_CACHE_FILE.exists():
                 logger.warning("Routes cache file not found, creating empty cache")
-                # Create empty cache file
                 with open(ROUTES_CACHE_FILE, 'w', encoding='utf-8') as f:
                     json.dump({}, f)
                 logger.info("Created empty routes cache file")
         except Exception as e:
             logger.error(f"Error loading cached route colors: {e}")
 
-        # Get De Lijn config for stop IDs
+        # Get provider configs
+        stib_config = get_provider_config('stib')
+        STIB_STOPS = stib_config.get('STIB_STOPS', [])
+
+        # Get De Lijn config
         if 'delijn' in PROVIDERS:
             delijn_provider = PROVIDERS['delijn']
             delijn_config = await delijn_provider.endpoints['config']()
@@ -187,7 +193,7 @@ async def index():
             delijn_config['monitored_lines'] = []
 
         return render_template('index.html',
-            stops=STIB_STOPS,
+            stops=STIB_STOPS,  # Now using the provider-specific config
             initial_load=True,
             route_colors=route_colors,
             DELIJN_STOP_IDS=delijn_config['stops'],
