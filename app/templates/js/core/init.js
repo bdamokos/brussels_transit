@@ -2,7 +2,8 @@
  * @fileoverview Transit display initialization
  */
 
-import { TransitProvider, getSettingsToken } from './provider.js';
+import { TransitProvider } from './provider.js';
+import { getSettingsToken } from './utils.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
 import L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
 

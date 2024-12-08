@@ -97,7 +97,9 @@ export function formatDistance(meters) {
 export async function getSettingsToken() {
     try {
         const response = await fetch('/api/auth/token');
-        if (!response.ok) throw new Error('Failed to get token');
+        if (!response.ok) {
+            throw new Error(`Failed to get token: ${response.status}`);
+        }
         const data = await response.json();
         return data.token;
     } catch (error) {
