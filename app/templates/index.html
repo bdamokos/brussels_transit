@@ -9,11 +9,12 @@
     
     <!-- Configuration from server -->
     <script>
-        const map_config = {{ map_config|tojson|safe }};
-        const WALKING_SPEED = {{ walking_speed }};  // meters per second
-        const LOCATION_UPDATE_INTERVAL = {{ location_update_interval }} * 1000;  // Convert to milliseconds
-        const REFRESH_INTERVAL = {{ refresh_interval }} * 1000;  // Convert to milliseconds
-        const lineColors = {{ route_colors|tojson|safe }};  // Initialize before loading index.js
+        // Define variables in a safer way
+        window.map_config = JSON.parse('{{ map_config|tojson|safe }}');
+        window.WALKING_SPEED = Number('{{ walking_speed }}');  // meters per second
+        window.LOCATION_UPDATE_INTERVAL = Number('{{ location_update_interval }}') * 1000;  // Convert to milliseconds
+        window.REFRESH_INTERVAL = Number('{{ refresh_interval }}') * 1000;  // Convert to milliseconds
+        window.lineColors = JSON.parse('{{ route_colors|tojson|safe }}');  // Initialize before loading index.js
     </script>
     
     <!-- Load our JavaScript after configuration is set -->
