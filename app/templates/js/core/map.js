@@ -52,7 +52,7 @@ export class MapManager {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 minZoom: 11,
-                attribution: '© OpenStreetMap contributors'
+                attribution: ' OpenStreetMap contributors'
             }).addTo(this.map);
 
             // Create panes with z-index
@@ -81,32 +81,29 @@ export class MapManager {
     }
 
     /**
-     * Create a vehicle marker with provider-specific styling
+     * Create a vehicle marker
      * @param {Object} vehicle - Vehicle data
      * @param {Object} provider - Transit provider instance
+     * @returns {L.Marker} Leaflet marker
      */
     createVehicleMarker(vehicle, provider) {
-        const style = provider.getVehicleStyle(vehicle);
         const icon = L.divIcon({
-            html: `
-                <div class="vehicle-marker-content" style="${style}">
-                    <div class="${provider.getVehicleClass(vehicle)}">
-                        ${vehicle.line}
-                    </div>
-                    <div class="vehicle-arrow"></div>
-                </div>
-            `,
-            className: 'vehicle-marker',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10],
-            popupAnchor: [0, -10]
+            className: `vehicle-marker line-${vehicle.line}`,
+            html: `<div class="vehicle-icon" style="background-color: ${provider.getLineColor(vehicle.line)}">
+                    <span class="line-number">${vehicle.line}</span>
+                   </div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
         });
-
-        return L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
-            icon,
-            pane: 'vehiclesPane',
-            zIndexOffset: 1000
+        
+        const marker = L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
+            icon: icon,
+            rotationAngle: vehicle.bearing || 0,
+            rotationOrigin: 'center center',
+            pane: 'vehiclesPane'
         });
+        
+        return marker;
     }
 
     /**
@@ -115,38 +112,26 @@ export class MapManager {
      * @param {Object} shapes - Route shape data
      */
     addRoutes(provider, shapes) {
+        console.log(`Adding routes for provider ${provider.id}:`, shapes);
         if (!shapes) return;
-
+        
+        this.layers.routes.clearLayers();
+        
         Object.entries(shapes).forEach(([line, shapeData]) => {
-            // Handle array format (e.g., STIB variants)
-            if (Array.isArray(shapeData)) {
-                shapeData.forEach(variant => {
-                    if (variant?.shape) {
-                        const convertedCoords = variant.shape.map(coord => [coord[1], coord[0]]);
-                        L.polyline(convertedCoords, {
-                            color: provider.getLineColor(line),
-                            weight: 3,
-                            opacity: 0.7,
-                            pane: 'routesPane',
-                            interactive: false
-                        }).addTo(this.layers.routes);
-                    }
-                });
-            }
-            // Handle object format (e.g., De Lijn variants)
-            else if (shapeData.variants) {
-                shapeData.variants.forEach(variant => {
-                    if (variant?.coordinates) {
-                        L.polyline(variant.coordinates, {
-                            color: provider.getLineColor(line),
-                            weight: 3,
-                            opacity: 0.7,
-                            pane: 'routesPane',
-                            interactive: false
-                        }).addTo(this.layers.routes);
-                    }
-                });
-            }
+            console.log(`Processing line ${line}:`, shapeData);
+            shapeData.variants?.forEach(variant => {
+                if (variant?.coordinates?.length > 1) {
+                    const coordinates = variant.coordinates.map(coord => [coord.lat, coord.lon]);
+                    console.log(`Adding polyline for line ${line}, coordinates:`, coordinates);
+                    L.polyline(coordinates, {
+                        color: provider.getLineColor(line),
+                        weight: 3,
+                        opacity: 0.7,
+                        pane: 'routesPane',
+                        interactive: false
+                    }).addTo(this.layers.routes);
+                }
+            });
         });
     }
 
@@ -204,13 +189,25 @@ export class MapManager {
      * @param {Object} provider - Transit provider instance
      */
     updateVehicles(vehicles, provider) {
+        console.log(`Updating vehicles for provider ${provider.id}:`, vehicles);
+        if (!Array.isArray(vehicles)) {
+            console.warn('Vehicles data is not an array:', vehicles);
+            return;
+        }
+
         const newVehiclePositions = new Set();
         
         vehicles.forEach(vehicle => {
-            if (!vehicle.coordinates?.lat || !vehicle.coordinates?.lon) return;
+            if (!vehicle.coordinates?.lat || !vehicle.coordinates?.lon || !vehicle.isValid) {
+                console.debug('Skipping invalid vehicle:', vehicle);
+                return;
+            }
             
             // Create a unique key for this vehicle
-            const vehicleKey = `${provider.name}-${vehicle.line}-${vehicle.direction}`;
+            const vehicleKey = `${provider.id}-${vehicle.line}-${vehicle.direction || ''}`;
+            const vehiclePos = [vehicle.coordinates.lat, vehicle.coordinates.lon];
+            
+            console.log(`Processing vehicle ${vehicleKey} at position:`, vehiclePos);
             
             // Try to find existing marker
             let existingMarker = null;
@@ -220,8 +217,8 @@ export class MapManager {
                 if (!key.startsWith(vehicleKey)) return;
                 
                 const markerPos = marker.getLatLng();
-                const distance = this.map.distance(
-                    [vehicle.coordinates.lat, vehicle.coordinates.lon],
+                const distance = this.calculateDistance(
+                    vehiclePos,
                     [markerPos.lat, markerPos.lng]
                 );
                 
@@ -234,18 +231,25 @@ export class MapManager {
             
             if (existingMarker) {
                 // Update existing marker
-                existingMarker.setLatLng([vehicle.coordinates.lat, vehicle.coordinates.lon]);
-                this.updateVehicleMarker(existingMarker, vehicle, provider);
+                console.log(`Updating existing marker for ${vehicleKey}`);
+                existingMarker.setLatLng(vehiclePos);
+                if (vehicle.bearing !== undefined) {
+                    existingMarker.setRotationAngle(vehicle.bearing);
+                }
                 newVehiclePositions.add(vehicleKey);
             } else {
                 // Create new marker
+                console.log(`Creating new marker for ${vehicleKey}`);
                 const marker = this.createVehicleMarker(vehicle, provider);
-                const markerKey = `${vehicleKey}-${vehicle.coordinates.lat}-${vehicle.coordinates.lon}`;
+                const markerKey = `${vehicleKey}-${Date.now()}`;  // Use timestamp to ensure uniqueness
                 this.vehicleMarkers.set(markerKey, marker);
                 newVehiclePositions.add(markerKey);
                 
                 // Add popup
-                const popupContent = provider.formatVehiclePopup(vehicle);
+                const popupContent = `<div class="vehicle-popup">
+                    <strong>Line ${vehicle.line}</strong><br>
+                    Direction: ${vehicle.direction || 'Unknown'}
+                </div>`;
                 marker.bindPopup(popupContent);
                 marker.addTo(this.layers.vehicles);
             }
@@ -254,6 +258,7 @@ export class MapManager {
         // Remove stale markers
         this.vehicleMarkers.forEach((marker, key) => {
             if (!newVehiclePositions.has(key)) {
+                console.log(`Removing stale marker: ${key}`);
                 marker.remove();
                 this.vehicleMarkers.delete(key);
             }

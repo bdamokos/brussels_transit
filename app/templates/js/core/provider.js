@@ -105,6 +105,25 @@ export class TransitProvider {
     }
 
     /**
+     * Format stop popup content
+     * @param {Object} stop - Stop data
+     * @returns {string} HTML content for popup
+     */
+    formatStopPopup(stop) {
+        if (!stop) return '';
+        
+        let content = `<strong>${stop.name}</strong>`;
+        if (stop.lines) {
+            content += '<div class="lines">';
+            for (const [line, info] of Object.entries(stop.lines)) {
+                content += `<div class="line">${line}</div>`;
+            }
+            content += '</div>';
+        }
+        return content;
+    }
+
+    /**
      * Load provider assets
      * @param {string} providerName - Name of the provider to load
      * @returns {Promise<Class>} Provider class

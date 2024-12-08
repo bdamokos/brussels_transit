@@ -177,6 +177,16 @@ class TransitDisplay {
      * Start the data refresh cycle
      */
     startRefreshCycle() {
+        // Don't start if already running
+        if (this.refreshTimer) {
+            console.log("Refresh cycle already running, skipping...");
+            return;
+        }
+        
+        // Set refresh interval from settings or use default
+        this.refreshInterval = (this.settings?.refresh_interval || 30) * 1000;
+        console.log(`Starting refresh cycle with interval: ${this.refreshInterval}ms`);
+
         // Initial refresh
         this.refreshData();
         
@@ -211,6 +221,7 @@ class TransitDisplay {
             
             // Gather data from all providers
             for (const provider of this.providers.values()) {
+                console.log(`Fetching data from provider: ${provider.id}`);
                 const [stops, vehicles, messages, routes] = await Promise.all([
                     provider.getStops(),
                     provider.getVehicles(),
@@ -218,12 +229,21 @@ class TransitDisplay {
                     provider.getRoutes()
                 ]);
                 
+                console.log(`Provider ${provider.id} data:`, {
+                    stops: stops,
+                    vehicles: vehicles,
+                    messages: messages,
+                    routes: routes
+                });
+                
                 // Merge data
                 Object.assign(allData.stops, stops);
                 allData.vehicles.push(...vehicles);
                 allData.messages.push(...messages);
                 Object.assign(allData.routes, routes);
             }
+            
+            console.log("All merged data:", allData);
             
             // Update displays
             await this.updateDisplays(allData);
@@ -237,14 +257,45 @@ class TransitDisplay {
      * Update all displays with new data
      */
     async updateDisplays(data) {
-        // Update stops
-        await this.updateStops(data.stops);
+        // Update map with new data
+        if (this.map) {
+            // Clear existing layers
+            this.map.clearLayers();
+            
+            // Update routes for each provider
+            for (const provider of this.providers.values()) {
+                this.map.addRoutes(provider, data.routes);
+            }
+            
+            // Add/update stop markers
+            for (const [stopId, stop] of Object.entries(data.stops)) {
+                // Get the actual provider instance instead of just the ID
+                const provider = this.providers.get(stop.provider);
+                if (!provider) {
+                    console.warn(`No provider instance found for stop ${stopId} (provider: ${stop.provider})`);
+                    continue;
+                }
+                this.map.addStopMarker(stop, provider);
+            }
+            
+            // Update vehicle positions
+            for (const provider of this.providers.values()) {
+                const providerVehicles = data.vehicles.filter(v => v.provider === provider.id);
+                this.map.updateVehicles(providerVehicles, provider);
+            }
+        }
         
-        // Update vehicles
-        await this.updateVehicles(data.vehicles);
-        
-        // Update messages
-        await this.updateMessages(data.messages);
+        // Update message display
+        const messageContainer = document.getElementById('messages');
+        if (messageContainer) {
+            messageContainer.innerHTML = '';
+            for (const message of data.messages) {
+                const div = document.createElement('div');
+                div.className = 'message';
+                div.textContent = message.text;
+                messageContainer.appendChild(div);
+            }
+        }
     }
 
     /**

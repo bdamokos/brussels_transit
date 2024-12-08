@@ -1,0 +1,102 @@
+/* Vehicle marker styling */
+.vehicle-marker {
+    background: transparent;
+    border: none;
+}
+
+.vehicle-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border: 2px solid white;
+}
+
+.vehicle-icon .line-number {
+    line-height: 1;
+    text-align: center;
+}
+
+/* Route line styling */
+.route-line {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+    opacity: 0.6;
+    stroke-width: 4;
+}
+
+/* Stop marker styling */
+.stop-marker {
+    background: white;
+    border: 2px solid #333;
+    border-radius: 50%;
+    width: 12px;
+    height: 12px;
+}
+
+.stop-marker:hover {
+    background: #f0f0f0;
+    border-width: 3px;
+}
+
+/* Popup styling */
+.leaflet-popup-content {
+    margin: 8px 12px;
+    line-height: 1.4;
+}
+
+.leaflet-popup-content strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.line-info {
+    margin: 6px 0;
+    font-size: 13px;
+}
+
+.line-info .direction {
+    margin-left: 6px;
+    color: #666;
+}
+
+.line-info .times {
+    margin-top: 4px;
+    margin-left: 24px;
+    color: #333;
+}
+
+.service-message {
+    color: #e74c3c;
+    font-style: italic;
+}
+
+/* Map controls */
+.map-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.2);
+}
+
+.map-controls a {
+    color: #0078A8;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.map-controls a:hover {
+    text-decoration: underline;
+}
