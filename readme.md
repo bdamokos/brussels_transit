@@ -9,6 +9,9 @@ The aim is for a modular design that allows for easy addition of new transit pro
 - Real-time waiting times for De Lijn buses
 - Configurable display of multiple stops
 - Auto-refresh of waiting times
+- API that can be used by other applications (e.g. a Raspberry Pi display)
+
+![Screenshot of the web portal the application creates](docs/images/webportal.png)
 
 ## Potential features
 - Frontend search for stops, configuration options
