@@ -24,16 +24,18 @@ MAP_CONFIG = {
 }
 
 # Your monitored stops
-STIB_STOPS = [
-    {
-        'id': '1234',
-        'name': 'Your Stop Name',
+STIB = {
+    'STIB_STOPS': [
+        {
+            'id': '5659',
+        'name': 'Trois Couleurs',
         'lines': {
-            '1': ['DESTINATION1', 'DESTINATION2']
+            '44': ['Montgomery]
         },
         "direction": "City"
-    }
-]
+        }
+    ]
+}
 
 # Timezone for arrival times
 TIMEZONE = "Europe/Brussels"
