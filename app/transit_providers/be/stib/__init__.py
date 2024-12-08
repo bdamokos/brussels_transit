@@ -29,25 +29,18 @@ import json
 from .stop_coordinates import get_stop_coordinates
 from utils import get_client
 
-logger = logging.getLogger('stib')
-
-provider_config = get_provider_config('stib')
-GTFS_DIR = provider_config.get('GTFS_DIR')
-STOPS_CACHE_FILE = provider_config.get('STOPS_CACHE_FILE')
-API_KEY = provider_config.get('API_KEY')
-STOPS_API_URL = provider_config.get('STIB_STOPS_API_URL')
+# Get logger
+logger = logging.getLogger(__name__)
 
 class StibProvider(TransitProvider):
     """STIB/MIVB transit provider"""
     
     def __init__(self):
-        self.name = "stib"
-        self.config = get_provider_config('stib')
-        
         # Initialize monitored lines and stops from STIB_STOPS config
         self.monitored_lines = set()
         self.stop_ids = set()
         
+        self.config = get_provider_config('stib')
         stib_stops = self.config.get('STIB_STOPS', [])
         for stop in stib_stops:
             if 'lines' in stop:
@@ -55,7 +48,7 @@ class StibProvider(TransitProvider):
             self.stop_ids.add(stop['id'])
 
         # Define all endpoints
-        self.endpoints = {
+        endpoints = {
             'config': self.get_config,
             'data': self.get_data,
             'stops': self.get_stops,
@@ -71,6 +64,9 @@ class StibProvider(TransitProvider):
             'static': self.get_static_data,
             'realtime': self.get_realtime_data,
         }
+        
+        # Call parent class constructor
+        super().__init__(name="stib", endpoints=endpoints)
         logger.info(f"STIB provider initialized with endpoints: {list(self.endpoints.keys())}")
 
     async def get_config(self):
@@ -190,13 +186,13 @@ class StibProvider(TransitProvider):
             if not coordinates:
                 # Get stop details from STIB API
                 params = {
-                    'apikey': API_KEY,
+                    'apikey': self.config.get('API_KEY'),
                     'where': f'id="{stop_id}"',
                     'limit': 1
                 }
                 
                 async with await get_client() as client:
-                    response = await client.get(STOPS_API_URL, params=params)
+                    response = await client.get(self.config.get('STOPS_API_URL'), params=params)
                     if response.status_code == 200:
                         data = response.json()
                         if data.get('total_count', 0) > 0:
@@ -280,7 +276,7 @@ class StibProvider(TransitProvider):
         """Search for stops by name using the generic function."""
         try:
             # Get all stops
-            stops = ingest_gtfs_stops(GTFS_DIR)
+            stops = ingest_gtfs_stops(self.config.get('GTFS_DIR'))
             if not stops:
                 logger.error("No stops data available")
                 return []
@@ -300,10 +296,10 @@ class StibProvider(TransitProvider):
         try:
             try:
                     # Use the same cache file as v1
-                with open(STOPS_CACHE_FILE, 'r') as f:
+                with open(self.config.get('STOPS_CACHE_FILE'), 'r') as f:
                     stops_data = json.load(f)
             except FileNotFoundError:
-                logger.warning(f"File {STOPS_CACHE_FILE} not found. Maybe the GTFS data is not available?")
+                logger.warning(f"File {self.config.get('STOPS_CACHE_FILE')} not found. Maybe the GTFS data is not available?")
                 return {'coordinates': None}
                 
             # First try the original stop ID

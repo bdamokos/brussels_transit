@@ -21,7 +21,7 @@ import logging
 from logging.config import dictConfig
 from utils import RateLimiter, get_client
 from flask import jsonify
-from transit_providers import PROVIDERS
+from transit_providers import PROVIDERS, get_provider_path
 from config import get_config, get_required_config
 from dataclasses import asdict
 import os
@@ -458,12 +458,15 @@ def get_settings():
     
     # Get enabled providers from the registration system
     enabled = settings['enabled_providers']
+    
+    from transit_providers import PROVIDERS, get_provider_path
     for provider_name in enabled:
         if provider_name in PROVIDERS:
             provider = PROVIDERS[provider_name]
             settings['providers'].append({
                 'name': provider_name,
-                'endpoints': list(provider.endpoints.keys())  # Convert dict_keys to list
+                'path': get_provider_path(provider_name),
+                'endpoints': list(provider.endpoints.keys())
             })
     
     return jsonify(settings)
@@ -486,6 +489,14 @@ def get_provider_assets(provider):
         return jsonify({'error': 'Provider does not support assets endpoint'}), 501
         
     return jsonify(provider_instance.get_assets())
+
+@app.route('/transit_providers/<path:provider_path>/js/<path:filename>')
+def serve_provider_js(provider_path, filename):
+    return send_from_directory(f'transit_providers/{provider_path}/js', filename)
+
+@app.route('/transit_providers/<path:provider_path>/css/<path:filename>')
+def serve_provider_css(provider_path, filename):
+    return send_from_directory(f'transit_providers/{provider_path}/css', filename)
 
 # Update static file serving to avoid conflicts
 @app.route('/static/css/<path:filename>')
@@ -868,4 +879,3 @@ if __name__ == '__main__':
     print(f"  Network: http://{local_ip}:{PORT}")
     
     asyncio.run(serve(app, config))
-

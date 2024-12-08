@@ -12,7 +12,8 @@ from logging.config import dictConfig
 from transit_providers.nearest_stop import get_stop_by_name as generic_get_stop_by_name, get_cached_stops
 from dataclasses import asdict
 from pathlib import Path
-from transit_providers import get_provider_docs
+from transit_providers import TransitProvider, register_provider
+
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)  # Create logs directory
@@ -29,32 +30,31 @@ from .api import (
     get_service_messages,
     get_nearest_stop,
     find_nearest_stops,
-    get_stop_by_name,
+    get_stop_by_name
 )
 
 provider_config = get_provider_config('delijn')
 GTFS_DIR = provider_config.get('GTFS_DIR')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 
-@dataclass
-class DelijnProvider:
-    name: str = "De Lijn"
-    endpoints: Dict[str, Callable[..., Awaitable[Any]]] = None
-    monitored_lines: list = None
-    stop_ids: list = None
-    cache_dir: Path = CACHE_DIR
-
-    def __post_init__(self):
-        # Get merged configuration
-        config = get_provider_config('delijn')
-        self.monitored_lines = config['MONITORED_LINES']
-        self.stop_ids = config['STOP_IDS'] if isinstance(config['STOP_IDS'], list) else [config['STOP_IDS']]
+class DelijnProvider(TransitProvider):
+    """De Lijn transit provider"""
+    
+    def __init__(self):
+        # Initialize monitored lines and stops from config
+        self.monitored_lines = []
+        self.stop_ids = []
+        self.cache_dir = Path(CACHE_DIR)
         
-        # Ensure cache directory exists
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-
+        config = get_provider_config('delijn')
+        delijn_stops = config.get('DELIJN_STOPS', [])
+        for stop in delijn_stops:
+            if 'lines' in stop:
+                self.monitored_lines.extend(stop['lines'].keys())
+            self.stop_ids.append(stop['id'])
+            
         # Define all endpoints
-        self.endpoints = {
+        endpoints = {
             'config': self.get_config,
             'data': self.get_data,
             'stops': self.get_stop_details,
@@ -65,7 +65,11 @@ class DelijnProvider:
             'waiting_times': get_formatted_arrivals,
             'nearest_stop': get_nearest_stop,
             'get_stop_by_name': self.get_stop_by_name,
+            'get_nearest_stops': self.get_nearest_stops
         }
+        
+        # Call parent class constructor
+        super().__init__(name="De Lijn", endpoints=endpoints)
         logger.info(f"De Lijn provider initialized with endpoints: {list(self.endpoints.keys())}")
 
     async def get_config(self):
@@ -172,6 +176,13 @@ class DelijnProvider:
 
 # Only create and register provider if it's enabled
 if 'delijn' in get_config('ENABLED_PROVIDERS', []):
-    provider = DelijnProvider()
-    from transit_providers import register_provider
-    register_provider('delijn', provider.endpoints)
+    try:
+        provider = DelijnProvider()
+        register_provider('delijn', provider)
+        logger.info("De Lijn provider registered successfully")
+    except Exception as e:
+        logger.error(f"Failed to register De Lijn provider: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+else:
+    logger.warning("De Lijn provider is not enabled in configuration")

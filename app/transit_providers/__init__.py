@@ -4,6 +4,7 @@ import os
 import importlib
 import logging
 from pathlib import Path
+import inspect
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -16,11 +17,58 @@ class TransitProvider:
 # Dictionary to store all registered providers
 PROVIDERS: Dict[str, Union[TransitProvider, Dict[str, Callable]]] = {}
 
+def get_provider_path(provider_name: str) -> str:
+    """Get the path for a provider based on its module location"""
+    if provider_name not in PROVIDERS:
+        logger.debug(f"Provider {provider_name} not found in PROVIDERS")
+        return ""
+        
+    provider = PROVIDERS[provider_name]
+    logger.debug(f"Found provider {provider_name}: {type(provider)}")
+    
+    # Get the module where this provider was defined
+    if isinstance(provider, TransitProvider):
+        module = inspect.getmodule(provider.__class__)
+        logger.debug(f"Provider is TransitProvider instance, module: {module}")
+    else:
+        # For dict providers, we need to get the module where register_provider was called
+        frame = inspect.currentframe()
+        while frame:
+            if frame.f_code.co_name == 'register_provider':
+                module = inspect.getmodule(frame.f_code)
+                break
+            frame = frame.f_back
+        else:
+            logger.debug("Could not find register_provider frame")
+            return ""
+            
+    if not module:
+        logger.debug("Could not determine module")
+        return ""
+        
+    # Get module path relative to transit_providers
+    # e.g. transit_providers.be.stib -> be/stib
+    parts = module.__name__.split('.')
+    logger.debug(f"Module name parts: {parts}")
+    if len(parts) > 1:  # Skip 'transit_providers' part
+        path = '/'.join(parts[1:])
+        logger.debug(f"Extracted path: {path}")
+        return path
+    logger.debug("No path components found")
+    return ""
+
 def register_provider(name: str, provider: Union[Dict[str, Callable], TransitProvider]) -> None:
     """Register a transit provider and its endpoints"""
     logger.debug(f"Registering provider: {name}")
-    endpoints = provider if isinstance(provider, dict) else provider.endpoints
-    PROVIDERS[name] = TransitProvider(name=name, endpoints=endpoints)
+    
+    # If it's already a TransitProvider instance, store it directly
+    if isinstance(provider, TransitProvider):
+        PROVIDERS[name] = provider
+    else:
+        # For dict providers, create a new TransitProvider instance
+        PROVIDERS[name] = TransitProvider(name=name, endpoints=provider)
+        
+    logger.debug(f"Provider {name} registered with endpoints: {list(PROVIDERS[name].endpoints.keys())}")
 
 def get_provider_docs() -> Dict[str, Any]:
     """Generate documentation for all registered providers and their endpoints"""
