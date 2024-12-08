@@ -234,9 +234,16 @@ function updateStopsData(stopsData) {
                         const timeGroups = [];
                         for (let i = 0; i < times.length; i++) {
                             const time = times[i];
-                            console.log(`Processing time entry for ${line} to ${destination}:`, time);  // Debug log
+                            console.log(`Processing time entry for ${line} to ${destination}:`, time);
                             
-                            if (time.message) {
+                            if (time.message && typeof time.message === 'object') {
+                                // Handle multilingual message object
+                                timeGroups.push({
+                                    message: time.message.en || time.message.fr || time.message.nl || 'No message',
+                                    is_message: true
+                                });
+                            } else if (time.message) {
+                                // Handle simple string message
                                 timeGroups.push({
                                     message: time.message,
                                     is_message: true
@@ -1229,13 +1236,39 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateErrors([], stibStaticData.errors);
         }
 
-        // Initial fetch
-        await fetchAndUpdateData();
+        // Initial data loads - split into separate operations
+        console.log("Starting data initialization...");
         
-        // Update every 60 seconds
-        setInterval(fetchAndUpdateData, REFRESH_INTERVAL);
+        // Load real-time data first (faster and more important)
+        try {
+            await fetchAndUpdateData();
+            // Set up refresh interval for real-time data
+            setInterval(fetchAndUpdateData, REFRESH_INTERVAL);
+        } catch (error) {
+            console.error('Error loading real-time data:', error);
+            showError('Error loading real-time data');
+        }
 
-        // Add geolocation handling
+        // Then load service messages (slower due to rate limiting)
+        try {
+            const [stibMessages, delijnMessages] = await Promise.all([
+                fetch('/api/stib/messages').then(r => r.json()),
+                delijnConfig ? fetch('/api/delijn/messages').then(r => r.json()) : []
+            ]);
+            
+            // Update service messages when available
+            updateServiceMessages({
+                messages: [
+                    ...(stibMessages?.messages || []),
+                    ...delijnMessages
+                ]
+            });
+        } catch (error) {
+            console.error('Error loading service messages:', error);
+            updateErrors(['Error loading service messages'], []);
+        }
+
+        // Initialize geolocation last
         if ('geolocation' in navigator && isSecure) {
             const distanceInfo = document.getElementById('distance-info');
             distanceInfo.innerHTML = 'Requesting location access...';
