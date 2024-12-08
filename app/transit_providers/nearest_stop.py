@@ -8,7 +8,7 @@ import csv
 import math
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional, Union, Generator
 from dataclasses import dataclass, asdict
 import logging
 from logging.config import dictConfig
@@ -30,20 +30,10 @@ class Stop:
     parent_station: Optional[str] = None
     line_ids: Optional[List[Union[str, Tuple[str, str]]]] = None
 
-def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
-    """Ingest GTFS stops.txt into a dictionary of Stop objects."""
-    stops = {}
+def iter_gtfs_stops(gtfs_stops_path: str) -> Generator[Stop, None, None]:
+    """Iterate through GTFS stops.txt yielding Stop objects."""
     stops_path = Path(gtfs_stops_path) / 'stops.txt'
     logger.debug(f"Stops path: {stops_path}")
-    # Debug directory information
-    import os
-    current_dir = os.getcwd()
-    logger.debug(f"Current directory: {current_dir}")
-    logger.debug(f"Looking for stops at: {stops_path}")
-    if os.path.exists(stops_path.parent):
-        logger.debug(f"GTFS directory contents: {os.listdir(stops_path.parent)}")
-    else:
-        logger.debug(f"GTFS directory does not exist: {stops_path.parent}")
     
     try:
         with open(stops_path, 'r', encoding='utf-8') as f:
@@ -62,20 +52,21 @@ def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
                         location_type=row.get('location_type'),
                         parent_station=row.get('parent_station')
                     )
-                    stops[stop.id] = stop
+                    yield stop
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error processing stop {row.get('stop_id')}: {e}")
                     continue
                     
-        logger.info(f"Successfully loaded {len(stops)} stops from GTFS data")
-        return stops
     except FileNotFoundError:
         logger.warning(f"File {stops_path} not found. Maybe the GTFS data is not available?")
-        
-        return {}
     except Exception as e:
         logger.error(f"Error reading stops.txt: {e}")
-        return {}
+
+def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
+    """Ingest GTFS stops.txt into a dictionary of Stop objects."""
+    stops = {stop.id: stop for stop in iter_gtfs_stops(gtfs_stops_path)}
+    logger.info(f"Successfully loaded {len(stops)} stops from GTFS data")
+    return stops
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two points using Haversine formula."""

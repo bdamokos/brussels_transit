@@ -3,7 +3,7 @@ import json
 import httpx
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
-from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
+from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple, Generator
 from pathlib import Path
 import pandas as pd
 import zipfile
@@ -25,6 +25,9 @@ from transit_providers.nearest_stop import (
 )
 import fcntl
 import time
+import csv
+from functools import lru_cache
+import hashlib
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -658,10 +661,95 @@ async def download_and_extract_gtfs() -> bool:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
         return False
 
+def iter_gtfs_file(file_path: Path) -> Generator[Dict[str, str], None, None]:
+    """Generator to read GTFS files line by line."""
+    with open(file_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            yield row
+
+# Helper function to create cache key from file path and modification time
+def get_file_hash(file_path: Path) -> str:
+    """Create hash from file path and modification time for cache invalidation."""
+    mtime = file_path.stat().st_mtime
+    return hashlib.md5(f"{file_path}:{mtime}".encode()).hexdigest()
+
+@lru_cache(maxsize=128)
+def get_cached_route_info(file_hash: str, line_number: str) -> Tuple[Optional[str], Optional[Dict]]:
+    """Cached version of route info lookup."""
+    route_file = GTFS_DIR / 'routes.txt'
+    route_id = None
+    route_data = None
+    
+    for route in iter_gtfs_file(route_file):
+        if route['route_short_name'] == str(line_number):
+            route_id = route['route_id']
+            route_data = route
+            break
+    
+    return route_id, route_data
+
+@lru_cache(maxsize=128)
+def get_cached_trips_for_route(file_hash: str, route_id: str) -> Dict[str, List[Dict[str, str]]]:
+    """Cached version of trips lookup."""
+    trips_file = GTFS_DIR / 'trips.txt'
+    trips_by_direction = {}
+    
+    for trip in iter_gtfs_file(trips_file):
+        if trip['route_id'] == route_id:
+            direction = trip['direction_id']
+            if direction not in trips_by_direction:
+                trips_by_direction[direction] = []
+            trips_by_direction[direction].append(trip)
+    
+    return trips_by_direction
+
+@lru_cache(maxsize=256)
+def get_cached_shapes_for_trip(file_hash: str, shape_id: str) -> List[Dict[str, str]]:
+    """Cached version of shapes lookup."""
+    shapes_file = GTFS_DIR / 'shapes.txt'
+    shape_points = []
+    
+    for point in iter_gtfs_file(shapes_file):
+        if point['shape_id'] == shape_id:
+            shape_points.append(point)
+    
+    return sorted(shape_points, key=lambda x: int(x['shape_pt_sequence']))
+
+# Update the async functions to use the cached versions
+async def get_route_info(gtfs_dir: Path, line_number: str) -> Tuple[Optional[str], Optional[Dict]]:
+    """Get route info from GTFS data using cached generator."""
+    try:
+        route_file = gtfs_dir / 'routes.txt'
+        file_hash = get_file_hash(route_file)
+        return get_cached_route_info(file_hash, line_number)
+    except Exception as e:
+        logger.error(f"Error reading route data: {e}")
+        return None, {"error": str(e)}
+
+async def get_trips_for_route(gtfs_dir: Path, route_id: str) -> Dict[str, List[Dict[str, str]]]:
+    """Get all trips for a route using cached lookup."""
+    try:
+        trips_file = gtfs_dir / 'trips.txt'
+        file_hash = get_file_hash(trips_file)
+        return get_cached_trips_for_route(file_hash, route_id)
+    except Exception as e:
+        logger.error(f"Error reading trips data: {e}")
+        return {}
+
+async def get_shapes_for_trip(gtfs_dir: Path, shape_id: str) -> List[Dict[str, str]]:
+    """Get ALL shape points for a trip using cached lookup."""
+    try:
+        shapes_file = gtfs_dir / 'shapes.txt'
+        file_hash = get_file_hash(shapes_file)
+        return get_cached_shapes_for_trip(file_hash, shape_id)
+    except Exception as e:
+        logger.error(f"Error reading shapes data: {e}")
+        return []
+
 async def get_line_shape(line_number: str) -> Optional[Dict]:
-    """Get the shape of a line with caching"""
+    """Get the shape of a line with caching."""
     cache_key = f"line_{line_number}"
-    cache_file = SHAPES_CACHE_DIR / f"{cache_key}.json"
     
     # Try to get from cache first
     cached_data = await cache_get(cache_key)
@@ -671,42 +759,36 @@ async def get_line_shape(line_number: str) -> Optional[Dict]:
     try:
         logger.debug(f"Processing GTFS data for line {line_number}")
         
-        # Ensure GTFS data is available
-        logger.debug(f"Ensuring GTFS data is available. Ensuring triggered by {__file__}, function: {inspect.currentframe().f_code.co_name}")
         gtfs_dir = await ensure_gtfs_data()
         if gtfs_dir is None:
             logger.error("Could not get GTFS data")
             return {"error": "GTFS data not available"}
-            
-        # Read the GTFS files
-        routes_df = pd.read_csv(gtfs_dir / 'routes.txt')
-        trips_df = pd.read_csv(gtfs_dir / 'trips.txt')
-        shapes_df = pd.read_csv(gtfs_dir / 'shapes.txt')
         
-        # Find route_id for the line
-        route = routes_df[routes_df['route_short_name'] == str(line_number)]
-        if route.empty:
-            logger.warning(f"Route {line_number} not found in GTFS data")
-            return {"error": f"Route {line_number} not found in GTFS data"}
-            
-        route_id = route.iloc[0]['route_id']
-        logger.debug(f"Found route_id: {route_id} for line {line_number}")
+        # Get route info
+        route_id, route_error = await get_route_info(gtfs_dir, line_number)
+        if not route_id:
+            return route_error
         
-        # Get trips for this route
-        route_trips = trips_df[trips_df['route_id'] == route_id]
-        if route_trips.empty:
+        # Get ALL trips for this route, grouped by direction
+        trips_by_direction = await get_trips_for_route(gtfs_dir, route_id)
+        if not trips_by_direction:
             logger.warning(f"No trips found for route {line_number}")
             return None
-        
+            
         # Process shapes for each direction
         variants = []
-        for direction_id, direction_trips in route_trips.groupby('direction_id'):
-            shape_id = direction_trips.iloc[0]['shape_id']
+        for direction_id, direction_trips in trips_by_direction.items():
+            # Take first trip for each direction (same as pandas groupby.first())
+            trip = direction_trips[0]
+            shape_id = trip['shape_id']
             logger.debug(f"Processing shape {shape_id} for direction {direction_id}")
             
-            shape_points = shapes_df[shapes_df['shape_id'] == shape_id]
-            shape_points = shape_points.sort_values('shape_pt_sequence')
-            coordinates = shape_points[['shape_pt_lat', 'shape_pt_lon']].values.tolist()
+            # Get ALL shape points, sorted by sequence
+            shape_points = await get_shapes_for_trip(gtfs_dir, shape_id)
+            coordinates = [
+                [float(point['shape_pt_lat']), float(point['shape_pt_lon'])]
+                for point in shape_points
+            ]
             
             variants.append({
                 "variante": len(variants) + 1,
