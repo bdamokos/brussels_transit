@@ -2,10 +2,10 @@
  * @fileoverview Transit display initialization
  */
 
-import { TransitProvider } from './provider.js';
+import { MapManager } from './map.js';
 import { getSettingsToken } from './utils.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
-import { L } from './map.js';
+import { TransitProvider } from './provider.js';
 
 /**
  * Main transit display controller
@@ -14,26 +14,8 @@ class TransitDisplay {
     constructor() {
         this.providers = new Map();
         this.map = null;
-        this.refreshInterval = null;  // Will be set from settings
-        this.refreshTimer = null;
-    }
-
-    /**
-     * Load CSS dynamically
-     * @param {string} url - URL of the CSS file
-     * @returns {Promise} Resolves when CSS is loaded
-     */
-    loadCSS(url) {
-        return new Promise((resolve, reject) => {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = url;
-            
-            link.onload = () => resolve();
-            link.onerror = () => reject(new Error(`Failed to load CSS: ${url}`));
-            
-            document.head.appendChild(link);
-        });
+        this.refreshInterval = null;
+        this.settings = null;
     }
 
     /**
@@ -44,24 +26,38 @@ class TransitDisplay {
             console.log("Starting initialization...");
             
             // Get settings first
-            const settings = await this.getEnabledProviders();
-            this.refreshInterval = settings.refresh_interval;
+            const response = await fetch('/api/settings', {
+                headers: {
+                    'X-Settings-Token': await getSettingsToken()
+                }
+            });
             
-            // Initialize providers
-            await this.initializeProviders();
+            if (response.ok) {
+                this.settings = await response.json();
+            } else {
+                throw new Error('Failed to get settings');
+            }
             
-            // Initialize map
+            // Initialize map with settings
             await this.initializeMap();
             
-            // Start data refresh cycle
-            this.startRefreshCycle();
+            // Then try to initialize providers
+            try {
+                await this.initializeProviders();
+            } catch (error) {
+                console.error('Provider initialization failed:', error);
+                handleError('Provider initialization failed', error);
+                // Continue execution - we still have a map
+            }
+            
+            // Start refresh cycle if we have any providers
+            if (this.providers.size > 0) {
+                this.startRefreshCycle();
+            }
             
             // Initialize geolocation if available
             if (isGeolocationAvailable()) {
                 this.initializeGeolocation();
-            } else {
-                console.log('Geolocation not available, using map center');
-                this.useMapCenter();
             }
             
         } catch (error) {
@@ -70,21 +66,37 @@ class TransitDisplay {
     }
 
     /**
-     * Get enabled providers from settings
+     * Initialize the map
      */
-    async getEnabledProviders() {
-        const token = await getSettingsToken();
-        if (!token) throw new Error('No token available');
-
-        const response = await fetch('/api/settings', {
-            headers: {
-                'X-Settings-Token': token
+    async initializeMap() {
+        try {
+            // Get basic map config from settings
+            const response = await fetch('/api/settings', {
+                headers: {
+                    'X-Settings-Token': await getSettingsToken()
+                }
+            });
+            
+            let mapConfig;
+            if (response.ok) {
+                const settings = await response.json();
+                mapConfig = settings.map_config;
+            } else {
+                // Use default config if settings request fails
+                mapConfig = {
+                    center: { lat: 50.8465, lon: 4.3517 },  // Brussels
+                    zoom: 13
+                };
             }
-        });
-        if (!response.ok) throw new Error('Failed to get settings');
-        
-        const settings = await response.json();
-        return settings.providers || [];
+
+            // Initialize map with configuration
+            this.map = new MapManager();
+            await this.map.initialize(mapConfig);
+            
+        } catch (error) {
+            handleError('Failed to initialize map', error);
+            throw error;
+        }
     }
 
     /**
@@ -133,53 +145,21 @@ class TransitDisplay {
     }
 
     /**
-     * Initialize the map
+     * Get enabled providers from settings
      */
-    async initializeMap() {
-        try {
-            // Load Leaflet CSS
-            await this.loadCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-            
-            // Get map config from settings
-            const settings = await this.getEnabledProviders();
-            const mapConfig = settings.map_config;
+    async getEnabledProviders() {
+        const token = await getSettingsToken();
+        if (!token) throw new Error('No token available');
 
-            // Initialize map with configuration
-            this.map = L.map('map', {
-                center: [mapConfig.center.lat, mapConfig.center.lon],
-                zoom: mapConfig.zoom,
-                zoomControl: true
-            });
-            
-            // Add tile layer
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 19,
-                minZoom: 11,
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(this.map);
-            
-            // Create map panes
-            this.map.createPane('routesPane').style.zIndex = 400;
-            this.map.createPane('stopsPane').style.zIndex = 450;
-            this.map.createPane('vehiclesPane').style.zIndex = 500;
-            
-            // Initialize layers
-            this.layers = {
-                routes: L.featureGroup([], { pane: 'routesPane' }).addTo(this.map),
-                stops: L.featureGroup([], { pane: 'stopsPane' }).addTo(this.map),
-                vehicles: L.featureGroup([], { pane: 'vehiclesPane' }).addTo(this.map)
-            };
-            
-            // Add layer control
-            L.control.layers(null, {
-                "Routes": this.layers.routes,
-                "Stops": this.layers.stops,
-                "Vehicles": this.layers.vehicles
-            }).addTo(this.map);
-        } catch (error) {
-            handleError('Failed to initialize map', error);
-            throw error;
-        }
+        const response = await fetch('/api/settings', {
+            headers: {
+                'X-Settings-Token': token
+            }
+        });
+        if (!response.ok) throw new Error('Failed to get settings');
+        
+        const settings = await response.json();
+        return settings.providers || [];
     }
 
     /**
@@ -255,10 +235,66 @@ class TransitDisplay {
         // Update messages
         await this.updateMessages(data.messages);
     }
+
+    /**
+     * Initialize geolocation if available
+     */
+    initializeGeolocation() {
+        if (!this.map || !this.settings) return;
+
+        const updateDistances = (position) => {
+            const point = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude
+            };
+            this.map.updateStopDistances(point);
+        };
+
+        if (isGeolocationAvailable()) {
+            // Get initial position
+            navigator.geolocation.getCurrentPosition(
+                updateDistances,
+                (error) => {
+                    console.warn('Geolocation error:', error);
+                    this.useMapCenter();
+                }
+            );
+
+            // Watch for position updates with the configured interval
+            navigator.geolocation.watchPosition(
+                (() => {
+                    let lastUpdate = 0;
+                    return (position) => {
+                        const now = Date.now();
+                        if (now - lastUpdate >= this.settings.location_update_interval * 1000) {
+                            lastUpdate = now;
+                            updateDistances(position);
+                        }
+                    };
+                })(),
+                null,
+                { 
+                    enableHighAccuracy: true,
+                    timeout: this.settings.location_update_interval * 1000
+                }
+            );
+        } else {
+            this.useMapCenter();
+        }
+    }
+
+    /**
+     * Use map center for distance calculations
+     */
+    useMapCenter() {
+        if (this.map) {
+            this.map.useMapCenterForDistances();
+        }
+    }
 }
 
-// Initialize when DOM is loaded
+// Store instance globally for reset function
+window.transitDisplay = new TransitDisplay();
 document.addEventListener('DOMContentLoaded', () => {
-    const display = new TransitDisplay();
-    display.initialize();
+    window.transitDisplay.initialize();
 }); 

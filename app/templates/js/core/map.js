@@ -10,6 +10,7 @@ export { L };
 export class MapManager {
     constructor() {
         this.map = null;
+        this.initialConfig = null;  // Store initial config
         this.layers = {
             routes: null,
             stops: null,
@@ -18,15 +19,32 @@ export class MapManager {
         this.vehicleMarkers = new Map();
     }
 
+    async loadLeafletCSS() {
+        return new Promise((resolve, reject) => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            link.onload = resolve;
+            link.onerror = reject;
+            document.head.appendChild(link);
+        });
+    }
+
     /**
      * Initialize the map and its layers
      */
-    async initialize() {
+    async initialize(mapConfig = null) {
         try {
+            // Store initial config
+            this.initialConfig = mapConfig || settings.map_config;
+            
+            // Load Leaflet CSS first
+            await this.loadLeafletCSS();
+            
             // Create map
             this.map = L.map('map', {
-                center: [settings.map_config.center.lat, settings.map_config.center.lon],
-                zoom: settings.map_config.zoom,
+                center: [this.initialConfig.center.lat, this.initialConfig.center.lon],
+                zoom: this.initialConfig.zoom,
                 zoomControl: true
             });
 
@@ -292,10 +310,12 @@ export class MapManager {
      * Reset map view to default position
      */
     resetView() {
-        this.map.setView(
-            [settings.map_config.center.lat, settings.map_config.center.lon],
-            settings.map_config.zoom
-        );
+        if (this.map && this.initialConfig) {
+            this.map.setView(
+                [this.initialConfig.center.lat, this.initialConfig.center.lon],
+                this.initialConfig.zoom
+            );
+        }
     }
 
     /**
@@ -407,4 +427,23 @@ export class MapManager {
             }
         });
     }
-} 
+
+    /**
+     * Set the map center
+     * @param {Object} center - {lat, lon} coordinates
+     */
+    setCenter(center) {
+        if (this.map) {
+            this.map.setView([center.lat, center.lon], this.map.getZoom());
+        }
+    }
+}
+
+// Add to window for onclick handler
+window.resetMapView = () => {
+    // Get the TransitDisplay instance
+    const display = window.transitDisplay;
+    if (display && display.map) {
+        display.map.resetView();
+    }
+}; 
