@@ -145,14 +145,12 @@ export function isGeolocationAvailable() {
  * @param {Error} error - Error object
  */
 export function handleError(message, error) {
-    console.error(message, error);
+    console.error(`${message}:`, error);
     const errorsContainer = document.getElementById('errors-container');
     if (errorsContainer) {
         errorsContainer.innerHTML = `
-            <div class="error-section">
-                <div class="error-message">
-                    ${message}: ${error.message}
-                </div>
+            <div class="error-message">
+                ${message}: ${error.message}
             </div>
         `;
     }
@@ -199,4 +197,4 @@ export function getLineColor(line) {
     }
     // Fallback to default color
     return `background-color: #666; --text-color: white;`;
-} 
+}

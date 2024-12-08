@@ -1,6 +1,6 @@
 // messages.js - Handles service message display and updates
 
-import { getLineColor } from '../utils.js';
+import { getLineColor } from './utils.js';
 
 /**
  * Updates the service messages displayed on the UI.
