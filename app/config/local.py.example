@@ -30,7 +30,7 @@ STIB = {
             'id': '5659',
         'name': 'Trois Couleurs',
         'lines': {
-            '44': ['Montgomery]
+            '44': ['Montgomery']
         },
         "direction": "City"
         }
