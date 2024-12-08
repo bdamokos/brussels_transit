@@ -37,10 +37,13 @@ def get_provider_config(provider_name: str) -> Dict[str, Any]:
     config = {}
     
     # Get relevant config from default.py
-    global_defaults = get_config(None, {})  # Get all config from default.py
+    # Look for provider-specific keys in default.py (e.g., STIB_STOPS for STIB)
+    provider_upper = provider_name.upper()
     for key in PROVIDER_DEFAULTS.get(provider_name, {}):
-        if key in global_defaults:
-            config[key] = deepcopy(global_defaults[key])
+        default_key = f"{provider_upper}_{key}" if not key.startswith(provider_upper) else key
+        default_value = get_config(default_key)
+        if default_value is not None:
+            config[key] = deepcopy(default_value)
     logger.debug(f"Config from default.py for {provider_name}: {config}")
     
     # Merge provider-specific defaults
