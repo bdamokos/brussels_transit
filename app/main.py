@@ -835,6 +835,11 @@ def serve_provider_files(path):
     """Serve provider-specific files"""
     return send_from_directory('transit_providers', path)
 
+@app.route('/favicon.ico')
+def favicon():
+    """Handle favicon requests without a 404"""
+    return '', 204
+
 
 
 
