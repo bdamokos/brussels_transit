@@ -5,7 +5,7 @@
 import { TransitProvider } from './provider.js';
 import { getSettingsToken } from './utils.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
-import L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
+import { L } from './map.js';
 
 /**
  * Main transit display controller

@@ -90,18 +90,30 @@ export function formatDistance(meters) {
     return `${(meters / 1000).toFixed(1)}km`;
 }
 
+// Replace localStorage with a session variable
+let _currentToken = null;
+
 /**
  * Get a settings token from the server
  * @returns {Promise<string|null>} - The token or null if failed
  */
 export async function getSettingsToken() {
     try {
+        // If we already have a token for this session, use it
+        if (_currentToken) {
+            return _currentToken;
+        }
+
+        // If not, request a new one
         const response = await fetch('/api/auth/token');
         if (!response.ok) {
             throw new Error(`Failed to get token: ${response.status}`);
         }
         const data = await response.json();
-        return data.token;
+        
+        // Store token for this session only
+        _currentToken = data.token;
+        return _currentToken;
     } catch (error) {
         console.error('Error getting settings token:', error);
         return null;
@@ -197,4 +209,19 @@ export function getLineColor(line) {
     }
     // Fallback to default color
     return `background-color: #666; --text-color: white;`;
+}
+
+/**
+ * Add this to the existing exports in utils.js
+ * @param {Object} coord - The coordinate object to check
+ * @returns {boolean} True if the coordinate is valid
+ */
+export function isValidCoordinate(coord) {
+    return coord && 
+           !isNaN(coord.lat) && 
+           !isNaN(coord.lon) &&
+           coord.lat >= -90 && 
+           coord.lat <= 90 &&
+           coord.lon >= -180 && 
+           coord.lon <= 180;
 }

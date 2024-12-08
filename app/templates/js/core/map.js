@@ -2,10 +2,10 @@
  * Map management module
  */
 
-import L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
+import * as L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
 import { settings, handleError } from './utils.js';
 
-export { L };  // Re-export as named export
+export { L };
 
 export class MapManager {
     constructor() {

@@ -434,7 +434,8 @@ def check_token():
         return True
         
     token = request.headers.get('X-Settings-Token')
-    return token and token == get_settings_token()
+    clean_expired_tokens()  # Clean expired tokens first
+    return token in valid_tokens  # Check if token exists in our valid tokens
 
 @app.route('/api/settings')
 def get_settings():
