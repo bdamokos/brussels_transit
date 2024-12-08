@@ -410,6 +410,9 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
             stop_ids = [stop_ids]
         
         logger.info(f"Fetching arrivals for stops {stop_ids}")
+        if not stop_ids:
+            logger.error("No stop IDs provided for De Lijn")
+        
         headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
         
         # Initialize result structure
@@ -1006,9 +1009,9 @@ async def get_service_messages() -> List[Dict]:
     # Try to get from cache first
     cached_data = await cache_get(cache_key)
     if cached_data is not None:
-        logger.debug("Returning cached service messages")
+        logger.debug(f"Returning cached service messages for De Lijn: {len(cached_data)}")
         return cached_data
-        
+    logger.debug(f"No cached service messages found for De Lijn, fetching fresh data")
     headers = {"Ocp-Apim-Subscription-Key": DELIJN_API_KEY}
     messages = []
     global STOP_ID
@@ -1246,7 +1249,9 @@ async def find_nearest_stops(lat: float, lon: float, limit: int = 5, max_distanc
 
 async def main():
     # Get formatted arrivals for all monitored stops
+    logger.debug(f"Getting formatted arrivals for stop {STOP_ID}")
     formatted = await get_formatted_arrivals(STOP_ID)
+    
     # Add service messages
     messages = await get_service_messages()
     
