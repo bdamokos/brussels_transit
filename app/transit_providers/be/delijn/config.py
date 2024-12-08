@@ -16,7 +16,7 @@ logger = logging.getLogger('delijn')
 # Register default configuration
 DEFAULT_CONFIG = {
     'STOP_IDS': ["307250", "307251"],  # Example stops - should be set in local.py
-    'MONITORED_LINES': ["116","117", '118'],  # Example lines - should be set in local.py
+    'MONITORED_LINES': ["116","117", '118', '144'],  # Example lines - should be set in local.py
     'API_URL': 'https://api.delijn.be/DLKernOpenData/api/v1',
     '_AVAILABLE_LANGUAGES': ['nl'],  # De Lijn only provides Dutch content
     'GTFS_URL': 'https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip',
