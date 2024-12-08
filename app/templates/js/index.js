@@ -176,7 +176,6 @@ async function fetchAndUpdateData() {
         }
     }
 }
-
 function updateStopsData(stopsData) {
     console.log("Updating stops data with:", stopsData);
     const sections = document.querySelectorAll('.stop-section');
@@ -1098,56 +1097,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log("Starting initialization...");
         
-        // Initialize map first
-        map = L.map('map', {
-            center: [
-                map_config.center.lat, 
-                map_config.center.lon
-            ],
-            zoom: map_config.zoom,
-            zoomControl: true,
-            layers: []
-        });
-        
-        // Add the tile layer first
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            minZoom: 11,
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-        
-        // Create custom panes BEFORE creating the layers
-        map.createPane('routesPane');
-        map.createPane('stopsPane');
-        map.createPane('vehiclesPane');
-        
-        // Set z-index for panes
-        map.getPane('routesPane').style.zIndex = 400;
-        map.getPane('stopsPane').style.zIndex = 450;
-        map.getPane('vehiclesPane').style.zIndex = 500;
-        
-        // Now create the feature groups with their specific panes
-        routesLayer = L.featureGroup([], {
-            pane: 'routesPane'
-        }).addTo(map);
-        
-        stopsLayer = L.featureGroup([], {
-            pane: 'stopsPane'
-        }).addTo(map);
-        
-        vehiclesLayer = L.featureGroup([], {
-            pane: 'vehiclesPane'
-        }).addTo(map);
-        
-        // Add layer control
-        const overlays = {
-            "Routes": routesLayer,
-            "Stops": stopsLayer,
-            "Vehicles": vehiclesLayer
-        };
-        L.control.layers(null, overlays).addTo(map);
-
-        // Then continue with the rest of the initialization
         // First fetch De Lijn config
         const delijnConfigResponse = await fetch('/api/delijn/config');
         if (!delijnConfigResponse.ok) {
@@ -1219,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
         }
 
-        // Create combined static data
+        // Initialize map with combined static data
         const combinedStaticData = {
             ...stibStaticData,
             display_stops: [
@@ -1227,6 +1176,55 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ...(delijnConfig?.stops || [])
             ]
         };
+        
+        // Initialize map
+        map = L.map('map', {
+            center: [
+                map_config.center.lat, 
+                map_config.center.lon
+            ],
+            zoom: map_config.zoom,
+            zoomControl: true,
+            layers: []
+        });
+        
+        // Add the tile layer first
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            minZoom: 11,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Create custom panes BEFORE creating the layers
+        map.createPane('routesPane');
+        map.createPane('stopsPane');
+        map.createPane('vehiclesPane');
+        
+        // Set z-index for panes
+        map.getPane('routesPane').style.zIndex = 400;
+        map.getPane('stopsPane').style.zIndex = 450;
+        map.getPane('vehiclesPane').style.zIndex = 500;
+        
+        // Now create the feature groups with their specific panes
+        routesLayer = L.featureGroup([], {
+            pane: 'routesPane'
+        }).addTo(map);
+        
+        stopsLayer = L.featureGroup([], {
+            pane: 'stopsPane'
+        }).addTo(map);
+        
+        vehiclesLayer = L.featureGroup([], {
+            pane: 'vehiclesPane'
+        }).addTo(map);
+        
+        // Add layer control
+        const overlays = {
+            "Routes": routesLayer,
+            "Stops": stopsLayer,
+            "Vehicles": vehiclesLayer
+        };
+        L.control.layers(null, overlays).addTo(map);
 
         console.log("Initializing map with combined data:", combinedStaticData);
         await initializeMapLayers(combinedStaticData);
@@ -1236,39 +1234,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateErrors([], stibStaticData.errors);
         }
 
-        // Initial data loads - split into separate operations
-        console.log("Starting data initialization...");
+        // Initial fetch
+        await fetchAndUpdateData();
         
-        // Load real-time data first (faster and more important)
-        try {
-            await fetchAndUpdateData();
-            // Set up refresh interval for real-time data
-            setInterval(fetchAndUpdateData, REFRESH_INTERVAL);
-        } catch (error) {
-            console.error('Error loading real-time data:', error);
-            showError('Error loading real-time data');
-        }
+        // Update every 60 seconds
+        setInterval(fetchAndUpdateData, REFRESH_INTERVAL);
 
-        // Then load service messages (slower due to rate limiting)
-        try {
-            const [stibMessages, delijnMessages] = await Promise.all([
-                fetch('/api/stib/messages').then(r => r.json()),
-                delijnConfig ? fetch('/api/delijn/messages').then(r => r.json()) : []
-            ]);
-            
-            // Update service messages when available
-            updateServiceMessages({
-                messages: [
-                    ...(stibMessages?.messages || []),
-                    ...delijnMessages
-                ]
-            });
-        } catch (error) {
-            console.error('Error loading service messages:', error);
-            updateErrors(['Error loading service messages'], []);
-        }
-
-        // Initialize geolocation last
+        // Add geolocation handling
         if ('geolocation' in navigator && isSecure) {
             const distanceInfo = document.getElementById('distance-info');
             distanceInfo.innerHTML = 'Requesting location access...';
@@ -1381,5 +1353,4 @@ async function getSettings() {
         return null;
     }
 } 
-
 
