@@ -5,6 +5,8 @@
 import L from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
 import { settings, handleError } from './utils.js';
 
+export { L };  // Re-export as named export
+
 export class MapManager {
     constructor() {
         this.map = null;
