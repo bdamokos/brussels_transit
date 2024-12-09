@@ -47,12 +47,9 @@ class DelijnProvider(TransitProvider):
         self.cache_dir = Path(CACHE_DIR)
         
         config = get_provider_config('delijn')
-        delijn_stops = config.get('DELIJN_STOPS', [])
-        for stop in delijn_stops:
-            if 'lines' in stop:
-                self.monitored_lines.extend(stop['lines'].keys())
-            self.stop_ids.append(stop['id'])
-            
+        self.stop_ids = config.get('STOP_IDS', [])
+        self.monitored_lines = config.get('MONITORED_LINES', [])
+        
         # Define all endpoints
         endpoints = {
             'config': self.get_config,
