@@ -39,11 +39,11 @@ export class StibProvider extends TransitProvider {
             
             // Extract monitored lines and stop IDs from config
             if (this.config.monitored_lines) {
-                this.monitoredLines = new Set(this.config.monitored_lines);
+                this.monitoredLines = new Set(this.config.monitored_lines.map(l => l.toString()));
             }
             
             if (this.config.stops) {
-                this.stopIds = new Set(this.config.stops.map(stop => stop.id));
+                this.stopIds = new Set(this.config.stops.map(stop => stop.id.toString()));
             }
             
             // Get line colors for each monitored line
@@ -54,7 +54,6 @@ export class StibProvider extends TransitProvider {
                         const colorResponse = await fetch(`/api/stib/colors/${line}`);
                         if (colorResponse.ok) {
                             const colors = await colorResponse.json();
-                            // Just merge the single line color into our collection
                             Object.assign(this.lineColors, colors);
                         }
                     } catch (error) {
@@ -86,81 +85,77 @@ export class StibProvider extends TransitProvider {
         return config;
     }
 
-    async getStops() {
-        // First get the config which contains stop information
-        if (!this.config) {
-            this.config = await this.getConfig();
-        }
-        
-        const stops = {};
-        
-        // Process stops from config
-        if (this.config.stops) {
-            for (const stop of this.config.stops) {
-                if (!stop.id) continue;
-                
-                // Get stop coordinates from API
-                try {
-                    const response = await fetch(`/api/stib/stop/${stop.id}/coordinates`);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch coordinates for stop ${stop.id}`);
+    async getWaitingTimes(stopId) {
+        try {
+            const response = await fetch(`/api/stib/stop/${stopId}/waiting_times`);
+            if (!response.ok) {
+                console.error(`Failed to get waiting times for stop ${stopId}, status: ${response.status}`);
+                return null;
+            }
+            const data = await response.json();
+            
+            // Process waiting times into the expected format
+            const lines = {};
+            if (Array.isArray(data)) {
+                data.forEach(time => {
+                    if (!time.line || !time.destination) {
+                        console.warn('Invalid waiting time entry:', time);
+                        return;
                     }
                     
-                    const data = await response.json();
-                    const coordinates = data?.coordinates;
-                    
-                    if (!coordinates?.lat || !coordinates?.lon) {
-                        console.warn(`No coordinates found for stop ${stop.id}`);
-                        continue;
+                    if (!lines[time.line]) {
+                        lines[time.line] = {};
                     }
                     
-                    // Get waiting times for this stop
-                    const waitingTimesResponse = await fetch(`/api/stib/stop/${stop.id}/waiting_times`);
-                    const waitingTimesData = await waitingTimesResponse.json();
+                    if (!lines[time.line][time.destination]) {
+                        lines[time.line][time.destination] = [];
+                    }
                     
-                    // Process waiting times into the expected format
-                    const lines = {};
-                    if (waitingTimesData && Array.isArray(waitingTimesData)) {
-                        waitingTimesData.forEach(time => {
-                            if (!time.line || !time.destination) return;
-                            
-                            if (!lines[time.line]) {
-                                lines[time.line] = {};
-                            }
-                            
-                            if (!lines[time.line][time.destination]) {
-                                lines[time.line][time.destination] = [];
-                            }
-                            
-                            // Add the waiting time entry
-                            if (time.message) {
-                                lines[time.line][time.destination].push({
-                                    message: time.message
-                                });
-                            } else {
-                                lines[time.line][time.destination].push({
-                                    minutes: time.minutes,
-                                    formatted_time: time.time
-                                });
-                            }
+                    // Add the waiting time entry
+                    if (time.message) {
+                        lines[time.line][time.destination].push({
+                            message: time.message
+                        });
+                    } else {
+                        lines[time.line][time.destination].push({
+                            minutes: time.minutes,
+                            formatted_time: time.time,
+                            is_realtime: time.is_realtime
                         });
                     }
-                    
-                    stops[stop.id] = {
-                        id: stop.id,
-                        name: stop.name,
-                        provider: this.id,
-                        lines: lines,
-                        coordinates: coordinates
-                    };
-                } catch (error) {
-                    console.error(`Error processing stop ${stop.id}:`, error);
+                });
+            }
+            
+            return lines;
+        } catch (error) {
+            console.error(`Error getting waiting times for stop ${stopId}:`, error);
+            return null;
+        }
+    }
+
+    async getStops() {
+        try {
+            const response = await fetch('/api/stib/stops');
+            if (!response.ok) throw new Error('Failed to get stops');
+            const stops = await response.json();
+            
+            console.log('Raw stops data:', stops);
+            
+            // Get waiting times for each stop
+            for (const stopId of Object.keys(stops)) {
+                console.log(`Fetching waiting times for stop ${stopId}...`);
+                const waitingTimes = await this.getWaitingTimes(stopId);
+                console.log(`Waiting times for stop ${stopId}:`, waitingTimes);
+                if (waitingTimes) {
+                    stops[stopId].lines = waitingTimes;
                 }
             }
+            
+            return stops;
+        } catch (error) {
+            console.error('Error getting stops:', error);
+            return {};
         }
-        
-        console.log('Processed stops:', stops);
-        return stops;
     }
 
     /**
@@ -169,36 +164,43 @@ export class StibProvider extends TransitProvider {
      */
     async getVehicles() {
         try {
-            console.log('Fetching STIB vehicles...');
             const response = await fetch('/api/stib/vehicles');
-            if (!response.ok) {
-                throw new Error('Failed to fetch vehicle data');
-            }
-            
+            if (!response.ok) throw new Error('Failed to fetch vehicle data');
             const data = await response.json();
-            console.log('Raw STIB vehicle data:', data);
-            
-            if (!data.vehicles || !Array.isArray(data.vehicles)) {
-                console.warn('Invalid vehicle data format:', data);
-                return [];
-            }
             
             const vehicles = data.vehicles
-                .filter(vehicle => this.monitoredLines.has(vehicle.line))
-                .map(vehicle => ({
-                    line: vehicle.line,
-                    direction: vehicle.direction,
-                    coordinates: {
-                        lat: vehicle.interpolated_position[0],
-                        lon: vehicle.interpolated_position[1]
-                    },
-                    bearing: vehicle.bearing,
-                    isValid: vehicle.is_valid
-                }));
-            
-            console.log('Processed STIB vehicles:', vehicles);
+                .filter(vehicle => this.monitoredLines.has(vehicle.line?.toString()))
+                .map(vehicle => {
+                    // Debug each vehicle's data
+                    console.log('Processing vehicle:', {
+                        line: vehicle.line,
+                        segment: vehicle.current_segment,
+                        position: vehicle.interpolated_position
+                    });
+
+                    // Create a unique ID
+                    const vehicleId = `${vehicle.line}-${vehicle.current_segment?.[0] || 'unknown'}-${vehicle.current_segment?.[1] || Date.now()}`;
+                    
+                    const processedVehicle = {
+                        id: vehicleId,
+                        line: vehicle.line,
+                        direction: vehicle.direction,
+                        coordinates: {
+                            lat: vehicle.interpolated_position[0],
+                            lon: vehicle.interpolated_position[1]
+                        },
+                        bearing: vehicle.bearing,
+                        is_realtime: vehicle.is_valid,
+                        delay: vehicle.raw_data?.delay || 0
+                    };
+
+                    // Debug processed vehicle
+                    console.log('Created vehicle:', processedVehicle);
+                    
+                    return processedVehicle;
+                });
+
             return vehicles;
-            
         } catch (error) {
             console.error('Error fetching STIB vehicles:', error);
             return [];
@@ -261,15 +263,23 @@ export class StibProvider extends TransitProvider {
             console.log('Raw STIB messages:', data);
             
             // Process and return messages
-            return (data.messages || []).map(msg => ({
-                id: msg.id,
-                title: msg.title?.fr || msg.title?.nl || 'Service Message',
-                content: msg.content?.fr || msg.content?.nl || '',
-                severity: msg.severity || 'info',
-                lines: msg.lines || [],
-                stops: msg.stops || [],
-                timestamp: msg.timestamp || new Date().toISOString()
-            }));
+            return (data.messages || [])
+                .map(msg => ({
+                    id: msg.id,
+                    title: {
+                        fr: msg.text,  // STIB messages are already in French
+                        nl: msg.text   // Use same text for Dutch for now
+                    },
+                    content: {
+                        fr: msg.text,
+                        nl: msg.text
+                    },
+                    severity: msg.priority || 'info',
+                    lines: msg.lines || [],
+                    points: msg.points || [],
+                    is_monitored: msg.lines?.some(line => this.monitoredLines.has(line)) || false
+                }))
+                .filter(msg => msg.lines?.length > 0);  // Only show messages with affected lines
         } catch (error) {
             console.error('Error fetching STIB messages:', error);
             return [];
@@ -366,5 +376,27 @@ export class StibProvider extends TransitProvider {
 
         // Format the message text
         element.textContent = message.text;
+    }
+
+    formatLineContainer(line, destination, times, provider) {
+        const color = this.getLineColor(line);
+        return `
+            <div class="line-container">
+                <div class="line-header">
+                    <span class="line-number" style="background-color: ${color}">
+                        ${line}
+                    </span>
+                    <span class="destination">${destination}</span>
+                </div>
+                <div class="times">
+                    ${times.map(time => {
+                        if (time.message) {
+                            return `<span class="service-message">${time.message}</span>`;
+                        }
+                        return `<span class="time">${time.minutes}' (${time.formatted_time})</span>`;
+                    }).join(', ')}
+                </div>
+            </div>
+        `;
     }
 }

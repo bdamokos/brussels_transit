@@ -53,16 +53,22 @@ export class VehicleManager {
     createVehicleMarker(vehicle, provider) {
         const color = provider.getLineColor(vehicle.line);
         
-        // Create marker with proper styling
         const marker = L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
             icon: L.divIcon({
                 className: 'vehicle-marker',
                 html: `
-                    <div class="vehicle-marker-content" style="background-color: ${color};">
-                        <span class="line-number">${vehicle.line}</span>
-                        <div class="vehicle-arrow" style="transform: rotate(${vehicle.bearing}deg)"></div>
+                    <div class="vehicle-marker-content" style="
+                        --bearing: ${vehicle.bearing}deg;
+                        --bg-color: ${color}; --text-color: white;
+                    ">
+                        <div class="line-number">
+                            ${vehicle.line}
+                        </div>
+                        <div class="vehicle-arrow"></div>
                     </div>
-                `
+                `,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
             })
         });
 

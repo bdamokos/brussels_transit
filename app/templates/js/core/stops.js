@@ -558,4 +558,69 @@ export class StopManager {
             });
         }
     }
+
+    /**
+     * Update the formatStopPopup method in StopManager
+     * @param {Object} stop - Stop data
+     * @param {Object} provider - Transit provider instance
+     * @returns {string} HTML string
+     */
+    formatStopPopup(stop, provider) {
+        if (!stop) return '';
+        
+        const content = [`<strong>${stop.name}</strong>`];
+        
+        if (stop.lines) {
+            Object.entries(stop.lines).forEach(([line, destinations]) => {
+                Object.entries(destinations).forEach(([destination, times]) => {
+                    if (!times || times.length === 0) return;
+                    
+                    const style = `background-color: ${provider.getLineColor(line)}; color: white;`;
+                    content.push(`<div class="line-info">`);
+                    content.push(`<span class="line-number" style="${style}">${line}</span>`);
+                    content.push(`<span class="direction">→ ${destination}</span>`);
+                    
+                    // Add waiting times
+                    const timeContent = times.map(time => {
+                        if (time.message) {
+                            return `<span class="service-message">${time.message}</span>`;
+                        } else {
+                            return `<span class="time">${time.minutes}' (${time.formatted_time})</span>`;
+                        }
+                    }).join(', ');
+                    
+                    content.push(`<div class="times">${timeContent}</div>`);
+                    content.push('</div>');
+                });
+            });
+        }
+        
+        return content.join('\n');
+    }
+
+    updateStopContent(stopId, stop, provider) {
+        const container = this.getStopContainer(stopId);
+        if (!container) return;
+        
+        const content = container.querySelector('.stop-content');
+        if (!content) return;
+
+        let html = '';
+        
+        if (stop.lines) {
+            Object.entries(stop.lines).forEach(([line, destinations]) => {
+                Object.entries(destinations).forEach(([destination, times]) => {
+                    if (!times || times.length === 0) return;
+                    
+                    html += provider.formatLineContainer(line, destination, times, provider);
+                });
+            });
+        }
+        
+        if (!html) {
+            html = '<div class="no-data">No real-time data available</div>';
+        }
+        
+        content.innerHTML = html;
+    }
 }
