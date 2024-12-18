@@ -6,48 +6,45 @@ export class VehicleManager {
         this.mapManager = mapManager;
         this.vehicles = new Map(); // vehicleId -> marker
         this.layer = L.layerGroup().addTo(mapManager.map);
+        this.monitoredLines = new Set(['59', '92', '64', '12', '55', '56']); // Ensure this is correctly initialized
     }
 
     updateVehicles(vehiclesData, provider) {
         try {
-            // Remove old vehicles
-            const currentIds = new Set(vehiclesData.map(v => v.id));
-            for (const [id, marker] of this.vehicles.entries()) {
-                if (!currentIds.has(id)) {
-                    this.layer.removeLayer(marker);
-                    this.vehicles.delete(id);
-                }
-            }
+            console.log('Updating vehicles with:', vehiclesData);
 
-            // Update or add new vehicles
             vehiclesData.forEach(vehicle => {
+                console.log('Checking vehicle:', vehicle);
+
+                if (!vehicle.id) {
+                    console.log('Missing vehicle ID. Assigning a random ID.');
+                    vehicle.id = `vehicle-${Math.random().toString(36).substr(2, 9)}`;
+                }
+
+                if (!vehicle.coordinates) {
+                    console.log('Missing vehicle.coordinates:', vehicle);
+                }
+
                 if (!isValidCoordinate(vehicle.coordinates)) {
-                    console.warn(`Invalid coordinates for vehicle ${vehicle.id}`);
+                    console.log('Invalid coordinates for vehicle:', vehicle);
+                    console.warn('Invalid vehicle data:', vehicle);
                     return;
                 }
-
+                
                 const position = [vehicle.coordinates.lat, vehicle.coordinates.lon];
                 
                 if (this.vehicles.has(vehicle.id)) {
-                    // Update existing vehicle
                     const marker = this.vehicles.get(vehicle.id);
                     marker.setLatLng(position);
-                    // Update rotation via CSS
-                    const icon = marker.getElement();
-                    if (icon) {
-                        const vehicleIcon = icon.querySelector('.vehicle-icon');
-                        if (vehicleIcon) {
-                            vehicleIcon.style.transform = `rotate(${vehicle.bearing || 0}deg)`;
-                        }
-                    }
                     this.updateVehiclePopup(marker, vehicle, provider);
                 } else {
-                    // Add new vehicle
                     const marker = this.createVehicleMarker(vehicle, provider);
                     this.vehicles.set(vehicle.id, marker);
                     marker.addTo(this.layer);
                 }
             });
+
+            console.log('Current vehicles:', this.vehicles);
         } catch (error) {
             handleError(error, 'VehicleManager.updateVehicles');
         }
@@ -55,12 +52,17 @@ export class VehicleManager {
 
     createVehicleMarker(vehicle, provider) {
         const color = provider.getLineColor(vehicle.line);
+        
+        // Create marker with proper styling
         const marker = L.marker([vehicle.coordinates.lat, vehicle.coordinates.lon], {
             icon: L.divIcon({
                 className: 'vehicle-marker',
-                html: `<div class="vehicle-icon" style="background-color: ${color}; transform: rotate(${vehicle.bearing || 0}deg)">
+                html: `
+                    <div class="vehicle-marker-content" style="background-color: ${color};">
                         <span class="line-number">${vehicle.line}</span>
-                      </div>`
+                        <div class="vehicle-arrow" style="transform: rotate(${vehicle.bearing}deg)"></div>
+                    </div>
+                `
             })
         });
 
@@ -71,10 +73,20 @@ export class VehicleManager {
     updateVehiclePopup(marker, vehicle, provider) {
         const content = `
             <div class="vehicle-popup">
-                <h4>Line ${vehicle.line}</h4>
-                <p>Direction: ${vehicle.direction}</p>
-                ${vehicle.delay ? `<p>Delay: ${Math.round(vehicle.delay / 60)} min</p>` : ''}
-                <p>Status: ${vehicle.is_realtime ? 'Real-time' : 'Scheduled'}</p>
+                <div class="line-info">
+                    <span class="line-number" style="background-color: ${provider.getLineColor(vehicle.line)}">
+                        ${vehicle.line}
+                    </span>
+                    <span class="direction">→ ${vehicle.direction}</span>
+                </div>
+                ${vehicle.delay ? `
+                    <div class="delay">
+                        Delay: ${Math.round(vehicle.delay / 60)} min
+                    </div>
+                ` : ''}
+                <div class="status">
+                    Status: ${vehicle.is_realtime ? 'Real-time' : 'Scheduled'}
+                </div>
             </div>
         `;
         marker.bindPopup(content);
@@ -83,5 +95,42 @@ export class VehicleManager {
     clear() {
         this.layer.clearLayers();
         this.vehicles.clear();
+    }
+
+    async getVehicles() {
+        try {
+            const response = await fetch('/api/stib/vehicles');
+            if (!response.ok) throw new Error('Failed to fetch vehicle data');
+            const data = await response.json();
+            
+            const vehicles = data.vehicles
+                .filter(vehicle => this.monitoredLines.has(vehicle.line?.toString()))
+                .map(vehicle => {
+                    const vehicleId = vehicle.id || `vehicle-${Math.random().toString(36).substr(2, 9)}`;
+                    
+                    const processedVehicle = {
+                        id: vehicleId,
+                        line: vehicle.line,
+                        direction: vehicle.direction,
+                        coordinates: {
+                            lat: vehicle.interpolated_position[0],
+                            lon: vehicle.interpolated_position[1]
+                        },
+                        bearing: vehicle.bearing,
+                        is_realtime: vehicle.is_valid,
+                        delay: vehicle.raw_data?.delay || 0
+                    };
+
+                    console.log('Created vehicle:', processedVehicle);
+                    
+                    return processedVehicle;
+                });
+
+            console.log('Processed vehicles with IDs:', vehicles.map(v => v.id));
+            return vehicles;
+        } catch (error) {
+            console.error('Error fetching STIB vehicles:', error);
+            return [];
+        }
     }
 } 

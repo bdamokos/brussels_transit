@@ -216,12 +216,13 @@ export function getLineColor(line) {
  * @param {Object} coord - The coordinate object to check
  * @returns {boolean} True if the coordinate is valid
  */
-export function isValidCoordinate(coord) {
-    return coord && 
-           !isNaN(coord.lat) && 
-           !isNaN(coord.lon) &&
-           coord.lat >= -90 && 
-           coord.lat <= 90 &&
-           coord.lon >= -180 && 
-           coord.lon <= 180;
+export function isValidCoordinate(coordinates) {
+    console.log('Validating coordinates:', coordinates);
+    const isValid =
+        typeof coordinates.lat === 'number' &&
+        typeof coordinates.lon === 'number' &&
+        coordinates.lat >= -90 && coordinates.lat <= 90 &&
+        coordinates.lon >= -180 && coordinates.lon <= 180;
+    console.log('isValidCoordinate Result:', isValid);
+    return isValid;
 }
