@@ -129,10 +129,11 @@ export class MapManager {
         Object.entries(providerShapes).forEach(([line, data]) => {
             if (!data.variants || !Array.isArray(data.variants)) return;
             
-            data.variants.forEach((variant, index) => {
+            data.variants.forEach((variant) => {
                 if (!variant.coordinates || !Array.isArray(variant.coordinates)) return;
                 
-                const color = provider.getLineColor(line);
+                // Use settings.lineColors for consistency
+                const color = settings.lineColors[line] || '#666';
                 console.log(`Line ${line} color:`, color);
                 
                 const polyline = L.polyline(

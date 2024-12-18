@@ -1,4 +1,4 @@
-import { properTitle } from './utils.js';
+import { properTitle, settings } from './utils.js';
 
 export class StopManager {
     constructor(mapManager) {
@@ -108,9 +108,14 @@ export class StopManager {
                 const lineNumber = document.createElement('span');
                 lineNumber.className = 'line-number';
                 lineNumber.textContent = line;
-                if (provider) {
-                    const color = provider.getLineColor(line);
-                    lineNumber.style.backgroundColor = color;
+                if (provider && provider.getLineColor) {
+                    const style = provider.getLineColor(line);
+                    console.log(`Applying style for line ${line}:`, style);
+                    lineNumber.style.cssText = style;
+                } else {
+                    // Fallback to settings.lineColors if provider doesn't have getLineColor
+                    const color = settings.lineColors[line] || '#666';
+                    lineNumber.style.cssText = `background-color: ${color}; color: white;`;
                 }
                 lineInfo.appendChild(lineNumber);
 
@@ -571,6 +576,7 @@ export class StopManager {
      */
     clear() {
         this.stopSections.clear();
+        this.stops.clear();
         this.container.innerHTML = '';
     }
 
@@ -694,10 +700,9 @@ export class StopManager {
                 }
 
                 // Update stop content if we have lines data
-                if (stop.lines && Object.keys(stop.lines).length > 0) {
-                    this.updateStopContent(stopElement, stop);
-                }
-
+                const provider = this.providers.get(stop.provider);
+                this.updateStopContent(stopElement, stop, provider);
+                
                 content.appendChild(stopElement);
             });
 
@@ -752,10 +757,6 @@ export class StopManager {
     getStopName(stopId) {
         const stop = this.stops.get(stopId?.toString());
         return stop?.name || null;
-    }
-
-    clear() {
-        this.stops.clear();
     }
 
     /**

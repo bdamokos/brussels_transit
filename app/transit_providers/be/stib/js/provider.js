@@ -1,12 +1,12 @@
 import { TransitProvider } from '/js/core/provider.js';
-import { getLineColor, getSettingsToken } from '/js/core/utils.js';
+import { getLineColor, settings } from '/js/core/utils.js';
 
 /**
  * STIB Transit Provider
  * Interfaces with our backend API endpoints to provide STIB transit data
  */
 export class StibProvider extends TransitProvider {
-    constructor(providerInfo) {
+    constructor() {
         super('stib');  // Call parent constructor with provider name
         this.id = 'stib';  // Explicitly set ID
         this.displayName = 'STIB-MIVB';
@@ -15,7 +15,6 @@ export class StibProvider extends TransitProvider {
         this.config = null;
         this.monitoredLines = new Set();
         this.stopIds = new Set();
-        this.lineColors = {};
         
         // Bind methods to instance
         this.formatStopPopup = this.formatStopPopup.bind(this);
@@ -45,28 +44,37 @@ export class StibProvider extends TransitProvider {
             if (this.config.stops) {
                 this.stopIds = new Set(this.config.stops.map(stop => stop.id.toString()));
             }
-            
-            // Get line colors for each monitored line
-            this.lineColors = {};
+
+            // Initialize settings.lineColors if not already initialized
+            if (!settings.lineColors) {
+                settings.lineColors = {};
+            }
+
+            // Get line colors from API one by one
             if (this.monitoredLines.size > 0) {
                 for (const line of this.monitoredLines) {
                     try {
                         const colorResponse = await fetch(`/api/stib/colors/${line}`);
                         if (colorResponse.ok) {
-                            const colors = await colorResponse.json();
-                            Object.assign(this.lineColors, colors);
+                            const colorData = await colorResponse.json();
+                            // Store just the color value for this line
+                            settings.lineColors[line] = colorData[line];
+                            console.log(`Fetched color for line ${line}: ${colorData[line]}`);
+                        } else {
+                            console.error(`Failed to fetch color for line ${line}, status: ${colorResponse.status}`);
                         }
                     } catch (error) {
-                        console.warn(`Failed to fetch colors for line ${line}:`, error);
+                        console.error(`Error fetching color for line ${line}:`, error);
                     }
                 }
+                console.log('Loaded line colors:', settings.lineColors);
             }
             
             console.log('STIB Provider initialized with:', {
                 monitoredLines: Array.from(this.monitoredLines),
                 stopIds: Array.from(this.stopIds),
                 config: this.config,
-                lineColors: this.lineColors
+                lineColors: settings.lineColors
             });
         } catch (error) {
             console.error('Failed to initialize STIB provider:', error);
@@ -335,15 +343,15 @@ export class StibProvider extends TransitProvider {
     }
 
     getLineColor(line) {
-        return this.lineColors?.[line] || '#007bff';  // Default to blue if no color defined
-    }
-
-    getVehicleStyle(vehicle) {
-        const color = this.getLineColor(vehicle.line);
+        const color = settings.lineColors[line] || '#666';
         return `background-color: ${color}; color: white;`;
     }
 
-    getVehicleClass(vehicle) {
+    getVehicleStyle(vehicle) {
+        return this.getLineColor(vehicle.line);
+    }
+
+    getVehicleClass() {
         return 'vehicle-number';
     }
 
@@ -359,7 +367,7 @@ export class StibProvider extends TransitProvider {
             Object.entries(stop.lines[line]).forEach(([destination, times]) => {
                 if (!times || times.length === 0) return;
                 
-                const style = `background-color: ${this.getLineColor(line)}; color: white; padding: 2px 6px; border-radius: 3px; margin: 2px; display: inline-block;`;
+                const style = this.getLineColor(line);  // This now returns the full style string
                 content.push(`<div class="line-info">`);
                 content.push(`<span style="${style}">${line}</span>`);
                 content.push(`<span class="direction">→ ${destination}</span>`);
@@ -426,12 +434,12 @@ export class StibProvider extends TransitProvider {
         element.textContent = message.text;
     }
 
-    formatLineContainer(line, destination, times, provider) {
-        const color = this.getLineColor(line);
+    formatLineContainer(line, destination, times) {
+        const style = this.getLineColor(line);
         return `
             <div class="line-container">
                 <div class="line-header">
-                    <span class="line-number" style="background-color: ${color}">
+                    <span class="line-number" style="${style}">
                         ${line}
                     </span>
                     <span class="destination">${destination}</span>

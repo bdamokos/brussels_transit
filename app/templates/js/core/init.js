@@ -5,7 +5,6 @@
 import { MapManager } from './map.js';
 import { getSettingsToken } from './utils.js';
 import { isGeolocationAvailable, handleError } from './utils.js';
-import { TransitProvider } from './provider.js';
 import { VehicleManager } from './vehicles.js';
 import { StopManager } from './stops.js';
 import { updateServiceMessages } from './messages.js';
@@ -39,6 +38,10 @@ class TransitDisplay {
             
             if (response.ok) {
                 this.settings = await response.json();
+                // Initialize settings.lineColors if not present
+                if (!this.settings.lineColors) {
+                    this.settings.lineColors = {};
+                }
             } else {
                 throw new Error('Failed to get settings');
             }
@@ -144,15 +147,18 @@ class TransitDisplay {
                         continue;
                     }
                     
-                    // Create provider instance
-                    const provider = new ProviderClass(providerInfo);
-                    provider.stopManager = this.stopManager;  // Pass StopManager to provider
+                    // Create provider instance without providerInfo
+                    const provider = new ProviderClass();
                     
                     // Initialize provider
                     await provider.initialize();
                     
                     // Store provider
                     this.providers.set(providerInfo.name, provider);
+                    
+                    // Register provider with StopManager
+                    this.stopManager.registerProvider(provider);
+                    
                     console.log(`${providerInfo.name} provider initialized`);
                     
                 } catch (error) {
