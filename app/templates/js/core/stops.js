@@ -56,26 +56,117 @@ export class StopManager {
 
     /**
      * Update stop content with real-time data
+     * @param {HTMLElement|string} elementOrId - The stop element or stop ID
+     * @param {Object} stop - Stop data
+     * @param {Object} provider - Transit provider instance
      */
-    async updateStopContent(element, stop, provider) {
-        return this.safeExecute('updateStopContent', async () => {
-            if (!stop.lines || Object.keys(stop.lines).length === 0) {
-                element.innerHTML = '<div class="no-data">No real-time data available</div>';
-                return;
-            }
+    async updateStopContent(elementOrId, stop, provider) {
+        // Get the stop element
+        let element;
+        if (typeof elementOrId === 'string') {
+            element = this.getStopContainer(elementOrId);
+            if (!element) return;
+        } else {
+            element = elementOrId;
+        }
 
-            element.innerHTML = '';
-            Object.entries(stop.lines).forEach(([line, destinations]) => {
-                Object.entries(destinations).forEach(([destination, times]) => {
-                    if (!times || times.length === 0) return;
+        console.log('updateStopContent called with:', { element, stop, provider });
+        
+        if (!stop.lines || Object.keys(stop.lines).length === 0) {
+            console.log('No lines data available for stop:', stop);
+            element.innerHTML = '<div class="no-data">No real-time data available</div>';
+            return;
+        }
 
-                    const lineContainer = document.createElement('div');
-                    lineContainer.className = 'line-container';
-                    lineContainer.innerHTML = provider.formatLineContainer(line, destination, times, provider);
-                    element.appendChild(lineContainer);
+        // Clear existing content but keep divider if it exists
+        const divider = element.querySelector('.stop-divider');
+        element.innerHTML = '';
+        if (divider) {
+            element.appendChild(divider);
+        }
+
+        // Process each line and its destinations
+        Object.entries(stop.lines).forEach(([line, destinations]) => {
+            console.log(`Processing line ${line}:`, destinations);
+            
+            Object.entries(destinations).forEach(([destination, times]) => {
+                if (!times || times.length === 0) {
+                    console.log(`No times for line ${line} to ${destination}`);
+                    return;
+                }
+
+                console.log(`Processing times for line ${line} to ${destination}:`, times);
+
+                const lineContainer = document.createElement('div');
+                lineContainer.className = 'line-container';
+
+                // Create line info section
+                const lineInfo = document.createElement('div');
+                lineInfo.className = 'line-info';
+                
+                // Add line number with appropriate styling
+                const lineNumber = document.createElement('span');
+                lineNumber.className = 'line-number';
+                lineNumber.textContent = line;
+                if (provider) {
+                    const color = provider.getLineColor(line);
+                    lineNumber.style.backgroundColor = color;
+                }
+                lineInfo.appendChild(lineNumber);
+
+                // Add destination
+                const directionSpan = document.createElement('span');
+                directionSpan.className = 'direction';
+                directionSpan.textContent = `→ ${destination}`;
+                lineInfo.appendChild(directionSpan);
+
+                lineContainer.appendChild(lineInfo);
+
+                // Create times container
+                const timesContainer = document.createElement('div');
+                timesContainer.className = 'times-container';
+
+                // Process each time entry
+                times.forEach(time => {
+                    console.log('Processing time entry:', time);
+                    
+                    const timeDisplay = document.createElement('span');
+                    timeDisplay.className = 'time-display';
+
+                    if (time.message) {
+                        // Handle message-only entries
+                        timeDisplay.className = 'service-message';
+                        timeDisplay.textContent = time.message;
+                    } else {
+                        // Handle time entries
+                        const minutes = time.minutes;
+                        const displayTime = time.formatted_time;
+
+                        if (minutes !== undefined && displayTime) {
+                            const minutesSpan = document.createElement('span');
+                            minutesSpan.className = 'minutes';
+                            minutesSpan.textContent = `${minutes}'`;
+
+                            const actualTimeSpan = document.createElement('span');
+                            actualTimeSpan.className = 'actual-time';
+                            
+                            // STIB data is always realtime
+                            actualTimeSpan.textContent = ` (⚡ ${displayTime})`;
+
+                            timeDisplay.appendChild(minutesSpan);
+                            timeDisplay.appendChild(actualTimeSpan);
+                        }
+                    }
+
+                    timesContainer.appendChild(timeDisplay);
                 });
+
+                lineContainer.appendChild(timesContainer);
+                element.appendChild(lineContainer);
             });
-        }, { stopId: element.dataset.stopId });
+        });
+
+        console.log('Finished updating stop content');
     }
 
     /**
@@ -218,13 +309,37 @@ export class StopManager {
      * @param {Object} provider - Transit provider instance
      */
     updateStops(stopsData, provider) {
-        Object.entries(stopsData).forEach(([stopId, stopData]) => {
-            // Ensure stop ID is set in the data
-            this.updateStop({
-                ...stopData,
-                id: stopId
-            }, provider);
+        if (!stopsData) return;
+        
+        console.log('StopManager.updateStops called with:', {
+            stopsData,
+            provider: provider.name,
+            currentStops: Array.from(this.stops.entries())
         });
+        
+        Object.entries(stopsData).forEach(([stopId, stopData]) => {
+            console.log('Processing stop:', {stopId, stopData});
+            
+            // Store stop data
+            this.stops.set(stopId, {
+                id: stopId,
+                name: stopData.name,
+                coordinates: stopData.coordinates,
+                lines: stopData.lines || {}
+            });
+            
+            // Display stop if we have coordinates
+            if (stopData.coordinates) {
+                this.updateStop({
+                    ...stopData,
+                    id: stopId
+                }, provider);
+            } else {
+                console.log(`No coordinates for stop ${stopId}, skipping display`);
+            }
+        });
+        
+        console.log('Updated stops:', Array.from(this.stops.entries()));
     }
 
     /**
@@ -534,29 +649,59 @@ export class StopManager {
      * Update the stops list in the UI
      * @param {Object} stops - The stops data
      */
-    updateStopsList(stops) {
-        this.container.innerHTML = '';  // Clear existing stops
-        this.stopSections.clear();  // Clear the sections map
+    updateStopsList(stopsData) {
+        console.log('StopManager.updateStopsList called with:', stopsData);
+        
+        if (!stopsData || typeof stopsData !== 'object') {
+            console.error('Invalid stopsData:', stopsData);
+            return;
+        }
 
         // Group stops by name
         const stopsByName = new Map();
-        Object.values(stops).forEach(stop => {
+        Object.entries(stopsData).forEach(([stopId, stop]) => {
+            console.log(`Processing stop ${stopId}:`, stop);
+            
             if (!stopsByName.has(stop.name)) {
                 stopsByName.set(stop.name, []);
             }
-            stopsByName.get(stop.name).push(stop);
+            stopsByName.get(stop.name).push({
+                ...stop,
+                id: stopId
+            });
         });
+
+        console.log('Grouped stops by name:', Array.from(stopsByName.entries()));
+
+        // Clear existing content
+        this.container.innerHTML = '';
 
         // Create sections for each stop name
         for (const [name, stopsAtLocation] of stopsByName) {
+            console.log(`Creating section for ${name} with stops:`, stopsAtLocation);
+            
             const section = this.createStopSection(name);
-            this.stopSections.set(name, section);
-            this.container.appendChild(section);
+            const content = section.querySelector('.stop-content');
 
-            stopsAtLocation.forEach(stop => {
+            stopsAtLocation.forEach((stop, index) => {
                 const stopElement = this.createPhysicalStop(stop.id, stop.provider);
-                section.querySelector('.stop-content').appendChild(stopElement);
+                
+                // Add divider if not first stop
+                if (index > 0) {
+                    const divider = document.createElement('div');
+                    divider.className = 'stop-divider';
+                    stopElement.appendChild(divider);
+                }
+
+                // Update stop content if we have lines data
+                if (stop.lines && Object.keys(stop.lines).length > 0) {
+                    this.updateStopContent(stopElement, stop);
+                }
+
+                content.appendChild(stopElement);
             });
+
+            this.container.appendChild(section);
         }
     }
 
@@ -599,32 +744,6 @@ export class StopManager {
         return content.join('\n');
     }
 
-    updateStopContent(stopId, stop, provider) {
-        const container = this.getStopContainer(stopId);
-        if (!container) return;
-        
-        const content = container.querySelector('.stop-content');
-        if (!content) return;
-
-        let html = '';
-        
-        if (stop.lines) {
-            Object.entries(stop.lines).forEach(([line, destinations]) => {
-                Object.entries(destinations).forEach(([destination, times]) => {
-                    if (!times || times.length === 0) return;
-                    
-                    html += provider.formatLineContainer(line, destination, times, provider);
-                });
-            });
-        }
-        
-        if (!html) {
-            html = '<div class="no-data">No real-time data available</div>';
-        }
-        
-        content.innerHTML = html;
-    }
-
     /**
      * Get the name of a stop by its ID
      * @param {string} stopId The ID of the stop
@@ -635,25 +754,30 @@ export class StopManager {
         return stop?.name || null;
     }
 
-    /**
-     * Update stops data
-     * @param {Object} stopsData The stops data from the provider
-     * @param {Object} provider The provider instance
-     */
-    updateStops(stopsData, provider) {
-        if (!stopsData) return;
-        
-        Object.entries(stopsData).forEach(([stopId, stopData]) => {
-            this.stops.set(stopId, {
-                id: stopId,
-                name: stopData.name,
-                coordinates: stopData.coordinates,
-                lines: stopData.lines || {}
-            });
-        });
-    }
-
     clear() {
         this.stops.clear();
+    }
+
+    /**
+     * Get the container element for a stop
+     * @param {string} stopId - Stop ID
+     * @returns {HTMLElement|null} The stop container element or null if not found
+     */
+    getStopContainer(stopId) {
+        // First try to find the stop element directly
+        const stopElement = this.container.querySelector(`[data-stop-id="${stopId}"]`);
+        if (stopElement) {
+            return stopElement;
+        }
+
+        // If not found, try to find it in any stop section
+        for (const section of this.stopSections.values()) {
+            const element = section.querySelector(`[data-stop-id="${stopId}"]`);
+            if (element) {
+                return element;
+            }
+        }
+
+        return null;
     }
 }

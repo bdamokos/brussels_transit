@@ -20,7 +20,7 @@ class TransitDisplay {
         this.refreshInterval = null;
         this.settings = null;
         this.vehicleManager = null;  // Will initialize after map
-        this.stopManager = new StopManager(); // Initialize StopManager
+        this.stopManager = null;  // Will initialize after getting settings
     }
 
     /**
@@ -46,8 +46,12 @@ class TransitDisplay {
             // Initialize map with settings
             await this.initializeMap();
             
-            // Initialize stop manager before vehicle manager
-            this.stopManager = new StopManager();
+            // Initialize stop manager with container element
+            const stopsContainer = document.getElementById('stops-container');
+            if (!stopsContainer) {
+                throw new Error('Stops container element not found');
+            }
+            this.stopManager = new StopManager(stopsContainer);
             
             // Initialize vehicle manager after map
             this.vehicleManager = new VehicleManager(this.map, this.stopManager);
@@ -248,12 +252,27 @@ class TransitDisplay {
                     routes: routes
                 });
                 
-                // Merge data
-                Object.assign(allData.stops, stops);
-                allData.vehicles.push(...vehicles.map(v => ({ ...v, provider: provider.id })));
-                allData.messages.push(...messages);
-                Object.assign(allData.routes, routes);
+                // Merge data, adding provider ID to each item
+                if (stops) {
+                    Object.entries(stops).forEach(([stopId, stop]) => {
+                        allData.stops[stopId] = {
+                            ...stop,
+                            provider: provider.id
+                        };
+                    });
+                }
+                if (vehicles) {
+                    allData.vehicles.push(...vehicles.map(v => ({ ...v, provider: provider.id })));
+                }
+                if (messages) {
+                    allData.messages.push(...messages.map(m => ({ ...m, provider: provider.id })));
+                }
+                if (routes) {
+                    Object.assign(allData.routes, routes);
+                }
             }
+            
+            console.log("Combined data from all providers:", allData);
             
             // Update map with new data
             if (this.map) {
@@ -267,7 +286,6 @@ class TransitDisplay {
                 
                 // Add/update stop markers
                 for (const [stopId, stop] of Object.entries(allData.stops)) {
-                    // Get the actual provider instance instead of just the ID
                     const provider = this.providers.get(stop.provider);
                     if (!provider) {
                         console.warn(`No provider instance found for stop ${stopId} (provider: ${stop.provider})`);
@@ -278,7 +296,6 @@ class TransitDisplay {
                 
                 // Update vehicle positions using VehicleManager
                 if (allData.vehicles && Array.isArray(allData.vehicles)) {
-                    // Group vehicles by provider
                     const vehiclesByProvider = new Map();
                     allData.vehicles.forEach(vehicle => {
                         if (!vehiclesByProvider.has(vehicle.provider)) {
@@ -287,7 +304,6 @@ class TransitDisplay {
                         vehiclesByProvider.get(vehicle.provider).push(vehicle);
                     });
 
-                    // Update vehicles for each provider
                     for (const [providerId, vehicles] of vehiclesByProvider) {
                         const provider = this.providers.get(providerId);
                         if (provider) {
@@ -297,15 +313,17 @@ class TransitDisplay {
                 }
             }
             
-            // Update service messages using messages module
+            // Update service messages
             if (allData.messages) {
                 updateServiceMessages(allData.messages);
             }
             
             // Update stops list using StopManager
             if (allData.stops) {
+                console.log("Updating stops list with data:", allData.stops);
                 this.stopManager.updateStopsList(allData.stops);
             }
+            
         } catch (error) {
             handleError('Error during data refresh', error);
         }

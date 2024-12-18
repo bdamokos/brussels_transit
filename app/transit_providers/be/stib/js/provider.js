@@ -145,9 +145,13 @@ export class StibProvider extends TransitProvider {
 
     async getStops() {
         try {
-            const response = await fetch('/api/stib/stops');
-            if (!response.ok) throw new Error('Failed to get stops');
-            const data = await response.json();
+            // Get waiting times for all stops first
+            const waitingTimesResponse = await fetch('/api/stib/waiting_times');
+            if (!waitingTimesResponse.ok) {
+                throw new Error('Failed to get waiting times');
+            }
+            const waitingTimesData = await waitingTimesResponse.json();
+            console.log('Got waiting times data:', waitingTimesData);
             
             const stops = {};
             
@@ -155,32 +159,20 @@ export class StibProvider extends TransitProvider {
             for (const stopConfig of this.config.stops) {
                 const stopId = stopConfig.id.toString();
                 
-                // Get stop data from API
-                const stopResponse = await fetch(`/api/stib/stop/${stopId}`);
-                if (!stopResponse.ok) continue;
-                
-                const stopData = await stopResponse.json();
-                if (!stopData?.coordinates) continue;
+                // Get stop data from waiting times response
+                const stopData = waitingTimesData.stops_data[stopId];
+                if (!stopData?.coordinates?.coordinates) continue;
                 
                 stops[stopId] = {
                     id: stopId,
-                    name: stopConfig.name,
+                    name: stopConfig.name || stopData.name,
                     coordinates: {
-                        lat: stopData.coordinates.lat,
-                        lon: stopData.coordinates.lon
+                        lat: stopData.coordinates.coordinates.lat,
+                        lon: stopData.coordinates.coordinates.lon
                     },
-                    provider: this.id
+                    provider: this.id,
+                    lines: stopData.lines || {}
                 };
-                
-                // Get waiting times
-                try {
-                    const waitingTimes = await this.getWaitingTimes(stopId);
-                    if (waitingTimes) {
-                        stops[stopId].lines = waitingTimes;
-                    }
-                } catch (error) {
-                    console.warn(`Failed to get data for stop ${stopId}:`, error);
-                }
             }
             
             console.log('Processed stops:', stops);
@@ -454,5 +446,16 @@ export class StibProvider extends TransitProvider {
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Get provider-specific colors
+     * @returns {Promise<Object>} Dictionary of colors by line
+     */
+    getColors() {
+        return {
+            primary: '#000000',
+            secondary: '#FFFFFF'
+        };
     }
 }
