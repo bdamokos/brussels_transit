@@ -143,6 +143,17 @@ export class StibProvider extends TransitProvider {
             
             // Get waiting times for each stop
             for (const stopId of Object.keys(stops)) {
+                // Get stop name
+                try {
+                    const nameResponse = await fetch(`/api/stib/stop/${stopId}/name`);
+                    if (nameResponse.ok) {
+                        const nameData = await nameResponse.json();
+                        stops[stopId].name = nameData.name;
+                    }
+                } catch (error) {
+                    console.warn(`Failed to get name for stop ${stopId}:`, error);
+                }
+
                 console.log(`Fetching waiting times for stop ${stopId}...`);
                 const waitingTimes = await this.getWaitingTimes(stopId);
                 console.log(`Waiting times for stop ${stopId}:`, waitingTimes);
@@ -168,16 +179,40 @@ export class StibProvider extends TransitProvider {
             if (!response.ok) throw new Error('Failed to fetch vehicle data');
             const data = await response.json();
             
+            // Fetch stop names for all segments
+            const stopIds = new Set();
+            data.vehicles.forEach(vehicle => {
+                if (vehicle.current_segment) {
+                    stopIds.add(vehicle.current_segment[0]);
+                    stopIds.add(vehicle.current_segment[1]);
+                }
+            });
+            
+            // Build stops data structure
+            const stops = {};
+            for (const stopId of stopIds) {
+                try {
+                    const nameResponse = await fetch(`/api/stib/stop/${stopId}/name`);
+                    if (nameResponse.ok) {
+                        const nameData = await nameResponse.json();
+                        stops[stopId] = {
+                            id: stopId,
+                            name: nameData.name
+                        };
+                    }
+                } catch (error) {
+                    console.warn(`Failed to get name for stop ${stopId}:`, error);
+                }
+            }
+            
+            // Update stops in StopManager
+            if (this.stopManager) {
+                this.stopManager.updateStops(stops, this);
+            }
+            
             const vehicles = data.vehicles
                 .filter(vehicle => this.monitoredLines.has(vehicle.line?.toString()))
                 .map(vehicle => {
-                    // Debug each vehicle's data
-                    console.log('Processing vehicle:', {
-                        line: vehicle.line,
-                        segment: vehicle.current_segment,
-                        position: vehicle.interpolated_position
-                    });
-
                     // Create a unique ID
                     const vehicleId = `${vehicle.line}-${vehicle.current_segment?.[0] || 'unknown'}-${vehicle.current_segment?.[1] || Date.now()}`;
                     
@@ -191,11 +226,10 @@ export class StibProvider extends TransitProvider {
                         },
                         bearing: vehicle.bearing,
                         is_realtime: vehicle.is_valid,
-                        delay: vehicle.raw_data?.delay || 0
+                        delay: vehicle.raw_data?.delay || 0,
+                        current_segment: vehicle.current_segment || [vehicle.pointId, vehicle.nextPointId],
+                        provider: 'stib'
                     };
-
-                    // Debug processed vehicle
-                    console.log('Created vehicle:', processedVehicle);
                     
                     return processedVehicle;
                 });

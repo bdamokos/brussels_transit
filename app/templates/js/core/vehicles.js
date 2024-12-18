@@ -2,8 +2,9 @@ import { L } from './map.js';
 import { isValidCoordinate, handleError } from './utils.js';
 
 export class VehicleManager {
-    constructor(mapManager) {
+    constructor(mapManager, stopManager) {
         this.mapManager = mapManager;
+        this.stopManager = stopManager;
         this.vehicles = new Map(); // vehicleId -> marker
         this.layer = L.layerGroup().addTo(mapManager.map);
         this.monitoredLines = new Set(['59', '92', '64', '12', '55', '56']); // Ensure this is correctly initialized
@@ -77,23 +78,18 @@ export class VehicleManager {
     }
 
     updateVehiclePopup(marker, vehicle, provider) {
+        let segmentInfo = '';
+        if (vehicle.current_segment) {
+            const [stop1Id, stop2Id] = vehicle.current_segment;
+            const stop1Name = this.stopManager.getStopName(stop1Id) || stop1Id;
+            const stop2Name = this.stopManager.getStopName(stop2Id) || stop2Id;
+            segmentInfo = `Between ${stop1Name} and ${stop2Name}`;
+        }
+
         const content = `
-            <div class="vehicle-popup">
-                <div class="line-info">
-                    <span class="line-number" style="background-color: ${provider.getLineColor(vehicle.line)}">
-                        ${vehicle.line}
-                    </span>
-                    <span class="direction">→ ${vehicle.direction}</span>
-                </div>
-                ${vehicle.delay ? `
-                    <div class="delay">
-                        Delay: ${Math.round(vehicle.delay / 60)} min
-                    </div>
-                ` : ''}
-                <div class="status">
-                    Status: ${vehicle.is_realtime ? 'Real-time' : 'Scheduled'}
-                </div>
-            </div>
+            <strong>Line ${vehicle.line}</strong><br>
+            To: ${vehicle.direction}<br>
+            ${segmentInfo}
         `;
         marker.bindPopup(content);
     }
@@ -124,7 +120,8 @@ export class VehicleManager {
                         },
                         bearing: vehicle.bearing,
                         is_realtime: vehicle.is_valid,
-                        delay: vehicle.raw_data?.delay || 0
+                        delay: vehicle.raw_data?.delay || 0,
+                        current_segment: vehicle.current_segment
                     };
 
                     console.log('Created vehicle:', processedVehicle);

@@ -6,6 +6,7 @@ export class StopManager {
         this.stopSections = new Map();  // name -> DOM element
         this.mapManager = mapManager;  // Store reference to map manager
         this.providers = new Map();  // provider name -> instance
+        this.stops = new Map();
     }
 
     /**
@@ -622,5 +623,37 @@ export class StopManager {
         }
         
         content.innerHTML = html;
+    }
+
+    /**
+     * Get the name of a stop by its ID
+     * @param {string} stopId The ID of the stop
+     * @returns {string|null} The name of the stop, or null if not found
+     */
+    getStopName(stopId) {
+        const stop = this.stops.get(stopId?.toString());
+        return stop?.name || null;
+    }
+
+    /**
+     * Update stops data
+     * @param {Object} stopsData The stops data from the provider
+     * @param {Object} provider The provider instance
+     */
+    updateStops(stopsData, provider) {
+        if (!stopsData) return;
+        
+        Object.entries(stopsData).forEach(([stopId, stopData]) => {
+            this.stops.set(stopId, {
+                id: stopId,
+                name: stopData.name,
+                coordinates: stopData.coordinates,
+                lines: stopData.lines || {}
+            });
+        });
+    }
+
+    clear() {
+        this.stops.clear();
     }
 }

@@ -46,8 +46,11 @@ class TransitDisplay {
             // Initialize map with settings
             await this.initializeMap();
             
+            // Initialize stop manager before vehicle manager
+            this.stopManager = new StopManager();
+            
             // Initialize vehicle manager after map
-            this.vehicleManager = new VehicleManager(this.map);
+            this.vehicleManager = new VehicleManager(this.map, this.stopManager);
             
             // Then try to initialize providers
             try {
@@ -139,6 +142,7 @@ class TransitDisplay {
                     
                     // Create provider instance
                     const provider = new ProviderClass(providerInfo);
+                    provider.stopManager = this.stopManager;  // Pass StopManager to provider
                     
                     // Initialize provider
                     await provider.initialize();
