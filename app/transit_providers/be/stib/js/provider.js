@@ -94,10 +94,19 @@ export class StibProvider extends TransitProvider {
             }
             const data = await response.json();
             
+            console.log(`Raw waiting times for stop ${stopId}:`, data);
+            
+            // Check if we got waiting times array or stop metadata
+            if (data._metadata) {
+                // We got stop metadata instead of waiting times
+                console.warn(`Received metadata instead of waiting times for stop ${stopId}`);
+                return null;
+            }
+            
             // Process waiting times into the expected format
             const lines = {};
-            if (Array.isArray(data)) {
-                data.forEach(time => {
+            if (Array.isArray(data?.waiting_times)) {
+                data.waiting_times.forEach(time => {
                     if (!time.line || !time.destination) {
                         console.warn('Invalid waiting time entry:', time);
                         return;
@@ -126,6 +135,7 @@ export class StibProvider extends TransitProvider {
                 });
             }
             
+            console.log(`Processed waiting times for stop ${stopId}:`, lines);
             return lines;
         } catch (error) {
             console.error(`Error getting waiting times for stop ${stopId}:`, error);
@@ -137,31 +147,43 @@ export class StibProvider extends TransitProvider {
         try {
             const response = await fetch('/api/stib/stops');
             if (!response.ok) throw new Error('Failed to get stops');
-            const stops = await response.json();
+            const data = await response.json();
             
-            console.log('Raw stops data:', stops);
+            const stops = {};
             
-            // Get waiting times for each stop
-            for (const stopId of Object.keys(stops)) {
-                // Get stop name
+            // Only process monitored stops
+            for (const stopConfig of this.config.stops) {
+                const stopId = stopConfig.id.toString();
+                
+                // Get stop data from API
+                const stopResponse = await fetch(`/api/stib/stop/${stopId}`);
+                if (!stopResponse.ok) continue;
+                
+                const stopData = await stopResponse.json();
+                if (!stopData?.coordinates) continue;
+                
+                stops[stopId] = {
+                    id: stopId,
+                    name: stopConfig.name,
+                    coordinates: {
+                        lat: stopData.coordinates.lat,
+                        lon: stopData.coordinates.lon
+                    },
+                    provider: this.id
+                };
+                
+                // Get waiting times
                 try {
-                    const nameResponse = await fetch(`/api/stib/stop/${stopId}/name`);
-                    if (nameResponse.ok) {
-                        const nameData = await nameResponse.json();
-                        stops[stopId].name = nameData.name;
+                    const waitingTimes = await this.getWaitingTimes(stopId);
+                    if (waitingTimes) {
+                        stops[stopId].lines = waitingTimes;
                     }
                 } catch (error) {
-                    console.warn(`Failed to get name for stop ${stopId}:`, error);
-                }
-
-                console.log(`Fetching waiting times for stop ${stopId}...`);
-                const waitingTimes = await this.getWaitingTimes(stopId);
-                console.log(`Waiting times for stop ${stopId}:`, waitingTimes);
-                if (waitingTimes) {
-                    stops[stopId].lines = waitingTimes;
+                    console.warn(`Failed to get data for stop ${stopId}:`, error);
                 }
             }
             
+            console.log('Processed stops:', stops);
             return stops;
         } catch (error) {
             console.error('Error getting stops:', error);
