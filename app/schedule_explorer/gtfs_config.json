@@ -1,0 +1,40 @@
+{
+    "agencies": {
+        "delijn": {
+            "country": "belgium",
+            "gtfs_source": "https://data.delijn.be/",
+            "api": {
+                "key_location": "header",
+                "key_name": "Ocp-Apim-Subscription-Key",
+                "env_var": "DELIJN_API_KEY"
+            }
+        },
+        "stib": {
+            "country": "belgium", 
+            "gtfs_source": "https://opendata.stib-mivb.be/",
+            "api": {
+                "key_location": "header",
+                "key_name": "Authorization",
+                "env_var": "STIB_API_KEY"
+            }
+        },
+        "bkk": {
+            "country": "hungary",
+            "gtfs_source": "https://bkk.hu/gtfs/",
+            "api": {
+                "key_location": "url_param",
+                "key_name": "apikey",
+                "env_var": "BKK_API_KEY"
+            }
+        },
+        "flixbus": {
+            "country": "europe",
+            "gtfs_source": "https://www.flixbus.com/open-data",
+            "api": {
+                "key_location": "header",
+                "key_name": "X-Api-Authentication",
+                "env_var": "FLIXBUS_API_KEY" 
+            }
+        }
+    }
+}

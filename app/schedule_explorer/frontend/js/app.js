@@ -209,15 +209,15 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
             const stations = Array.from(allStations).map(s => JSON.parse(s));
             
             // Filter by query if provided
-            if (query) {
+            if (query && query.length >= 2) {
                 return stations.filter(station => 
                     station.name.toLowerCase().includes(query.toLowerCase())
                 );
             }
             return stations;
             
-        } else {
-            // Regular station search
+        } else if (query && query.length >= 2) {
+            // Regular station search with query
             const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}`;
             const response = await fetch(url);
             
@@ -231,6 +231,25 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
             }
             
             return await response.json();
+        } else {
+            // For empty queries, get all stations and return a subset
+            const url = `${API_BASE_URL}/stations/search?query=a`;  // Get a broad set of stations
+            const response = await fetch(url);
+            
+            if (response.status === 503) {
+                updateBackendStatus('loading', 'Loading GTFS data...');
+                return [];
+            }
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to fetch stations');
+            }
+            
+            const stations = await response.json();
+            // Return first 50 stations sorted by name
+            return stations
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .slice(0, 50);
         }
     } catch (error) {
         console.error('Error searching stations:', error);
@@ -414,9 +433,12 @@ fromStationInput.addEventListener('input', debounce(async (e) => {
             selectedFromStationGroup = null;
             // Reset available destinations
             await updateAvailableStations(false);
+            // Show all available stations if input is cleared
+            createStationList(availableFromStations, resultsContainer, fromStationInput, true);
+        } else {
+            // Show message for short query
+            resultsContainer.innerHTML = '<div class="dropdown-item text-muted">Please enter at least 2 characters to search</div>';
         }
-        // Show all available stations if input is cleared or too short
-        createStationList(availableFromStations, resultsContainer, fromStationInput, true);
         return;
     }
     
@@ -447,9 +469,12 @@ toStationInput.addEventListener('input', debounce(async (e) => {
             selectedToStationGroup = null;
             // Reset available origins
             await updateAvailableStations(true);
+            // Show all available stations if input is cleared
+            createStationList(availableToStations, resultsContainer, toStationInput, false);
+        } else {
+            // Show message for short query
+            resultsContainer.innerHTML = '<div class="dropdown-item text-muted">Please enter at least 2 characters to search</div>';
         }
-        // Show all available stations if input is cleared or too short
-        createStationList(availableToStations, resultsContainer, toStationInput, false);
         return;
     }
     

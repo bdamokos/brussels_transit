@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 from datetime import datetime, timedelta
 import os
 from pathlib import Path
+import pandas as pd
 
 from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
 from .gtfs_loader import FlixbusFeed, load_feed
@@ -133,10 +134,15 @@ async def get_routes(
         
         if not duration:
             continue
+        
+        # Handle NaN values in route name
+        route_name = route.route_name
+        if pd.isna(route_name) or not isinstance(route_name, str):
+            route_name = f"Route {route.route_id}"
             
         route_responses.append(Route(
             route_id=route.route_id,
-            route_name=route.route_name,
+            route_name=route_name,
             trip_id=route.trip_id,
             service_days=route.service_days,
             duration_minutes=int(duration.total_seconds() / 60),
@@ -159,4 +165,74 @@ async def get_routes(
     return RouteResponse(
         routes=route_responses,
         total_routes=len(route_responses)
-    ) 
+    )
+
+@app.get("/stations/destinations/{station_id}", response_model=List[StationResponse])
+async def get_destinations(station_id: str):
+    """Get all possible destination stations from a given station"""
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    
+    if station_id not in feed.stops:
+        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+    
+    # Find all routes that start from this station
+    destinations = set()
+    for route in feed.routes:
+        # Get all stops in this route
+        stops = route.get_stops_between(station_id, None)
+        
+        # If this station is in the route
+        if stops and stops[0].stop.id == station_id:
+            # Add all subsequent stops as potential destinations
+            for stop in stops[1:]:
+                destinations.add(stop.stop.id)
+    
+    # Convert to response format
+    return [
+        StationResponse(
+            id=stop_id,
+            name=feed.stops[stop_id].name,
+            location=Location(
+                lat=feed.stops[stop_id].lat,
+                lon=feed.stops[stop_id].lon
+            )
+        )
+        for stop_id in destinations
+        if stop_id in feed.stops
+    ]
+
+@app.get("/stations/origins/{station_id}", response_model=List[StationResponse])
+async def get_origins(station_id: str):
+    """Get all possible origin stations that can reach a given station"""
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    
+    if station_id not in feed.stops:
+        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+    
+    # Find all routes that end at this station
+    origins = set()
+    for route in feed.routes:
+        # Get all stops in this route
+        stops = route.get_stops_between(None, station_id)
+        
+        # If this station is in the route
+        if stops and stops[-1].stop.id == station_id:
+            # Add all previous stops as potential origins
+            for stop in stops[:-1]:
+                origins.add(stop.stop.id)
+    
+    # Convert to response format
+    return [
+        StationResponse(
+            id=stop_id,
+            name=feed.stops[stop_id].name,
+            location=Location(
+                lat=feed.stops[stop_id].lat,
+                lon=feed.stops[stop_id].lon
+            )
+        )
+        for stop_id in origins
+        if stop_id in feed.stops
+    ] 
