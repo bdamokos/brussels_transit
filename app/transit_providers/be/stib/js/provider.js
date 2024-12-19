@@ -320,23 +320,38 @@ export class StibProvider extends TransitProvider {
             
             // Process and return messages
             return (data.messages || [])
-                .map(msg => ({
-                    id: msg.id,
-                    title: {
-                        fr: msg.text,  // STIB messages are already in French
-                        nl: msg.text   // Use same text for Dutch for now
-                    },
-                    content: {
-                        fr: msg.text,
-                        nl: msg.text
-                    },
-                    severity: msg.priority || 'info',
-                    lines: msg.lines || [],
-                    points: msg.points || [],
-                    stops: msg.stops || [],  // Include stop names from backend
-                    is_monitored: msg.lines?.some(line => this.monitoredLines.has(line)) || false
-                }))
-                .filter(msg => msg.lines?.length > 0);  // Only show messages with affected lines
+                .map(msg => {
+                    const affectedLines = msg.lines || [];
+                    const affectedPoints = msg.points || [];
+                    
+                    // Check if message affects monitored lines and stops
+                    const hasMonitoredLines = affectedLines.some(line => this.monitoredLines.has(line));
+                    const hasMonitoredStops = affectedPoints.some(point => this.stopIds.has(point));
+                    
+                    // Only include message if it affects monitored lines
+                    if (!hasMonitoredLines) {
+                        return null;
+                    }
+                    
+                    return {
+                        id: msg.id,
+                        title: {
+                            fr: msg.text,  // STIB messages are already in French
+                            nl: msg.text   // Use same text for Dutch for now
+                        },
+                        content: {
+                            fr: msg.text,
+                            nl: msg.text
+                        },
+                        severity: msg.priority || 'info',
+                        lines: affectedLines,
+                        points: affectedPoints,
+                        stops: msg.stops || [],  // Include stop names from backend
+                        // Message is primary priority only if it affects both monitored lines AND stops
+                        is_monitored: hasMonitoredLines && hasMonitoredStops
+                    };
+                })
+                .filter(msg => msg !== null);  // Remove null messages (non-monitored lines)
         } catch (error) {
             console.error('Error fetching STIB messages:', error);
             return [];
