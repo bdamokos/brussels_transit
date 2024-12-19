@@ -333,6 +333,7 @@ export class StibProvider extends TransitProvider {
                     severity: msg.priority || 'info',
                     lines: msg.lines || [],
                     points: msg.points || [],
+                    stops: msg.stops || [],  // Include stop names from backend
                     is_monitored: msg.lines?.some(line => this.monitoredLines.has(line)) || false
                 }))
                 .filter(msg => msg.lines?.length > 0);  // Only show messages with affected lines
