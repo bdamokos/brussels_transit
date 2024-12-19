@@ -141,7 +141,14 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     routes_df = pd.read_csv(data_path / "routes.txt")
     trips_df = pd.read_csv(data_path / "trips.txt")
     stop_times_df = pd.read_csv(data_path / "stop_times.txt")
-    calendar_df = pd.read_csv(data_path / "calendar.txt")
+    
+    # Try to load calendar.txt first, fall back to calendar_dates.txt
+    try:
+        calendar_df = pd.read_csv(data_path / "calendar.txt")
+        use_calendar_dates = False
+    except FileNotFoundError:
+        calendar_df = pd.read_csv(data_path / "calendar_dates.txt")
+        use_calendar_dates = True
     
     # If we have target stops, pre-filter the trips that contain them
     if target_stops:
@@ -166,12 +173,21 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         # Get route name
         route_name = routes_df[routes_df.route_id == route_id].route_long_name.iloc[0]
         
-        # Get service days
-        service = calendar_df[calendar_df.service_id == trip.service_id].iloc[0]
-        service_days = [
-            day for day, operates in service[['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']].items()
-            if operates == 1
-        ]
+        # Get service days based on calendar type
+        if use_calendar_dates:
+            # For calendar_dates.txt, group by service_id and get unique dates
+            service_dates = calendar_df[calendar_df.service_id == trip.service_id]
+            # Convert dates to days of the week
+            service_days = list(set(
+                pd.to_datetime(service_dates.date).dt.strftime('%A').str.lower()
+            ))
+        else:
+            # For calendar.txt, use the existing logic
+            service = calendar_df[calendar_df.service_id == trip.service_id].iloc[0]
+            service_days = [
+                day for day, operates in service[['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']].items()
+                if operates == 1
+            ]
         
         # Get stops for this trip
         trip_stops_df = stop_times_df[stop_times_df.trip_id == trip_id].sort_values('stop_sequence')

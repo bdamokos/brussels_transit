@@ -43,8 +43,12 @@ def find_gtfs_directories() -> List[str]:
         for item in cache_path.iterdir():
             if item.is_dir():
                 # Check if directory contains required GTFS files
-                required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt']
-                if all((item / file).exists() for file in required_files):
+                required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
+                # Either calendar.txt or calendar_dates.txt is required
+                calendar_files = ['calendar.txt', 'calendar_dates.txt']
+                
+                if (all((item / file).exists() for file in required_files) and 
+                    any((item / file).exists() for file in calendar_files)):
                     gtfs_dirs.append(item.name)
     
     return sorted(gtfs_dirs)
