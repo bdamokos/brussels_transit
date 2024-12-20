@@ -95,7 +95,7 @@
             <div class="col-md-4">
                 <label for="providerSelect" class="form-label">Provider</label>
                 <select class="form-control" id="providerSelect">
-                    <option value="" disabled selected>Loading providers...</option>
+                    <option value="" selected disabled>Loading providers...</option>
                 </select>
             </div>
         </div>
@@ -109,7 +109,8 @@
                            class="form-control" 
                            id="fromStation" 
                            placeholder="Enter departure station"
-                           autocomplete="off">
+                           autocomplete="off"
+                           disabled>
                     <div class="dropdown-menu station-results w-100" id="fromStationResults"></div>
                 </div>
             </div>
@@ -120,13 +121,14 @@
                            class="form-control" 
                            id="toStation" 
                            placeholder="Enter destination station"
-                           autocomplete="off">
+                           autocomplete="off"
+                           disabled>
                     <div class="dropdown-menu station-results w-100" id="toStationResults"></div>
                 </div>
             </div>
             <div class="col-md-2">
                 <label for="date" class="form-label">Date</label>
-                <input type="date" class="form-control" id="date">
+                <input type="date" class="form-control" id="date" disabled>
             </div>
         </div>
         
@@ -154,7 +156,7 @@
         <!-- Route Results -->
         <div id="routeResults">
             <div class="alert alert-info">
-                Search for stations and select a date to see available routes.
+                Please select a GTFS provider to start exploring routes.
             </div>
         </div>
     </div>

@@ -50,6 +50,12 @@ async function loadProviders() {
         // Clear existing options
         providerSelect.innerHTML = '';
         
+        // Add default option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Select a provider';
+        providerSelect.appendChild(defaultOption);
+        
         // Add providers to dropdown
         providers.forEach(provider => {
             const option = document.createElement('option');
@@ -58,10 +64,10 @@ async function loadProviders() {
             providerSelect.appendChild(option);
         });
         
-        // Select first provider by default
-        if (providers.length > 0) {
-            await setProvider(providers[0]);
-        }
+        // Enable the select
+        providerSelect.disabled = false;
+        updateBackendStatus('ready', 'Select a GTFS provider');
+        
     } catch (error) {
         console.error('Error loading providers:', error);
         updateBackendStatus('error', 'Failed to load providers');
@@ -69,6 +75,10 @@ async function loadProviders() {
 }
 
 async function setProvider(providerName) {
+    if (!providerName) {
+        return;
+    }
+
     try {
         updateBackendStatus('loading', `Loading ${providerName} GTFS data...`);
         
@@ -96,11 +106,19 @@ async function setProvider(providerName) {
         }
         stopMarkers.forEach(marker => map.removeLayer(marker));
         stopMarkers.clear();
+
+        // Clear cached station data
+        availableFromStations = [];
+        availableToStations = [];
         
         // Update page title
         document.querySelector('h1').textContent = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} Route Explorer`;
         
         // Enable inputs
+        fromStationInput.disabled = false;
+        toStationInput.disabled = false;
+        dateInput.disabled = false;
+        
         updateBackendStatus('ready', 'Ready');
     } catch (error) {
         console.error('Error setting provider:', error);
@@ -119,14 +137,13 @@ function updateBackendStatus(status, message) {
     backendStatus.querySelector('.status-text').textContent = message;
     
     // Enable/disable inputs based on status
-    const inputs = [providerSelect, fromStationInput, toStationInput, dateInput];
+    const inputs = [fromStationInput, toStationInput, dateInput];
     inputs.forEach(input => {
         input.disabled = status !== 'ready';
     });
     
     // Initialize dropdowns when backend is ready
     if (status === 'ready') {
-        initializeDropdowns();
         setTimeout(() => {
             backendStatus.classList.add('fade-out');
             setTimeout(() => {
@@ -139,6 +156,11 @@ function updateBackendStatus(status, message) {
 // Check backend status on load
 async function checkBackendStatus() {
     try {
+        // Initially disable inputs
+        fromStationInput.disabled = true;
+        toStationInput.disabled = true;
+        dateInput.disabled = true;
+        
         // Load providers first
         await loadProviders();
     } catch (error) {
