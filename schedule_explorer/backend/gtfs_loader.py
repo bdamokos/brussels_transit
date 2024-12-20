@@ -112,27 +112,31 @@ class FlixbusFeed:
         
         return routes
 
-def calculate_gtfs_hash(data_path: Path) -> str:
-    """Calculate a hash of the GTFS files to determine if cache is valid."""
+# Cache version - bump this when changing the data format
+CACHE_VERSION = 1
+
+def deserialize_gtfs_data(data: bytes) -> FlixbusFeed:
+    """Deserialize GTFS data from bytes"""
+    try:
+        return pickle.loads(data)
+    except Exception as e:
+        raise ValueError(f"Failed to deserialize GTFS data: {e}")
+
+def calculate_gtfs_hash(data_dir: Path) -> str:
+    """Calculate a hash of all GTFS files to detect changes"""
     hasher = hashlib.sha256()
     
-    # List of files to include in the hash
-    files_to_hash = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
-    calendar_files = ['calendar.txt', 'calendar_dates.txt']
+    # Add cache version to the hash
+    hasher.update(str(CACHE_VERSION).encode())
     
-    # Add whichever calendar file exists
-    for cal_file in calendar_files:
-        if (data_path / cal_file).exists():
-            files_to_hash.append(cal_file)
-            break
+    # Sort files to ensure consistent order
+    gtfs_files = sorted([
+        f for f in data_dir.glob('*.txt')
+        if f.name in ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 
+                     'calendar.txt', 'calendar_dates.txt', 'shapes.txt']
+    ])
     
-    # Optional files
-    if (data_path / 'shapes.txt').exists():
-        files_to_hash.append('shapes.txt')
-    
-    # Calculate hash
-    for filename in sorted(files_to_hash):
-        file_path = data_path / filename
+    for file_path in gtfs_files:
         if file_path.exists():
             hasher.update(file_path.read_bytes())
     
@@ -147,11 +151,40 @@ def process_trip_batch(args):
         route_id = trip['route_id']
         trip_id = trip['trip_id']
         
-        # Get route name from the routes dictionary, handle NaN values
+        # Get route info from the routes dictionary
         route_info = routes_dict.get(route_id, {})
-        route_name = route_info.get('route_long_name', '')
-        if pd.isna(route_name):
-            route_name = route_info.get('route_short_name', '') or f"Route {route_id}"
+        
+        # Handle route names
+        short_name = route_info.get('route_short_name', '')
+        long_name = route_info.get('route_long_name', '')
+        if pd.isna(short_name): short_name = ''
+        if pd.isna(long_name): long_name = ''
+        
+        # Handle route type
+        route_type = route_info.get('route_type')
+        if pd.isna(route_type): route_type = None
+        else: route_type = int(route_type)
+        
+        # Handle colors
+        color = route_info.get('route_color')
+        if pd.notna(color):
+            color = str(color).strip().lstrip('#')
+            if len(color) < 6:
+                color = color.zfill(6)
+            elif len(color) > 6:
+                color = color[:6]
+        else:
+            color = None
+            
+        text_color = route_info.get('route_text_color')
+        if pd.notna(text_color):
+            text_color = str(text_color).strip().lstrip('#')
+            if len(text_color) < 6:
+                text_color = text_color.zfill(6)
+            elif len(text_color) > 6:
+                text_color = text_color[:6]
+        else:
+            text_color = None
         
         # Get service days based on calendar type
         if use_calendar_dates:
@@ -193,59 +226,58 @@ def process_trip_batch(args):
         
         routes.append(
             Route(
-                route_id=route_id,
-                route_name=route_name,
-                trip_id=trip_id,
-                service_days=service_days,
-                stops=route_stops,
-                shape=shape
+                id=route_id,
+                short_name=short_name,
+                long_name=long_name,
+                route_type=route_type,
+                color=color,
+                text_color=text_color,
+                agency_id=route_info.get('agency_id'),
+                trips=[trip],
+                _feed=None  # Will be set later
             )
         )
     
     return routes
 
-def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] = None) -> FlixbusFeed:
-    """
-    Load GTFS feed from the specified directory.
-    If target_stops is provided, only loads routes that contain those stops.
-    """
-    print("Loading GTFS feed from:", data_dir)
+def load_feed(data_dir: str = None, target_stops: Set[str] = None) -> FlixbusFeed:
+    """Load GTFS data with caching"""
+    if not data_dir:
+        data_dir = os.getenv('GTFS_DATA_DIR', 'gtfs_generic_eu')
+    data_dir = Path(data_dir)
     
-    # Start from the current file's location
-    current_path = Path(os.path.dirname(os.path.abspath(__file__)))
+    print(f"Loading GTFS feed from {data_dir} (cache version {CACHE_VERSION})")
     
-    # Navigate up to the project root (where cache directory is)
-    project_root = current_path
-    while project_root.name != 'STIB':
-        project_root = project_root.parent
+    # Calculate hash of GTFS files
+    gtfs_hash = calculate_gtfs_hash(data_dir)
+    cache_file = data_dir / '.gtfs_cache'
+    cache_hash_file = data_dir / '.gtfs_cache_hash'
     
-    # Look in the cache directory
-    data_path = project_root / 'cache' / data_dir
-    
-    # Check if we have a valid cache
-    cache_file = data_path / '.gtfs_cache'
-    hash_file = data_path / '.gtfs_cache_hash'
-    current_hash = calculate_gtfs_hash(data_path)
-    
-    if cache_file.exists() and hash_file.exists():
-        stored_hash = hash_file.read_text().strip()
-        if stored_hash == current_hash:
-            print("Loading from cache...")
+    # Check if cache exists and is valid
+    if cache_file.exists() and cache_hash_file.exists():
+        stored_hash = cache_hash_file.read_text().strip()
+        if stored_hash == gtfs_hash:
             try:
-                with open(cache_file, 'rb') as f:
-                    return pickle.load(f)
+                print("Found valid cache, loading...")
+                with cache_file.open('rb') as f:
+                    return deserialize_gtfs_data(f.read())
             except Exception as e:
-                print(f"Failed to load cache: {e}")
+                print(f"Error loading cache: {e}")
                 # Delete corrupted cache files
                 try:
+                    print("Deleting corrupted cache files...")
                     cache_file.unlink()
-                    hash_file.unlink()
-                except:
-                    pass
+                    cache_hash_file.unlink()
+                except Exception as e:
+                    print(f"Error deleting cache files: {e}")
+    else:
+        print("No cache found or cache is invalid")
+    
+    print("Loading from GTFS files...")
     
     # Load stops
     print("Loading stops...")
-    stops_df = pd.read_csv(data_path / "stops.txt", dtype={
+    stops_df = pd.read_csv(data_dir / "stops.txt", dtype={
         'stop_id': str,
         'stop_name': str,
         'stop_lat': float,
@@ -266,7 +298,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     shapes = {}
     try:
         print("Loading shapes...")
-        shapes_df = pd.read_csv(data_path / "shapes.txt", dtype={
+        shapes_df = pd.read_csv(data_dir / "shapes.txt", dtype={
             'shape_id': str,
             'shape_pt_lat': float,
             'shape_pt_lon': float,
@@ -282,24 +314,32 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     
     # Load routes and other data
     print("Loading routes, trips, stop times, and calendar...")
-    routes_df = pd.read_csv(data_path / "routes.txt", dtype={
+    routes_df = pd.read_csv(data_dir / "routes.txt", dtype={
         'route_id': str,
+        'route_short_name': str,
         'route_long_name': str,
-        'route_short_name': str
+        'route_type': int,
+        'route_color': str,
+        'route_text_color': str,
+        'agency_id': str
     })
     
     # Convert routes to dictionary early to free memory
     routes_dict = {
         row.route_id: {
+            'route_short_name': row.route_short_name,
             'route_long_name': row.route_long_name,
-            'route_short_name': row.route_short_name
+            'route_type': row.route_type,
+            'route_color': row.route_color if hasattr(row, 'route_color') else None,
+            'route_text_color': row.route_text_color if hasattr(row, 'route_text_color') else None,
+            'agency_id': row.agency_id if hasattr(row, 'agency_id') else None
         }
         for row in routes_df.itertuples()
     }
     del routes_df
     
     # Load trips with correct dtypes
-    trips_df = pd.read_csv(data_path / "trips.txt", dtype={
+    trips_df = pd.read_csv(data_dir / "trips.txt", dtype={
         'route_id': str,
         'service_id': str,
         'trip_id': str,
@@ -311,7 +351,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     chunk_size = 100000
     stop_times_dict = {}
     
-    for chunk in pd.read_csv(data_path / "stop_times.txt", 
+    for chunk in pd.read_csv(data_dir / "stop_times.txt", 
                            chunksize=chunk_size,
                            dtype={
                                'trip_id': str,
@@ -332,7 +372,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     
     # Try to load calendar.txt first, fall back to calendar_dates.txt
     try:
-        calendar_df = pd.read_csv(data_path / "calendar.txt", dtype={
+        calendar_df = pd.read_csv(data_dir / "calendar.txt", dtype={
             'service_id': str,
             'monday': int,
             'tuesday': int,
@@ -357,7 +397,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         }
         del calendar_df
     except FileNotFoundError:
-        calendar_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
+        calendar_df = pd.read_csv(data_dir / "calendar_dates.txt", dtype={
             'service_id': str,
             'date': str
         })
@@ -415,14 +455,62 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     try:
         with open(cache_file, 'wb') as f:
             pickle.dump(feed, f)
-        hash_file.write_text(current_hash)
+        cache_hash_file.write_text(gtfs_hash)
     except Exception as e:
         print(f"Failed to save cache: {e}")
         # Clean up failed cache files
         try:
             cache_file.unlink()
-            hash_file.unlink()
+            cache_hash_file.unlink()
         except:
             pass
     
     return feed 
+
+def load_routes(data_dir: Path) -> Dict[str, Route]:
+    """Load routes with provider-specific handling"""
+    routes = {}
+    routes_df = pd.read_csv(data_dir / 'routes.txt')
+    
+    print("\nLoading routes:")
+    print(f"Columns in routes.txt: {routes_df.columns.tolist()}")
+    
+    for _, row in routes_df.iterrows():
+        route_id = str(row['route_id'])
+        
+        # Handle route names
+        short_name = str(row['route_short_name']) if pd.notna(row.get('route_short_name')) else ''
+        long_name = str(row['route_long_name']) if pd.notna(row.get('route_long_name')) else ''
+        
+        # Handle route type
+        route_type = int(row['route_type']) if pd.notna(row.get('route_type')) else None
+        
+        # Handle colors - ensure they are 6-digit hex without #
+        color = None
+        if 'route_color' in row and pd.notna(row['route_color']):
+            color = str(row['route_color']).strip().lstrip('#')
+            if len(color) < 6:
+                color = color.zfill(6)
+            elif len(color) > 6:
+                color = color[:6]
+                
+        text_color = None
+        if 'route_text_color' in row and pd.notna(row['route_text_color']):
+            text_color = str(row['route_text_color']).strip().lstrip('#')
+            if len(text_color) < 6:
+                text_color = text_color.zfill(6)
+            elif len(text_color) > 6:
+                text_color = text_color[:6]
+        
+        route = Route(
+            id=route_id,
+            short_name=short_name,
+            long_name=long_name,
+            route_type=route_type,
+            color=color,
+            text_color=text_color,
+            agency_id=str(row['agency_id']) if 'agency_id' in row and pd.notna(row['agency_id']) else None
+        )
+        routes[route_id] = route
+    
+    return routes 

@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 import pandas as pd
 
-from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
-from .gtfs_loader import FlixbusFeed, load_feed
+from app.schedule_explorer.backend.models import RouteResponse, StationResponse, Route, Stop, Location, Shape
+from app.schedule_explorer.backend.gtfs_loader import FlixbusFeed, load_feed
 
 app = FastAPI(title="Schedule Explorer API")
 
@@ -142,6 +142,9 @@ async def get_routes(
             
         route_responses.append(Route(
             route_id=route.route_id,
+            route_short_name=route.short_name if hasattr(route, 'short_name') else None,
+            route_long_name=route.long_name if hasattr(route, 'long_name') else None,
+            route_type=route.route_type if hasattr(route, 'route_type') else None,
             route_name=route_name,
             trip_id=route.trip_id,
             service_days=route.service_days,
@@ -159,7 +162,9 @@ async def get_routes(
             shape=Shape(
                 shape_id=route.shape.shape_id,
                 points=route.shape.points
-            ) if route.shape else None
+            ) if route.shape else None,
+            color=route.color if hasattr(route, 'color') else None,
+            text_color=route.text_color if hasattr(route, 'text_color') else None
         ))
     
     return RouteResponse(
