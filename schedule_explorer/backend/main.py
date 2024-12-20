@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 import pandas as pd
 
-from app.schedule_explorer.backend.models import RouteResponse, StationResponse, Route, Stop, Location, Shape
-from app.schedule_explorer.backend.gtfs_loader import FlixbusFeed, load_feed
+from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
+from .gtfs_loader import FlixbusFeed, load_feed
 
 app = FastAPI(title="Schedule Explorer API")
 
@@ -31,9 +31,7 @@ def find_gtfs_directories() -> List[str]:
     current_path = Path(os.path.dirname(os.path.abspath(__file__)))
     
     # Navigate up to the project root (where cache directory is)
-    project_root = current_path
-    while project_root.name != 'STIB':
-        project_root = project_root.parent
+    project_root = current_path.parent.parent
     
     # Look in the cache directory
     cache_path = project_root / 'cache'

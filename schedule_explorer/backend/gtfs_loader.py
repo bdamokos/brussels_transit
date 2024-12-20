@@ -30,11 +30,25 @@ class Shape:
 @dataclass
 class Route:
     route_id: str
-    route_name: str
-    trip_id: str
-    service_days: List[str]
-    stops: List[RouteStop]
-    shape: Optional[Shape] = None
+    short_name: str
+    long_name: str
+    route_type: Optional[int]
+    color: Optional[str]
+    text_color: Optional[str]
+    agency_id: Optional[str]
+    trips: List[dict]
+    _feed: Optional['FlixbusFeed'] = None
+    
+    @property
+    def route_name(self) -> str:
+        """Get a display name for this route"""
+        if self.short_name:
+            if self.long_name:
+                return f"{self.short_name} - {self.long_name}"
+            return self.short_name
+        if self.long_name:
+            return self.long_name
+        return f"Route {self.route_id}"
     
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
         """Get a stop in this route by its ID"""
@@ -186,47 +200,9 @@ def process_trip_batch(args):
         else:
             text_color = None
         
-        # Get service days based on calendar type
-        if use_calendar_dates:
-            # For calendar_dates.txt, group by service_id and get unique dates
-            service_dates = calendar_dict.get(trip['service_id'], [])
-            # Convert dates to days of the week
-            service_days = list(set(
-                datetime.strptime(date, '%Y%m%d').strftime('%A').lower()
-                for date in service_dates
-            ))
-        else:
-            # For calendar.txt, use the existing logic
-            service = calendar_dict.get(trip['service_id'], {})
-            service_days = [
-                day for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-                if service.get(day, 0) == 1
-            ]
-        
-        # Get stops for this trip from the dictionary
-        trip_stops = stop_times_dict.get(trip_id, [])
-        route_stops = []
-        
-        for stop_time in sorted(trip_stops, key=lambda x: x['stop_sequence']):
-            stop_id = str(stop_time['stop_id'])
-            if stop_id in stops:
-                route_stops.append(
-                    RouteStop(
-                        stop=stops[stop_id],
-                        arrival_time=stop_time['arrival_time'],
-                        departure_time=stop_time['departure_time'],
-                        stop_sequence=stop_time['stop_sequence']
-                    )
-                )
-        
-        # Get shape for this trip if available
-        shape = None
-        if 'shape_id' in trip and trip['shape_id'] in shapes:
-            shape = shapes[trip['shape_id']]
-        
         routes.append(
             Route(
-                id=route_id,
+                route_id=route_id,
                 short_name=short_name,
                 long_name=long_name,
                 route_type=route_type,
@@ -244,7 +220,17 @@ def load_feed(data_dir: str = None, target_stops: Set[str] = None) -> FlixbusFee
     """Load GTFS data with caching"""
     if not data_dir:
         data_dir = os.getenv('GTFS_DATA_DIR', 'gtfs_generic_eu')
-    data_dir = Path(data_dir)
+    
+    # Convert relative path to absolute path
+    if not os.path.isabs(data_dir):
+        # Start from the current file's location
+        current_path = Path(os.path.dirname(os.path.abspath(__file__)))
+        # Navigate up to the project root
+        project_root = current_path.parent.parent
+        # Look in the cache directory
+        data_dir = project_root / 'cache' / data_dir
+    else:
+        data_dir = Path(data_dir)
     
     print(f"Loading GTFS feed from {data_dir} (cache version {CACHE_VERSION})")
     
@@ -503,13 +489,15 @@ def load_routes(data_dir: Path) -> Dict[str, Route]:
                 text_color = text_color[:6]
         
         route = Route(
-            id=route_id,
+            route_id=route_id,
             short_name=short_name,
             long_name=long_name,
             route_type=route_type,
             color=color,
             text_color=text_color,
-            agency_id=str(row['agency_id']) if 'agency_id' in row and pd.notna(row['agency_id']) else None
+            agency_id=str(row['agency_id']) if 'agency_id' in row and pd.notna(row['agency_id']) else None,
+            trips=[],
+            _feed=None
         )
         routes[route_id] = route
     
