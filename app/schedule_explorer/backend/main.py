@@ -76,11 +76,18 @@ async def set_provider(provider_name: str):
     if provider_name not in available_providers:
         raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
     
+    # If the requested provider is already loaded, return early
+    if feed is not None and current_provider == provider_name:
+        logger.info(f"Provider {provider_name} already loaded, skipping reload")
+        return {"status": "success", "message": f"Provider {provider_name} already loaded"}
+    
     try:
+        logger.info(f"Loading GTFS data for provider {provider_name}")
         feed = load_feed(provider_name)
         current_provider = provider_name
         return {"status": "success", "message": f"Loaded GTFS data for {provider_name}"}
     except Exception as e:
+        logger.error(f"Error loading provider {provider_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stations/search", response_model=List[StationResponse])
