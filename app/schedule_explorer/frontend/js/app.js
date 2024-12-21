@@ -52,14 +52,14 @@ let availableLanguages = new Set();  // Will store available languages
 
 // Global state
 let currentProvider = null;
-let currentLanguage = 'en';
+let currentLanguage = 'default';  // Default to original names
 
 // Function to get translated name
-function getTranslatedName(stop) {
-    if (stop.translations && stop.translations[currentLanguage]) {
-        return stop.translations[currentLanguage];
+function getTranslatedName(station) {
+    if (currentLanguage === 'default' || !station.translations) {
+        return station.name;
     }
-    return stop.name;
+    return station.translations[currentLanguage] || station.name;
 }
 
 // Function to update station names based on selected language
@@ -98,7 +98,28 @@ function updateAvailableLanguages(stations) {
 // Add language change event listener
 languageSelect.addEventListener('change', (event) => {
     currentLanguage = event.target.value;
-    updateStationNames();
+    
+    // Update displayed station names in inputs
+    if (selectedFromStation) {
+        fromStationInput.value = getTranslatedName(selectedFromStation);
+    }
+    if (selectedToStation) {
+        toStationInput.value = getTranslatedName(selectedToStation);
+    }
+    
+    // Update station markers on map
+    stopMarkers.forEach((markerInfo, key) => {
+        const translatedName = getTranslatedName(markerInfo.stop);
+        markerInfo.marker.setPopupContent(`<strong>${translatedName}</strong>`);
+        if (markerInfo.marker.getTooltip()) {
+            markerInfo.marker.setTooltipContent(translatedName);
+        }
+    });
+    
+    // Refresh route display to update station names in the schedule
+    if (selectedFromStation && selectedToStation) {
+        searchRoutes();
+    }
 });
 
 // Function to detect available languages from station translations
@@ -347,7 +368,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
             
         } else if (query && query.length >= 2) {
             // Regular station search with query
-            const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}`;
+            const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&language=${currentLanguage}`;
             const response = await fetch(url);
             
             if (response.status === 503) {
@@ -459,12 +480,12 @@ function createStationList(stations, container, input, isFrom) {
     if (mergeSameNameStations) {
         const stationsByName = new Map();
         stations.forEach(station => {
-            if (!stationsByName.has(station.name)) {
-                stationsByName.set(station.name, []);
+            const displayName = getTranslatedName(station);  // Use translated name for grouping
+            if (!stationsByName.has(displayName)) {
+                stationsByName.set(displayName, []);
             }
-            stationsByName.get(station.name).push(station);
+            stationsByName.get(displayName).push(station);
         });
-        // Use the first station of each group for display
         displayStations = Array.from(stationsByName.values()).map(group => ({
             ...group[0],
             group: group
@@ -475,14 +496,15 @@ function createStationList(stations, container, input, isFrom) {
         const item = document.createElement('a');
         item.href = '#';
         item.className = 'dropdown-item';
-        item.textContent = station.name;
+        const displayName = getTranslatedName(station);  // Use translated name
+        item.textContent = displayName;
         if (mergeSameNameStations && station.group && station.group.length > 1) {
             item.textContent += ` (${station.group.length} locations)`;
         }
         
         item.onclick = async (e) => {
             e.preventDefault();
-            input.value = station.name;
+            input.value = displayName;  // Use translated name
             
             if (isFrom) {
                 selectedFromStation = station;
@@ -653,7 +675,6 @@ async function searchRoutes() {
         let toStationIds = [];
         
         if (mergeSameNameStations) {
-            // Use all station IDs from the groups
             fromStationIds = selectedFromStationGroup ? 
                 selectedFromStationGroup.map(s => s.id) : [selectedFromStation.id];
             toStationIds = selectedToStationGroup ? 
@@ -663,19 +684,13 @@ async function searchRoutes() {
             toStationIds = [selectedToStation.id];
         }
         
-        console.log('Searching routes with:', {
-            fromStations: fromStationIds,
-            toStations: toStationIds,
-            date,
-            mergingEnabled: mergeSameNameStations
-        });
-        
-        // Make a single API call with all station IDs
+        // Make a single API call with all station IDs and language parameter
         const response = await fetch(
             `${API_BASE_URL}/routes?` + new URLSearchParams({
                 from_station: fromStationIds.join(','),
                 to_station: toStationIds.join(','),
-                date: date
+                date: date,
+                language: currentLanguage
             })
         );
         
@@ -684,7 +699,6 @@ async function searchRoutes() {
         }
         
         const data = await response.json();
-        console.log(`Received ${data.routes.length} routes`);
         displayRoutes(data.routes);
         
     } catch (error) {
@@ -878,7 +892,7 @@ function displayRoutes(routes) {
                                 <tbody>
                                     ${route.stops.map(stop => `
                                         <tr>
-                                            <td>${stop.name}</td>
+                                            <td>${getTranslatedName(stop)}</td>
                                             ${showStopIds ? `<td><small class="text-muted">${stop.id}</small></td>` : ''}
                                             <td class="stop-time">${formatTime(stop.arrival_time)}</td>
                                             <td class="stop-time">${formatTime(stop.departure_time)}</td>
@@ -954,8 +968,8 @@ function displayRoutes(routes) {
                 });
                 
                 const popupContent = showStopIds ? 
-                    `<strong>${stop.name}</strong><br><small class="text-muted">ID: ${stop.id}</small>` :
-                    `<strong>${stop.name}</strong>`;
+                    `<strong>${getTranslatedName(stop)}</strong><br><small class="text-muted">ID: ${stop.id}</small>` :
+                    `<strong>${getTranslatedName(stop)}</strong>`;
                 
                 marker.bindPopup(popupContent, {
                     offset: [0, -2],
@@ -1040,8 +1054,8 @@ document.getElementById('showStopIds').addEventListener('change', () => {
     stopMarkers.forEach((markerInfo, key) => {
         const showStopIds = document.getElementById('showStopIds').checked;
         const popupContent = showStopIds ? 
-            `<strong>${markerInfo.stop.name}</strong><br><small class="text-muted">ID: ${markerInfo.stop.id}</small>` :
-            `<strong>${markerInfo.stop.name}</strong>`;
+            `<strong>${getTranslatedName(markerInfo.stop)}</strong><br><small class="text-muted">ID: ${markerInfo.stop.id}</small>` :
+            `<strong>${getTranslatedName(markerInfo.stop)}</strong>`;
         markerInfo.marker.setPopupContent(popupContent);
     });
     

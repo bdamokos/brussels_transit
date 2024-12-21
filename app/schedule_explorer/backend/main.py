@@ -93,7 +93,7 @@ async def set_provider(provider_name: str):
 @app.get("/stations/search", response_model=List[StationResponse])
 async def search_stations(
     query: str = Query(..., min_length=2),
-    language: Optional[str] = Query(None, description="Language code (e.g., 'fr', 'nl')")
+    language: Optional[str] = Query('default', description="Language code (e.g., 'fr', 'nl') or 'default'")
 ):
     """Search for stations by name"""
     if not feed:
@@ -104,22 +104,16 @@ async def search_stations(
     # Case-insensitive search in both default names and translations
     matches = []
     for stop_id, stop in feed.stops.items():
-        # Search in default name
-        name_matches = query.lower() in stop.name.lower()
+        # Search in default name and translations
+        searchable_names = [stop.name.lower()]
+        if stop.translations:
+            searchable_names.extend(trans.lower() for trans in stop.translations.values())
         
-        # Search in translations if available
-        translation_matches = any(
-            query.lower() in trans.lower()
-            for trans in stop.translations.values()
-        ) if stop.translations else False
-        
-        if name_matches or translation_matches:
+        if any(query.lower() in name for name in searchable_names):
             # Get the appropriate name based on language
             display_name = stop.name  # Default name
-            if language and stop.translations and language in stop.translations:
+            if language != 'default' and stop.translations and language in stop.translations:
                 display_name = stop.translations[language]
-            
-            logger.debug(f"Found match: stop_id={stop_id}, name={stop.name}, translations={stop.translations}")
             
             matches.append(StationResponse(
                 id=stop_id,
@@ -135,7 +129,8 @@ async def search_stations(
 async def get_routes(
     from_station: str = Query(..., description="Departure station ID"),
     to_station: str = Query(..., description="Destination station ID"),
-    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format")
+    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    language: Optional[str] = Query('default', description="Language code (e.g., 'fr', 'nl') or 'default'")
 ):
     """Get all routes between two stations for a specific date"""
     if not feed:
@@ -183,10 +178,11 @@ async def get_routes(
             stops=[
                 Stop(
                     id=stop.stop.id,
-                    name=stop.stop.name,
+                    name=feed.get_stop_name(stop.stop.id, language) if language != 'default' else stop.stop.name,
                     location=Location(lat=stop.stop.lat, lon=stop.stop.lon),
                     arrival_time=stop.arrival_time,
-                    departure_time=stop.departure_time
+                    departure_time=stop.departure_time,
+                    translations=stop.stop.translations
                 )
                 for stop in stops
             ],
