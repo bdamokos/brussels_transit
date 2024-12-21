@@ -61,7 +61,7 @@ markupsafe==3.0.2
     #   werkzeug
 numpy==2.1.3
     # via pandas
-orderly-set==5.2.2
+orderly-set==5.2.3
     # via deepdiff
 pandas==2.2.3
     # via -r requirements.in
