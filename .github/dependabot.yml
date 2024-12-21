@@ -9,3 +9,12 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+      major:
+        patterns:
+          - "*"
+        update-types: ["version-update:semver-major"]
