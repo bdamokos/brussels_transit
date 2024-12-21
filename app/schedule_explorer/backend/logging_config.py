@@ -27,7 +27,7 @@ def setup_logging():
         
         # Console handler for important messages
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(logging.DEBUG)
         console_formatter = logging.Formatter(
             '%(levelname)s: \t %(asctime)s - %(message)s'
         )

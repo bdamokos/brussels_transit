@@ -34,43 +34,148 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 // Backend status handling
 const backendStatus = document.getElementById('backendStatus');
 const providerSelect = document.getElementById('providerSelect');
+const languageSelect = document.getElementById('languageSelect');
 const fromStationInput = document.getElementById('fromStation');
 const toStationInput = document.getElementById('toStation');
 const dateInput = document.getElementById('date');
+
+// Global variables
+let routeLayer = null;  // Will be initialized when first used
+let stopMarkers = new Map();
+let availableFromStations = [];
+let availableToStations = [];
+let selectedFromStation = null;
+let selectedToStation = null;
+let selectedFromStationGroup = null;
+let selectedToStationGroup = null;
+let availableLanguages = new Set();  // Will store available languages
+
+// Global state
+let currentProvider = null;
+let currentLanguage = 'en';
+
+// Function to get translated name
+function getTranslatedName(stop) {
+    if (stop.translations && stop.translations[currentLanguage]) {
+        return stop.translations[currentLanguage];
+    }
+    return stop.name;
+}
+
+// Function to update station names based on selected language
+function updateStationNames() {
+    stopMarkers.forEach((markerInfo, stopId) => {
+        const translatedName = getTranslatedName(markerInfo.stop);
+        markerInfo.marker.setPopupContent(`<strong>${translatedName}</strong>`);
+        if (markerInfo.marker.getTooltip()) {
+            markerInfo.marker.setTooltipContent(translatedName);
+        }
+    });
+}
+
+// Function to update available languages based on stations
+function updateAvailableLanguages(stations) {
+    stations.forEach(station => {
+        if (station.translations) {
+            Object.keys(station.translations).forEach(lang => availableLanguages.add(lang));
+        }
+    });
+    
+    // Update language selector
+    languageSelect.innerHTML = '<option value="" selected disabled>Select language</option>';
+    languageSelect.innerHTML += '<option value="default">Default (Original)</option>';
+    
+    Array.from(availableLanguages).sort().forEach(lang => {
+        const option = document.createElement('option');
+        option.value = lang;
+        option.textContent = lang.toUpperCase();
+        languageSelect.appendChild(option);
+    });
+    
+    languageSelect.disabled = availableLanguages.size === 0;
+}
+
+// Add language change event listener
+languageSelect.addEventListener('change', (event) => {
+    currentLanguage = event.target.value;
+    updateStationNames();
+});
+
+// Function to detect available languages from station translations
+function detectAvailableLanguages(stations) {
+    const languages = new Set();
+    
+    // Go through each station's translations
+    stations.forEach(station => {
+        if (station.translations) {
+            Object.keys(station.translations).forEach(lang => languages.add(lang));
+        }
+    });
+    
+    return languages;
+}
 
 // Provider handling
 async function loadProviders() {
     try {
         const response = await fetch(`${API_BASE_URL}/providers`);
-        if (!response.ok) {
-            throw new Error('Failed to fetch providers');
-        }
         const providers = await response.json();
         
-        // Clear existing options
-        providerSelect.innerHTML = '';
+        const select = document.getElementById('providerSelect');
+        // Add a disabled default option
+        select.innerHTML = '<option value="" selected disabled>Select a provider</option>';
+        // Add the providers
+        select.innerHTML += providers.map(provider => 
+            `<option value="${provider}">${provider}</option>`
+        ).join('');
         
-        // Add default option
-        const defaultOption = document.createElement('option');
-        defaultOption.value = '';
-        defaultOption.textContent = 'Select a provider';
-        providerSelect.appendChild(defaultOption);
+        // Reset and disable the language select
+        const languageSelect = document.getElementById('languageSelect');
+        languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
+        languageSelect.disabled = true;
         
-        // Add providers to dropdown
-        providers.forEach(provider => {
-            const option = document.createElement('option');
-            option.value = provider;
-            option.textContent = provider.charAt(0).toUpperCase() + provider.slice(1);
-            providerSelect.appendChild(option);
+        select.addEventListener('change', async (event) => {
+            currentProvider = event.target.value;
+            const response = await fetch(`${API_BASE_URL}/provider/${currentProvider}`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                enableUI();
+                // Clear existing markers and routes
+                stopMarkers.forEach(markerInfo => markerInfo.marker.remove());
+                stopMarkers.clear();
+                if (routeLayer) {
+                    routeLayer.remove();
+                    routeLayer = null;
+                }
+                
+                // Get a sample of stations to detect available languages
+                const stationsResponse = await fetch(`${API_BASE_URL}/stations/search?query=ab`);
+                if (stationsResponse.ok) {
+                    const stations = await stationsResponse.json();
+                    const availableLanguages = detectAvailableLanguages(stations);
+                    
+                    // Update language dropdown based on available languages
+                    if (availableLanguages.size > 0) {
+                        languageSelect.innerHTML = '<option value="" selected disabled>Select language</option>';
+                        languageSelect.innerHTML += '<option value="default">Default (Original)</option>';
+                        
+                        // Add detected languages
+                        Array.from(availableLanguages).sort().forEach(lang => {
+                            languageSelect.innerHTML += `<option value="${lang}">${lang.toUpperCase()}</option>`;
+                        });
+                        
+                        languageSelect.disabled = false;
+                    } else {
+                        languageSelect.innerHTML = '<option value="" selected disabled>No translations available</option>';
+                        languageSelect.disabled = true;
+                    }
+                }
+            }
         });
-        
-        // Enable the select
-        providerSelect.disabled = false;
-        updateBackendStatus('ready', 'Select a GTFS provider');
-        
     } catch (error) {
         console.error('Error loading providers:', error);
-        updateBackendStatus('error', 'Failed to load providers');
     }
 }
 
@@ -98,6 +203,11 @@ async function setProvider(providerName) {
         fromStationInput.value = '';
         toStationInput.value = '';
         document.getElementById('routeResults').innerHTML = '';
+        availableLanguages.clear();
+        
+        // Reset language selector
+        languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
+        languageSelect.disabled = true;
         
         // Clear map layers
         if (routeLayer) {
@@ -120,6 +230,13 @@ async function setProvider(providerName) {
         dateInput.disabled = false;
         
         updateBackendStatus('ready', 'Ready');
+        
+        // Load some stations to get available languages
+        const response2 = await fetch(`${API_BASE_URL}/stations/search?query=ab`);
+        if (response2.ok) {
+            const stations = await response2.json();
+            updateAvailableLanguages(stations);
+        }
     } catch (error) {
         console.error('Error setting provider:', error);
         updateBackendStatus('error', `Failed to load ${providerName} data`);
@@ -185,16 +302,6 @@ function generateRouteColor(index) {
     return `hsl(${hue}, ${saturation}%, ${variedLightness}%)`;
 }
 
-// Global variables
-let routeLayer = null;  // Will be initialized when first used
-let stopMarkers = new Map();
-let availableFromStations = [];
-let availableToStations = [];
-let selectedFromStation = null;
-let selectedToStation = null;
-let selectedFromStationGroup = null;
-let selectedToStationGroup = null;
-
 // Set default date to today
 dateInput.valueAsDate = new Date();
 
@@ -255,7 +362,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
             return await response.json();
         } else {
             // For empty queries, get all stations and return a subset
-            const url = `${API_BASE_URL}/stations/search?query=a`;  // Get a broad set of stations
+            const url = `${API_BASE_URL}/stations/search?query=ab`;  // Get a broad set of stations
             const response = await fetch(url);
             
             if (response.status === 503) {
@@ -612,7 +719,12 @@ function normalizeTime(timeStr) {
 }
 
 // Update the displayRoutes function
+let lastDisplayedRoutes = [];  // Store last displayed routes for language switching
+
 function displayRoutes(routes) {
+    lastDisplayedRoutes = routes;  // Store for language switching
+    const selectedLanguage = languageSelect.value;
+    
     if (!routeLayer) {
         routeLayer = L.layerGroup().addTo(map);
     } else {
@@ -970,3 +1082,16 @@ document.getElementById('condensedTimetable').addEventListener('change', () => {
         searchRoutes();
     }
 }); 
+
+// Function to enable UI elements
+function enableUI() {
+    document.getElementById('languageSelect').disabled = false;
+    document.getElementById('fromStation').disabled = false;
+    document.getElementById('toStation').disabled = false;
+    document.getElementById('date').disabled = false;
+}
+
+// Initialize the application
+document.addEventListener('DOMContentLoaded', () => {
+    loadProviders();
+});
