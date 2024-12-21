@@ -13,17 +13,33 @@ import msgpack
 import lzma
 import psutil
 import time
+import csv
 
 # Set up logging
 logger = setup_logging()
 
 @dataclass
+class Translation:
+    """
+    Represents a translation from translations.txt (STIB specific)
+    trans_id/record_id, translation, lang
+    """
+    record_id: str
+    translation: str
+    language: str
+
+@dataclass
 class Stop:
+    """
+    Represents a stop from stops.txt
+    STIB: stop_id, stop_name, stop_lat, stop_lon, location_type, parent_station
+    Flixbus: stop_id, stop_name, stop_lat, stop_lon, stop_timezone, platform_code
+    """
     id: str
     name: str
     lat: float
     lon: float
-    translations: Dict[str, str] = field(default_factory=dict)
+    translations: Dict[str, str] = field(default_factory=dict)  # language -> translated name
     location_type: Optional[int] = None
     parent_station: Optional[str] = None
     platform_code: Optional[str] = None
@@ -131,6 +147,15 @@ class FlixbusFeed:
                 routes.append(route)
         
         return routes
+        
+    def get_stop_name(self, stop_id: str, language: Optional[str] = None) -> Optional[str]:
+        """Get the stop name in the specified language if available, otherwise return the default name."""
+        stop = self.stops.get(stop_id)
+        if not stop:
+            return None
+        if language and stop.translations and language in stop.translations:
+            return stop.translations[language]
+        return stop.name
 
 def calculate_gtfs_hash(data_path: Path) -> str:
     """Calculate a hash of the GTFS files to determine if cache is valid."""
@@ -224,7 +249,67 @@ def process_trip_batch(args):
     
     return routes
 
-CACHE_VERSION = "2.0"
+def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
+    """Load translations from translations.txt file.
+    
+    For STIB format, the trans_id is the stop name, not the stop ID.
+    We need to map these translations back to stop IDs.
+    """
+    translations_file = os.path.join(gtfs_dir, 'translations.txt')
+    if not os.path.exists(translations_file):
+        logger.warning(f"No translations file found at {translations_file}")
+        return {}
+
+    # Load translations
+    df = pd.read_csv(translations_file)
+    logger.info(f"Loaded translations file with columns: {df.columns.tolist()}")
+    
+    # Check if this is STIB format (has trans_id column)
+    if 'trans_id' in df.columns:
+        logger.info("Using STIB format for translations")
+        # Create a mapping of stop names to translations
+        name_translations = {}
+        for _, row in df.iterrows():
+            trans_id = row['trans_id']
+            if trans_id not in name_translations:
+                name_translations[trans_id] = {}
+            name_translations[trans_id][row['lang']] = row['translation']
+        
+        logger.info(f"Created name translations map with {len(name_translations)} entries")
+        logger.debug(f"First few name translations: {dict(list(name_translations.items())[:3])}")
+        
+        # Now map these to stop IDs by loading stops.txt
+        # For STIB format, stop_name is in the third column
+        stops_df = pd.read_csv(os.path.join(gtfs_dir, 'stops.txt'))
+        logger.info(f"Loaded stops file with {len(stops_df)} stops")
+        logger.debug(f"First few stops: {stops_df.head().to_dict('records')}")
+        
+        translations = {}
+        
+        # For each stop, if its name has translations, add them
+        for _, stop in stops_df.iterrows():
+            stop_id = str(stop['stop_id'])
+            stop_name = stop['stop_name'].strip('"')  # Remove quotes
+            if stop_name in name_translations:
+                translations[stop_id] = name_translations[stop_name]
+                logger.debug(f"Added translations for stop {stop_id} ({stop_name}): {translations[stop_id]}")
+        
+        logger.info(f"Created translations map with {len(translations)} entries")
+        return translations
+    
+    # Default format (stop_id based)
+    logger.info("Using default format for translations")
+    translations = {}
+    for _, row in df.iterrows():
+        stop_id = str(row['stop_id'])
+        if stop_id not in translations:
+            translations[stop_id] = {}
+        translations[stop_id][row['lang']] = row['translation']
+    
+    logger.info(f"Created translations map with {len(translations)} entries")
+    return translations
+
+CACHE_VERSION = "2.2"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
@@ -277,11 +362,15 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
         logger.debug("Converting back to objects")
         t0 = time.time()
         
-        # Convert stops
-        stops = {
-            stop_id: Stop(**stop_data)
-            for stop_id, stop_data in raw_data['stops'].items()
-        }
+        # Convert stops, preserving translations
+        stops = {}
+        for stop_id, stop_data in raw_data['stops'].items():
+            # Ensure translations are preserved
+            translations = stop_data.get('translations', {})
+            if translations:
+                logger.debug(f"Preserving translations for stop {stop_id}: {translations}")
+            stop = Stop(**stop_data)
+            stops[stop_id] = stop
         logger.info(f"Stop conversion took {time.time() - t0:.2f} seconds")
         
         # Convert routes
@@ -291,7 +380,7 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
             # Convert route stops
             route_stops = [
                 RouteStop(
-                    stop=Stop(**stop_data['stop']),
+                    stop=stops[stop_data['stop']['id']],  # Use the already converted stop
                     arrival_time=stop_data['arrival_time'],
                     departure_time=stop_data['departure_time'],
                     stop_sequence=stop_data['stop_sequence']
@@ -362,6 +451,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     )
     logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
     
+    # Load translations first
+    translations = load_translations(data_path)
+    logger.info(f"Loaded translations: {translations}")
+    
     # Load stops
     logger.info("Loading stops...")
     stops = {}
@@ -378,9 +471,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 id=str(row['stop_id']),
                 name=row['stop_name'],
                 lat=row['stop_lat'],
-                lon=row['stop_lon']
+                lon=row['stop_lon'],
+                translations=translations.get(str(row['stop_id']), {})
             )
             stops[stop.id] = stop
+            if stop.translations:
+                logger.debug(f"Stop {stop.id} ({stop.name}) has translations: {stop.translations}")
     logger.info(f"Loaded {len(stops)} stops")
     
     # Load shapes if available

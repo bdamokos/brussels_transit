@@ -33,4 +33,5 @@ class RouteResponse(BaseModel):
 class StationResponse(BaseModel):
     id: str
     name: str
-    location: Location 
+    location: Location
+    translations: Optional[dict[str, str]] = None 

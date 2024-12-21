@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import pandas as pd
+import logging
+from .logging_config import setup_logging
 
 from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
 from .gtfs_loader import FlixbusFeed, load_feed
@@ -24,6 +26,7 @@ app.add_middleware(
 feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
 available_providers: List[str] = []
+logger = setup_logging()
 
 def find_gtfs_directories() -> List[str]:
     """Find all GTFS data directories in the project's cache directory."""
@@ -81,20 +84,44 @@ async def set_provider(provider_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stations/search", response_model=List[StationResponse])
-async def search_stations(query: str = Query(..., min_length=2)):
+async def search_stations(
+    query: str = Query(..., min_length=2),
+    language: Optional[str] = Query(None, description="Language code (e.g., 'fr', 'nl')")
+):
     """Search for stations by name"""
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
-    # Case-insensitive search
+    logger.info(f"Searching for stations with query: {query}, language: {language}")
+    
+    # Case-insensitive search in both default names and translations
     matches = []
     for stop_id, stop in feed.stops.items():
-        if query.lower() in stop.name.lower():
+        # Search in default name
+        name_matches = query.lower() in stop.name.lower()
+        
+        # Search in translations if available
+        translation_matches = any(
+            query.lower() in trans.lower()
+            for trans in stop.translations.values()
+        ) if stop.translations else False
+        
+        if name_matches or translation_matches:
+            # Get the appropriate name based on language
+            display_name = stop.name  # Default name
+            if language and stop.translations and language in stop.translations:
+                display_name = stop.translations[language]
+            
+            logger.debug(f"Found match: stop_id={stop_id}, name={stop.name}, translations={stop.translations}")
+            
             matches.append(StationResponse(
                 id=stop_id,
-                name=stop.name,
-                location=Location(lat=stop.lat, lon=stop.lon)
+                name=display_name,
+                location=Location(lat=stop.lat, lon=stop.lon),
+                translations=stop.translations
             ))
+    
+    logger.info(f"Found {len(matches)} matches")
     return matches
 
 @app.get("/routes", response_model=RouteResponse)
@@ -168,7 +195,10 @@ async def get_routes(
     )
 
 @app.get("/stations/destinations/{station_id}", response_model=List[StationResponse])
-async def get_destinations(station_id: str):
+async def get_destinations(
+    station_id: str,
+    language: Optional[str] = Query(None, description="Language code (e.g., 'fr', 'nl')")
+):
     """Get all possible destination stations from a given station"""
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
@@ -192,18 +222,22 @@ async def get_destinations(station_id: str):
     return [
         StationResponse(
             id=stop_id,
-            name=feed.stops[stop_id].name,
+            name=feed.get_stop_name(stop_id, language) if language else feed.stops[stop_id].name,
             location=Location(
                 lat=feed.stops[stop_id].lat,
                 lon=feed.stops[stop_id].lon
-            )
+            ),
+            translations=feed.stops[stop_id].translations
         )
         for stop_id in destinations
         if stop_id in feed.stops
     ]
 
 @app.get("/stations/origins/{station_id}", response_model=List[StationResponse])
-async def get_origins(station_id: str):
+async def get_origins(
+    station_id: str,
+    language: Optional[str] = Query(None, description="Language code (e.g., 'fr', 'nl')")
+):
     """Get all possible origin stations that can reach a given station"""
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
@@ -227,11 +261,12 @@ async def get_origins(station_id: str):
     return [
         StationResponse(
             id=stop_id,
-            name=feed.stops[stop_id].name,
+            name=feed.get_stop_name(stop_id, language) if language else feed.stops[stop_id].name,
             location=Location(
                 lat=feed.stops[stop_id].lat,
                 lon=feed.stops[stop_id].lon
-            )
+            ),
+            translations=feed.stops[stop_id].translations
         )
         for stop_id in origins
         if stop_id in feed.stops
