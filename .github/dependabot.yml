@@ -9,14 +9,3 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
-    groups:
-      minor-and-patch:
-        patterns:
-          - "*"
-        update-types: 
-           -'minor'
-           - 'patch'
-      major:
-        patterns:
-          - "*"
-        update-types: 'major'
