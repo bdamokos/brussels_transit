@@ -136,30 +136,48 @@ async def get_routes(
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
-    # Validate stations exist
-    if from_station not in feed.stops:
-        raise HTTPException(status_code=404, detail=f"Station {from_station} not found")
-    if to_station not in feed.stops:
-        raise HTTPException(status_code=404, detail=f"Station {to_station} not found")
+    # Handle multiple station IDs
+    from_stations = from_station.split(',')
+    to_stations = to_station.split(',')
     
-    # Find routes
-    routes = feed.find_routes_between_stations(from_station, to_station)
+    # Validate all stations exist
+    for station_id in from_stations:
+        if station_id not in feed.stops:
+            raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+    for station_id in to_stations:
+        if station_id not in feed.stops:
+            raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+    
+    # Find routes for all combinations
+    all_routes = []
+    for from_id in from_stations:
+        for to_id in to_stations:
+            routes = feed.find_routes_between_stations(from_id, to_id)
+            all_routes.extend(routes)
     
     # Filter by date if provided
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d")
             day_name = target_date.strftime("%A").lower()
-            routes = [r for r in routes if day_name in r.service_days]
+            all_routes = [r for r in all_routes if day_name in r.service_days]
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     
     # Convert to response format
     route_responses = []
-    for route in routes:
+    for route in all_routes:
         # Get relevant stops
-        stops = route.get_stops_between(from_station, to_station)
-        duration = route.calculate_duration(from_station, to_station)
+        # Find first matching from and to stations in this route
+        route_stop_ids = [stop.stop.id for stop in route.stops]
+        matching_from = next((s for s in from_stations if s in route_stop_ids), None)
+        matching_to = next((s for s in to_stations if s in route_stop_ids), None)
+        
+        if not matching_from or not matching_to:
+            continue
+        
+        stops = route.get_stops_between(matching_from, matching_to)
+        duration = route.calculate_duration(matching_from, matching_to)
         
         if not duration:
             continue
