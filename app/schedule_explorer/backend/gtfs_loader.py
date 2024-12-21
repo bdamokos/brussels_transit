@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Set
 import pandas as pd
@@ -14,6 +14,11 @@ class Stop:
     name: str
     lat: float
     lon: float
+    translations: Dict[str, str] = field(default_factory=dict)
+    location_type: Optional[int] = None
+    parent_station: Optional[str] = None
+    platform_code: Optional[str] = None
+    timezone: Optional[str] = None
 
 @dataclass
 class RouteStop:
@@ -35,6 +40,12 @@ class Route:
     service_days: List[str]
     stops: List[RouteStop]
     shape: Optional[Shape] = None
+    short_name: Optional[str] = None
+    long_name: Optional[str] = None
+    route_type: Optional[int] = None
+    color: Optional[str] = None
+    text_color: Optional[str] = None
+    agency_id: Optional[str] = None
     
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
         """Get a stop in this route by its ID"""
