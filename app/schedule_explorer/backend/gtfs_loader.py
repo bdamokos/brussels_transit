@@ -204,6 +204,8 @@ def process_trip_batch(args):
     
     return routes
 
+CACHE_VERSION = "1.0"
+
 def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] = None) -> FlixbusFeed:
     """
     Load GTFS feed from the specified directory.
@@ -225,12 +227,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     # Check if we have a valid cache
     cache_file = data_path / '.gtfs_cache'
     hash_file = data_path / '.gtfs_cache_hash'
-    current_hash = calculate_gtfs_hash(data_path)
+    current_hash = f"{CACHE_VERSION}_{calculate_gtfs_hash(data_path)}"
     
     if cache_file.exists() and hash_file.exists():
         stored_hash = hash_file.read_text().strip()
         if stored_hash == current_hash:
-            print("Loading from cache...")
+            print(f"Loading from cache... {current_hash}")
             try:
                 with open(cache_file, 'rb') as f:
                     return pickle.load(f)
@@ -411,7 +413,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     feed = FlixbusFeed(stops=stops, routes=routes)
     
     # Save to cache
-    print("Saving to cache...")
+    print(f"Saving to cache... with hash {current_hash}")
     try:
         with open(cache_file, 'wb') as f:
             pickle.dump(feed, f)
