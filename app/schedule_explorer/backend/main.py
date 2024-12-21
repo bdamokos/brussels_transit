@@ -5,9 +5,14 @@ from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import pandas as pd
+import logging
+from .logging_config import setup_logging
 
 from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
 from .gtfs_loader import FlixbusFeed, load_feed
+
+# Set up logging
+logger = setup_logging()
 
 app = FastAPI(title="Schedule Explorer API")
 
@@ -27,75 +32,95 @@ available_providers: List[str] = []
 
 def find_gtfs_directories() -> List[str]:
     """Find all GTFS data directories in the project's cache directory."""
-    # Start from the current file's location
-    current_path = Path(os.path.dirname(os.path.abspath(__file__)))
-    
-    # Navigate up to the project root (where cache directory is)
-    project_root = current_path
-    while project_root.name != 'STIB':
-        project_root = project_root.parent
-    
-    # Look in the cache directory
-    cache_path = project_root / 'cache'
-    gtfs_dirs = []
-    
-    # Look for directories that contain GTFS files
-    if cache_path.exists():
-        for item in cache_path.iterdir():
-            if item.is_dir():
-                # Check if directory contains required GTFS files
-                required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
-                # Either calendar.txt or calendar_dates.txt is required
-                calendar_files = ['calendar.txt', 'calendar_dates.txt']
-                
-                if (all((item / file).exists() for file in required_files) and 
-                    any((item / file).exists() for file in calendar_files)):
-                    gtfs_dirs.append(item.name)
-    
-    return sorted(gtfs_dirs)
+    logger.info("Searching for GTFS directories")
+    try:
+        # Start from the current file's location
+        current_path = Path(os.path.dirname(os.path.abspath(__file__)))
+        
+        # Navigate up to the project root (where cache directory is)
+        project_root = current_path
+        while project_root.name != 'STIB':
+            project_root = project_root.parent
+        
+        # Look in the cache directory
+        cache_path = project_root / 'cache'
+        gtfs_dirs = []
+        
+        # Look for directories that contain GTFS files
+        if cache_path.exists():
+            for item in cache_path.iterdir():
+                if item.is_dir():
+                    # Check if directory contains required GTFS files
+                    required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
+                    # Either calendar.txt or calendar_dates.txt is required
+                    calendar_files = ['calendar.txt', 'calendar_dates.txt']
+                    
+                    if (all((item / file).exists() for file in required_files) and 
+                        any((item / file).exists() for file in calendar_files)):
+                        gtfs_dirs.append(item.name)
+                        logger.info(f"Found valid GTFS directory: {item.name}")
+        
+        return sorted(gtfs_dirs)
+    except Exception as e:
+        logger.error(f"Error finding GTFS directories: {e}")
+        return []
 
 @app.on_event("startup")
 async def startup_event():
     """Load available GTFS providers on startup"""
+    logger.info("Starting Schedule Explorer API")
     global available_providers
     available_providers = find_gtfs_directories()
+    logger.info(f"Found {len(available_providers)} available providers: {available_providers}")
 
 @app.get("/providers", response_model=List[str])
 async def get_providers():
     """Get list of available GTFS providers"""
+    logger.info("Fetching available providers")
     return available_providers
 
 @app.post("/provider/{provider_name}")
 async def set_provider(provider_name: str):
     """Set the current GTFS provider and load its data"""
+    logger.info(f"Setting provider to: {provider_name}")
     global feed, current_provider
     
     if provider_name not in available_providers:
+        logger.error(f"Provider not found: {provider_name}")
         raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
     
     try:
         feed = load_feed(provider_name)
         current_provider = provider_name
+        logger.info(f"Successfully loaded provider: {provider_name}")
         return {"status": "success", "message": f"Loaded GTFS data for {provider_name}"}
     except Exception as e:
+        logger.error(f"Error loading provider {provider_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stations/search", response_model=List[StationResponse])
 async def search_stations(query: str = Query(..., min_length=2)):
     """Search for stations by name"""
+    logger.info(f"Searching stations with query: {query}")
     if not feed:
+        logger.error("No GTFS feed loaded")
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
     # Case-insensitive search
     matches = []
-    for stop_id, stop in feed.stops.items():
-        if query.lower() in stop.name.lower():
-            matches.append(StationResponse(
-                id=stop_id,
-                name=stop.name,
-                location=Location(lat=stop.lat, lon=stop.lon)
-            ))
-    return matches
+    try:
+        for stop_id, stop in feed.stops.items():
+            if query.lower() in stop.name.lower():
+                matches.append(StationResponse(
+                    id=stop_id,
+                    name=stop.name,
+                    location=Location(lat=stop.lat, lon=stop.lon)
+                ))
+        logger.info(f"Found {len(matches)} matching stations")
+        return matches
+    except Exception as e:
+        logger.error(f"Error searching stations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/routes", response_model=RouteResponse)
 async def get_routes(
@@ -104,135 +129,165 @@ async def get_routes(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format")
 ):
     """Get all routes between two stations for a specific date"""
+    logger.info(f"Finding routes from {from_station} to {to_station} for date {date}")
     if not feed:
+        logger.error("No GTFS feed loaded")
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
     # Validate stations exist
     if from_station not in feed.stops:
+        logger.error(f"Station {from_station} not found")
         raise HTTPException(status_code=404, detail=f"Station {from_station} not found")
     if to_station not in feed.stops:
+        logger.error(f"Station {to_station} not found")
         raise HTTPException(status_code=404, detail=f"Station {to_station} not found")
     
-    # Find routes
-    routes = feed.find_routes_between_stations(from_station, to_station)
-    
-    # Filter by date if provided
-    if date:
-        try:
-            target_date = datetime.strptime(date, "%Y-%m-%d")
-            day_name = target_date.strftime("%A").lower()
-            routes = [r for r in routes if day_name in r.service_days]
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format")
-    
-    # Convert to response format
-    route_responses = []
-    for route in routes:
-        # Get relevant stops
-        stops = route.get_stops_between(from_station, to_station)
-        duration = route.calculate_duration(from_station, to_station)
+    try:
+        # Find routes
+        routes = feed.find_routes_between_stations(from_station, to_station)
+        logger.info(f"Found {len(routes)} routes between stations")
         
-        if not duration:
-            continue
+        # Filter by date if provided
+        if date:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d")
+                day_name = target_date.strftime("%A").lower()
+                routes = [r for r in routes if day_name in r.service_days]
+                logger.info(f"Filtered to {len(routes)} routes for {day_name}")
+            except ValueError:
+                logger.error(f"Invalid date format: {date}")
+                raise HTTPException(status_code=400, detail="Invalid date format")
         
-        # Handle NaN values in route name
-        route_name = route.route_name
-        if pd.isna(route_name) or not isinstance(route_name, str):
-            route_name = f"Route {route.route_id}"
+        # Convert to response format
+        route_responses = []
+        for route in routes:
+            # Get relevant stops
+            stops = route.get_stops_between(from_station, to_station)
+            duration = route.calculate_duration(from_station, to_station)
             
-        route_responses.append(Route(
-            route_id=route.route_id,
-            route_name=route_name,
-            trip_id=route.trip_id,
-            service_days=route.service_days,
-            duration_minutes=int(duration.total_seconds() / 60),
-            stops=[
-                Stop(
-                    id=stop.stop.id,
-                    name=stop.stop.name,
-                    location=Location(lat=stop.stop.lat, lon=stop.stop.lon),
-                    arrival_time=stop.arrival_time,
-                    departure_time=stop.departure_time
-                )
-                for stop in stops
-            ],
-            shape=Shape(
-                shape_id=route.shape.shape_id,
-                points=route.shape.points
-            ) if route.shape else None
-        ))
-    
-    return RouteResponse(
-        routes=route_responses,
-        total_routes=len(route_responses)
-    )
+            if not duration:
+                continue
+            
+            # Handle NaN values in route name
+            route_name = route.route_name
+            if pd.isna(route_name) or not isinstance(route_name, str):
+                route_name = f"Route {route.route_id}"
+                
+            route_responses.append(Route(
+                route_id=route.route_id,
+                route_name=route_name,
+                trip_id=route.trip_id,
+                service_days=route.service_days,
+                duration_minutes=int(duration.total_seconds() / 60),
+                stops=[
+                    Stop(
+                        id=stop.stop.id,
+                        name=stop.stop.name,
+                        location=Location(lat=stop.stop.lat, lon=stop.stop.lon),
+                        arrival_time=stop.arrival_time,
+                        departure_time=stop.departure_time
+                    )
+                    for stop in stops
+                ],
+                shape=Shape(
+                    shape_id=route.shape.shape_id,
+                    points=route.shape.points
+                ) if route.shape else None
+            ))
+        
+        logger.info(f"Returning {len(route_responses)} valid routes")
+        return RouteResponse(
+            routes=route_responses,
+            total_routes=len(route_responses)
+        )
+    except Exception as e:
+        logger.error(f"Error getting routes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stations/destinations/{station_id}", response_model=List[StationResponse])
 async def get_destinations(station_id: str):
     """Get all possible destination stations from a given station"""
+    logger.info(f"Finding destinations from station {station_id}")
     if not feed:
+        logger.error("No GTFS feed loaded")
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
     if station_id not in feed.stops:
+        logger.error(f"Station {station_id} not found")
         raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
     
-    # Find all routes that start from this station
-    destinations = set()
-    for route in feed.routes:
-        # Get all stops in this route
-        stops = route.get_stops_between(station_id, None)
+    try:
+        # Find all routes that start from this station
+        destinations = set()
+        for route in feed.routes:
+            # Get all stops in this route
+            stops = route.get_stops_between(station_id, None)
+            
+            # If this station is in the route
+            if stops and stops[0].stop.id == station_id:
+                # Add all subsequent stops as potential destinations
+                for stop in stops[1:]:
+                    destinations.add(stop.stop.id)
         
-        # If this station is in the route
-        if stops and stops[0].stop.id == station_id:
-            # Add all subsequent stops as potential destinations
-            for stop in stops[1:]:
-                destinations.add(stop.stop.id)
-    
-    # Convert to response format
-    return [
-        StationResponse(
-            id=stop_id,
-            name=feed.stops[stop_id].name,
-            location=Location(
-                lat=feed.stops[stop_id].lat,
-                lon=feed.stops[stop_id].lon
+        # Convert to response format
+        response = [
+            StationResponse(
+                id=stop_id,
+                name=feed.stops[stop_id].name,
+                location=Location(
+                    lat=feed.stops[stop_id].lat,
+                    lon=feed.stops[stop_id].lon
+                )
             )
-        )
-        for stop_id in destinations
-        if stop_id in feed.stops
-    ]
+            for stop_id in destinations
+            if stop_id in feed.stops
+        ]
+        logger.info(f"Found {len(response)} possible destinations")
+        return response
+    except Exception as e:
+        logger.error(f"Error getting destinations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stations/origins/{station_id}", response_model=List[StationResponse])
 async def get_origins(station_id: str):
     """Get all possible origin stations that can reach a given station"""
+    logger.info(f"Finding origins for station {station_id}")
     if not feed:
+        logger.error("No GTFS feed loaded")
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
     
     if station_id not in feed.stops:
+        logger.error(f"Station {station_id} not found")
         raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
     
-    # Find all routes that end at this station
-    origins = set()
-    for route in feed.routes:
-        # Get all stops in this route
-        stops = route.get_stops_between(None, station_id)
+    try:
+        # Find all routes that end at this station
+        origins = set()
+        for route in feed.routes:
+            # Get all stops in this route
+            stops = route.get_stops_between(None, station_id)
+            
+            # If this station is in the route
+            if stops and stops[-1].stop.id == station_id:
+                # Add all previous stops as potential origins
+                for stop in stops[:-1]:
+                    origins.add(stop.stop.id)
         
-        # If this station is in the route
-        if stops and stops[-1].stop.id == station_id:
-            # Add all previous stops as potential origins
-            for stop in stops[:-1]:
-                origins.add(stop.stop.id)
-    
-    # Convert to response format
-    return [
-        StationResponse(
-            id=stop_id,
-            name=feed.stops[stop_id].name,
-            location=Location(
-                lat=feed.stops[stop_id].lat,
-                lon=feed.stops[stop_id].lon
+        # Convert to response format
+        response = [
+            StationResponse(
+                id=stop_id,
+                name=feed.stops[stop_id].name,
+                location=Location(
+                    lat=feed.stops[stop_id].lat,
+                    lon=feed.stops[stop_id].lon
+                )
             )
-        )
-        for stop_id in origins
-        if stop_id in feed.stops
-    ] 
+            for stop_id in origins
+            if stop_id in feed.stops
+        ]
+        logger.info(f"Found {len(response)} possible origins")
+        return response
+    except Exception as e:
+        logger.error(f"Error getting origins: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) 

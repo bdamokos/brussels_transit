@@ -7,6 +7,11 @@ import os
 import pickle
 import hashlib
 from multiprocessing import Pool, cpu_count
+import logging
+from .logging_config import setup_logging
+
+# Set up logging
+logger = setup_logging()
 
 @dataclass
 class Stop:
@@ -222,7 +227,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     Load GTFS feed from the specified directory.
     If target_stops is provided, only loads routes that contain those stops.
     """
-    print("Loading GTFS feed from:", data_dir)
+    logger.info(f"Loading GTFS feed from: {data_dir}")
     
     # Start from the current file's location
     current_path = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -243,12 +248,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     if cache_file.exists() and hash_file.exists():
         stored_hash = hash_file.read_text().strip()
         if stored_hash == current_hash:
-            print(f"Loading from cache... {current_hash}")
+            logger.info(f"Loading from cache... {current_hash}")
             try:
                 with open(cache_file, 'rb') as f:
                     return pickle.load(f)
             except Exception as e:
-                print(f"Failed to load cache: {e}")
+                logger.warning(f"Failed to load cache: {e}")
                 # Delete corrupted cache files
                 try:
                     cache_file.unlink()
@@ -257,7 +262,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                     pass
     
     # Load stops
-    print("Loading stops...")
+    logger.info("Loading stops...")
     stops_df = pd.read_csv(data_path / "stops.txt", dtype={
         'stop_id': str,
         'stop_name': str,
@@ -273,12 +278,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         )
         for row in stops_df.itertuples()
     }
-    print(f"Loaded {len(stops)} stops")
+    logger.info(f"Loaded {len(stops)} stops")
     
     # Load shapes if available
     shapes = {}
     try:
-        print("Loading shapes...")
+        logger.info("Loading shapes...")
         shapes_df = pd.read_csv(data_path / "shapes.txt", dtype={
             'shape_id': str,
             'shape_pt_lat': float,
@@ -289,12 +294,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         for shape_id, group in shapes_df.groupby('shape_id'):
             sorted_points = group.sort_values('shape_pt_sequence')[['shape_pt_lat', 'shape_pt_lon']].values.tolist()
             shapes[shape_id] = Shape(shape_id=str(shape_id), points=sorted_points)
-        print(f"Loaded {len(shapes)} shapes")
+        logger.info(f"Loaded {len(shapes)} shapes")
     except FileNotFoundError:
-        print("No shapes.txt found, routes will use stop coordinates")
+        logger.warning("No shapes.txt found, routes will use stop coordinates")
     
     # Load routes and other data
-    print("Loading routes, trips, stop times, and calendar...")
+    logger.info("Loading routes, trips, stop times, and calendar...")
     routes_df = pd.read_csv(data_path / "routes.txt", dtype={
         'route_id': str,
         'route_long_name': str,
@@ -320,7 +325,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     }, low_memory=False)
     
     # Load stop times in chunks to handle large files
-    print("Loading stop times...")
+    logger.info("Loading stop times...")
     chunk_size = 100000
     stop_times_dict = {}
     
@@ -345,6 +350,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     
     # Try to load calendar.txt first, fall back to calendar_dates.txt
     try:
+        logger.info("Loading calendar.txt...")
         calendar_df = pd.read_csv(data_path / "calendar.txt", dtype={
             'service_id': str,
             'monday': int,
@@ -370,6 +376,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         }
         del calendar_df
     except FileNotFoundError:
+        logger.info("calendar.txt not found, trying calendar_dates.txt...")
         calendar_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
             'service_id': str,
             'date': str
@@ -385,16 +392,16 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     
     # If we have target stops, pre-filter the trips that contain them
     if target_stops:
-        print(f"Pre-filtering trips containing stops: {target_stops}")
+        logger.info(f"Pre-filtering trips containing stops: {target_stops}")
         # Get trips that contain any of our target stops
         relevant_trips = set()
         for trip_id, stops_list in stop_times_dict.items():
             if any(str(stop['stop_id']) in target_stops for stop in stops_list):
                 relevant_trips.add(trip_id)
         trips_df = trips_df[trips_df['trip_id'].isin(relevant_trips)]
-        print(f"Found {len(trips_df)} relevant trips")
+        logger.info(f"Found {len(trips_df)} relevant trips")
     
-    print("Processing routes...")
+    logger.info("Processing routes...")
     # Convert trips DataFrame to list of dictionaries and free memory
     trips_list = trips_df.to_dict('records')
     del trips_df
@@ -407,7 +414,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     # Process routes in parallel with progress indicator
     routes = []
     total_batches = len(trip_batches)
-    print(f"Processing {total_batches} batches...")
+    logger.info(f"Processing {total_batches} batches...")
     
     with Pool() as pool:
         for i, batch_routes in enumerate(pool.imap_unordered(process_trip_batch, [
@@ -416,21 +423,21 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         ])):
             routes.extend(batch_routes)
             if (i + 1) % 10 == 0 or (i + 1) == total_batches:
-                print(f"Processed {i + 1}/{total_batches} batches")
+                logger.info(f"Processed {i + 1}/{total_batches} batches")
     
-    print(f"Loaded {len(routes)} routes")
+    logger.info(f"Loaded {len(routes)} routes")
     
     # Create feed object
     feed = FlixbusFeed(stops=stops, routes=routes)
     
     # Save to cache
-    print(f"Saving to cache... with hash {current_hash}")
+    logger.info(f"Saving to cache... with hash {current_hash}")
     try:
         with open(cache_file, 'wb') as f:
             pickle.dump(feed, f)
         hash_file.write_text(current_hash)
     except Exception as e:
-        print(f"Failed to save cache: {e}")
+        logger.warning(f"Failed to save cache: {e}")
         # Clean up failed cache files
         try:
             cache_file.unlink()
