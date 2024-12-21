@@ -19,5 +19,4 @@ updates:
       major:
         patterns:
           - "*"
-        update-types: 
-          - 'major'
+        update-types: 'major'
