@@ -13,8 +13,11 @@ updates:
       minor-and-patch:
         patterns:
           - "*"
-        update-types: minor, patch
+        update-types: 
+           -'minor'
+           - 'patch'
       major:
         patterns:
           - "*"
-        update-types: major
+        update-types: 
+          - 'major'
