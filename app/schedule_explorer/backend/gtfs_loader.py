@@ -12,6 +12,7 @@ from .logging_config import setup_logging
 import msgpack
 import lzma
 import psutil
+import time
 
 # Set up logging
 logger = setup_logging()
@@ -256,27 +257,35 @@ def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
 def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
     """Deserialize GTFS feed data from msgpack and lzma compression."""
     try:
+        start_time = time.time()
         logger.info("Starting GTFS feed deserialization")
         
         # Decompress with lzma
         logger.debug(f"Decompressing data (size: {len(data)} bytes)")
+        t0 = time.time()
         decompressed_data = lzma.decompress(data)
+        logger.info(f"LZMA decompression took {time.time() - t0:.2f} seconds")
         logger.debug(f"Decompressed data size: {len(decompressed_data)} bytes")
         
         # Unpack with msgpack
         logger.debug("Unpacking data with msgpack")
+        t0 = time.time()
         raw_data = msgpack.unpackb(decompressed_data, raw=False)
+        logger.info(f"Msgpack unpacking took {time.time() - t0:.2f} seconds")
         
         # Convert back to objects
         logger.debug("Converting back to objects")
+        t0 = time.time()
         
         # Convert stops
         stops = {
             stop_id: Stop(**stop_data)
             for stop_id, stop_data in raw_data['stops'].items()
         }
+        logger.info(f"Stop conversion took {time.time() - t0:.2f} seconds")
         
         # Convert routes
+        t0 = time.time()
         routes = []
         for route_data in raw_data['routes']:
             # Convert route stops
@@ -296,8 +305,10 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
                 route_data['shape'] = Shape(**route_data['shape'])
             
             routes.append(Route(**route_data))
+        logger.info(f"Route conversion took {time.time() - t0:.2f} seconds")
         
-        logger.info("GTFS feed deserialization completed successfully")
+        total_time = time.time() - start_time
+        logger.info(f"GTFS feed deserialization completed in {total_time:.2f} seconds")
         return FlixbusFeed(stops=stops, routes=routes)
     except Exception as e:
         logger.error(f"Error deserializing GTFS data: {e}", exc_info=True)
