@@ -243,7 +243,10 @@ def process_trip_batch(args):
                 trip_id=trip_id,
                 service_days=service_days,
                 stops=route_stops,
-                shape=shape
+                shape=shape,
+                short_name=routes_dict[route_id]['route_short_name'],
+                color=routes_dict[route_id]['color'],
+                text_color=routes_dict[route_id]['text_color']
             )
         )
     
@@ -309,7 +312,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
 
-CACHE_VERSION = "2.2"
+CACHE_VERSION = "2.3"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
@@ -502,14 +505,18 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     routes_df = pd.read_csv(data_path / "routes.txt", dtype={
         'route_id': str,
         'route_long_name': str,
-        'route_short_name': str
+        'route_short_name': str,
+        'route_color': str,
+        'route_text_color': str
     })
     
     # Convert routes to dictionary early to free memory
     routes_dict = {
         row.route_id: {
             'route_long_name': row.route_long_name,
-            'route_short_name': row.route_short_name
+            'route_short_name': row.route_short_name,
+            'color': getattr(row, 'route_color', None),
+            'text_color': getattr(row, 'route_text_color', None)
         }
         for row in routes_df.itertuples()
     }

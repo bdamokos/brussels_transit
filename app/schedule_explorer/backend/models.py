@@ -25,6 +25,9 @@ class Route(BaseModel):
     duration_minutes: int
     stops: List[Stop]
     shape: Optional[Shape] = None
+    line_number: Optional[str] = None
+    color: Optional[str] = None
+    text_color: Optional[str] = None
 
 class RouteResponse(BaseModel):
     routes: List[Route]

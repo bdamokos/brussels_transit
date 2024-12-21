@@ -207,7 +207,10 @@ async def get_routes(
             shape=Shape(
                 shape_id=route.shape.shape_id,
                 points=route.shape.points
-            ) if route.shape else None
+            ) if route.shape else None,
+            line_number=route.short_name if hasattr(route, 'short_name') else "",
+            color=route.color if hasattr(route, 'color') else None,
+            text_color=route.text_color if hasattr(route, 'text_color') else None
         ))
     
     return RouteResponse(
