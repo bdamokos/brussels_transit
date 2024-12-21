@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Set
 import pandas as pd
@@ -9,6 +9,9 @@ import hashlib
 from multiprocessing import Pool, cpu_count
 import logging
 from .logging_config import setup_logging
+import msgpack
+import lzma
+import psutil
 
 # Set up logging
 logger = setup_logging()
@@ -220,7 +223,85 @@ def process_trip_batch(args):
     
     return routes
 
-CACHE_VERSION = "1.0"
+CACHE_VERSION = "2.0"
+
+def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
+    """Serialize GTFS feed data using msgpack and lzma compression."""
+    try:
+        logger.info("Starting GTFS feed serialization")
+        
+        # Convert feed to dictionary format using asdict for all objects
+        data = asdict(feed)
+        
+        # Pack with msgpack
+        logger.debug("Packing data with msgpack")
+        packed_data = msgpack.packb(data, use_bin_type=True)
+        logger.debug(f"Packed data size: {len(packed_data)} bytes")
+        
+        # Compress with lzma
+        logger.debug("Compressing data with lzma")
+        compressed_data = lzma.compress(
+            packed_data,
+            format=lzma.FORMAT_XZ,
+            filters=[{"id": lzma.FILTER_LZMA2, "preset": 6}]
+        )
+        logger.debug(f"Compressed data size: {len(compressed_data)} bytes")
+        logger.info("GTFS feed serialization completed successfully")
+        
+        return compressed_data
+    except Exception as e:
+        logger.error(f"Error serializing GTFS data: {e}", exc_info=True)
+        raise
+
+def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
+    """Deserialize GTFS feed data from msgpack and lzma compression."""
+    try:
+        logger.info("Starting GTFS feed deserialization")
+        
+        # Decompress with lzma
+        logger.debug(f"Decompressing data (size: {len(data)} bytes)")
+        decompressed_data = lzma.decompress(data)
+        logger.debug(f"Decompressed data size: {len(decompressed_data)} bytes")
+        
+        # Unpack with msgpack
+        logger.debug("Unpacking data with msgpack")
+        raw_data = msgpack.unpackb(decompressed_data, raw=False)
+        
+        # Convert back to objects
+        logger.debug("Converting back to objects")
+        
+        # Convert stops
+        stops = {
+            stop_id: Stop(**stop_data)
+            for stop_id, stop_data in raw_data['stops'].items()
+        }
+        
+        # Convert routes
+        routes = []
+        for route_data in raw_data['routes']:
+            # Convert route stops
+            route_stops = [
+                RouteStop(
+                    stop=Stop(**stop_data['stop']),
+                    arrival_time=stop_data['arrival_time'],
+                    departure_time=stop_data['departure_time'],
+                    stop_sequence=stop_data['stop_sequence']
+                )
+                for stop_data in route_data['stops']
+            ]
+            route_data['stops'] = route_stops
+            
+            # Convert shape if present
+            if route_data.get('shape'):
+                route_data['shape'] = Shape(**route_data['shape'])
+            
+            routes.append(Route(**route_data))
+        
+        logger.info("GTFS feed deserialization completed successfully")
+        return FlixbusFeed(stops=stops, routes=routes)
+    except Exception as e:
+        logger.error(f"Error deserializing GTFS data: {e}", exc_info=True)
+        raise
 
 def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] = None) -> FlixbusFeed:
     """
@@ -251,7 +332,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             logger.info(f"Loading from cache... {current_hash}")
             try:
                 with open(cache_file, 'rb') as f:
-                    return pickle.load(f)
+                    return deserialize_gtfs_data(f.read())
             except Exception as e:
                 logger.warning(f"Failed to load cache: {e}")
                 # Delete corrupted cache files
@@ -261,23 +342,34 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 except:
                     pass
     
+    # Calculate optimal chunk size based on available memory
+    available_memory = psutil.virtual_memory().available
+    estimated_row_size = 200  # bytes per row
+    optimal_chunk_size = min(
+        100000,  # max chunk size
+        max(1000, available_memory // (estimated_row_size * 2))  # ensure buffer
+    )
+    logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
+    
     # Load stops
     logger.info("Loading stops...")
-    stops_df = pd.read_csv(data_path / "stops.txt", dtype={
-        'stop_id': str,
-        'stop_name': str,
-        'stop_lat': float,
-        'stop_lon': float
-    })
-    stops = {
-        str(row.stop_id): Stop(
-            id=str(row.stop_id),
-            name=row.stop_name,
-            lat=row.stop_lat,
-            lon=row.stop_lon
-        )
-        for row in stops_df.itertuples()
-    }
+    stops = {}
+    for chunk in pd.read_csv(data_path / "stops.txt", 
+                           chunksize=optimal_chunk_size,
+                           dtype={
+                               'stop_id': str,
+                               'stop_name': str,
+                               'stop_lat': float,
+                               'stop_lon': float
+                           }):
+        for _, row in chunk.iterrows():
+            stop = Stop(
+                id=str(row['stop_id']),
+                name=row['stop_name'],
+                lat=row['stop_lat'],
+                lon=row['stop_lon']
+            )
+            stops[stop.id] = stop
     logger.info(f"Loaded {len(stops)} stops")
     
     # Load shapes if available
@@ -433,8 +525,9 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     # Save to cache
     logger.info(f"Saving to cache... with hash {current_hash}")
     try:
+        serialized_data = serialize_gtfs_data(feed)
         with open(cache_file, 'wb') as f:
-            pickle.dump(feed, f)
+            f.write(serialized_data)
         hash_file.write_text(current_hash)
     except Exception as e:
         logger.warning(f"Failed to save cache: {e}")

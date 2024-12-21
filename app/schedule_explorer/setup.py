@@ -8,6 +8,8 @@ setup(
         "fastapi",
         "uvicorn",
         "pandas",
-        "pydantic"
+        "pydantic",
+        "msgpack>=1.0.5",
+        "psutil>=5.9.0"
     ],
 ) 
