@@ -31,7 +31,9 @@ def find_gtfs_directories() -> List[str]:
     current_path = Path(os.path.dirname(os.path.abspath(__file__)))
     
     # Navigate up to the project root (where cache directory is)
-    project_root = current_path.parent.parent
+    project_root = current_path
+    while project_root.name != 'STIB':
+        project_root = project_root.parent
     
     # Look in the cache directory
     cache_path = project_root / 'cache'
@@ -140,9 +142,6 @@ async def get_routes(
             
         route_responses.append(Route(
             route_id=route.route_id,
-            route_short_name=route.short_name if hasattr(route, 'short_name') else None,
-            route_long_name=route.long_name if hasattr(route, 'long_name') else None,
-            route_type=route.route_type if hasattr(route, 'route_type') else None,
             route_name=route_name,
             trip_id=route.trip_id,
             service_days=route.service_days,
@@ -160,9 +159,7 @@ async def get_routes(
             shape=Shape(
                 shape_id=route.shape.shape_id,
                 points=route.shape.points
-            ) if route.shape else None,
-            color=route.color if hasattr(route, 'color') else None,
-            text_color=route.text_color if hasattr(route, 'text_color') else None
+            ) if route.shape else None
         ))
     
     return RouteResponse(

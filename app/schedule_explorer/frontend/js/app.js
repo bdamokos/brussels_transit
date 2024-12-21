@@ -611,37 +611,6 @@ function normalizeTime(timeStr) {
     return (h >= 24 ? h - 24 : h) + parseInt(minutes)/60;
 }
 
-// Add route type mapping
-const ROUTE_TYPES = {
-    0: 'Tram',
-    1: 'Subway/Metro',
-    2: 'Rail',
-    3: 'Bus',
-    4: 'Ferry',
-    5: 'Cable Tram',
-    6: 'Aerial Lift',
-    7: 'Funicular',
-    11: 'Trolleybus',
-    12: 'Monorail'
-};
-
-function getRouteTypeLabel(type) {
-    return type !== null ? ROUTE_TYPES[type] || `Unknown (${type})` : '';
-}
-
-function getRouteName(route) {
-    const parts = [];
-    if (route.route_short_name) {
-        parts.push(`<span class="badge bg-light text-dark me-2">${route.route_short_name}</span>`);
-    }
-    if (route.route_long_name) {
-        parts.push(route.route_long_name);
-    } else if (route.route_name && route.route_name !== route.route_short_name) {
-        parts.push(route.route_name);
-    }
-    return parts.join(' ');
-}
-
 // Update the displayRoutes function
 function displayRoutes(routes) {
     if (!routeLayer) {
@@ -668,7 +637,7 @@ function displayRoutes(routes) {
         // Group routes by line number/name
         const routeGroups = new Map();
         routes.forEach(route => {
-            const key = route.route_short_name || route.route_name;
+            const key = `${route.line_number || route.route_name}`;
             if (!routeGroups.has(key)) {
                 routeGroups.set(key, {
                     route: route,
@@ -687,7 +656,7 @@ function displayRoutes(routes) {
             
             // Calculate duration range for this route
             const durations = routes
-                .filter(r => (r.route_short_name || r.route_name) === key)
+                .filter(r => (r.line_number || r.route_name) === key)
                 .map(r => r.duration_minutes);
             const minDuration = Math.min(...durations);
             const maxDuration = Math.max(...durations);
@@ -706,13 +675,12 @@ function displayRoutes(routes) {
                 departuresByHour.get(hour).add(time);
             });
             
-            const routeColorStyle = route.color ? 
+            const routeColorStyle = route.color && route.color !== "" ? 
                 `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` : 
                 'background-color: #73D700; color: #FFFFFF;';
-
-            const routeTypeLabel = getRouteTypeLabel(route.route_type);
-            const routeTypeHtml = routeTypeLabel ? 
-                `<span class="badge bg-secondary me-2">${routeTypeLabel}</span>` : '';
+            
+            const lineNumberHtml = route.line_number ? 
+                `<span class="badge bg-light text-dark me-2">${route.line_number}</span>` : '';
             
             const sortedHours = Array.from(departuresByHour.keys()).sort((a, b) => a - b);
             
@@ -720,8 +688,8 @@ function displayRoutes(routes) {
                 <div class="card route-card">
                     <div class="card-header" style="${routeColorStyle}">
                         <h5 class="mb-0">
-                            ${routeTypeHtml}
-                            ${getRouteName(route)}
+                            ${lineNumberHtml}
+                            ${route.route_name}
                         </h5>
                     </div>
                     <div class="card-body">
@@ -762,20 +730,19 @@ function displayRoutes(routes) {
             const firstStop = route.stops[0];
             const isDepartureNextDay = parseInt(firstStop.departure_time.split(':')[0]) >= 24;
             
-            const routeColorStyle = route.color ? 
+            const routeColorStyle = route.color && route.color !== "" ? 
                 `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` : 
                 'background-color: #73D700; color: #FFFFFF;';
-
-            const routeTypeLabel = getRouteTypeLabel(route.route_type);
-            const routeTypeHtml = routeTypeLabel ? 
-                `<span class="badge bg-secondary me-2">${routeTypeLabel}</span>` : '';
+            
+            const lineNumberHtml = route.line_number ? 
+                `<span class="badge bg-light text-dark me-2">${route.line_number}</span>` : '';
             
             return `
                 <div class="card route-card">
                     <div class="card-header" style="${routeColorStyle}">
                         <h5 class="mb-0">
-                            ${routeTypeHtml}
-                            ${getRouteName(route)}
+                            ${lineNumberHtml}
+                            ${route.route_name}
                         </h5>
                     </div>
                     <div class="card-body">
@@ -819,7 +786,7 @@ function displayRoutes(routes) {
     
     // Display routes on map
     routes.forEach((route, index) => {
-        const routeColor = route.color ? 
+        const routeColor = route.color && route.color !== "" ? 
             `#${route.color}` : generateRouteColor(index);
         
         // Get coordinates from route shape or stops
