@@ -102,3 +102,4 @@ pandas
 psutil
 pyarrow
 msgpack
+mobility-db-api
