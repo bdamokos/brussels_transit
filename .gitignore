@@ -66,3 +66,4 @@ flixbus.egg-info/*
 */gtfs_delijn/.gtfs_parquet/translations.parquet
 
 */performance_metrics/*
+downloads/

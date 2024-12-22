@@ -80,9 +80,14 @@ def find_gtfs_directories() -> List[Dict]:
                             # Check if the dataset directory exists
                             dataset_dir = Path(dataset_info.get('download_path'))
                             if dataset_dir.exists():
+                                # Get the sanitized name from the download path
+                                # The path format is: downloads/provider_id_sanitized_name/dataset_id
+                                sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
+                                
                                 # Convert to the format expected by the frontend
-                                providers[provider_id] = {
-                                    'id': provider_id,
+                                providers[sanitized_name] = {
+                                    'id': sanitized_name,  # Use sanitized name as ID
+                                    'raw_id': provider_id,  # Keep the raw ID for API calls
                                     'provider': dataset_info.get('provider_name'),
                                     'name': dataset_info.get('provider_name'),
                                     'latest_dataset': {
@@ -108,6 +113,9 @@ async def get_providers_by_country(country_code: str):
     try:
         db = MobilityAPI()
         providers = db.get_providers_by_country(country_code)
+        # Add sanitized names to the providers
+        for provider in providers:
+            provider['sanitized_name'] = db._sanitize_provider_name(provider['provider'])
         return providers
     except Exception as e:
         logger.error(f"Error getting providers for country {country_code}: {str(e)}")
@@ -173,9 +181,9 @@ async def set_provider(provider_name: str):
             
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
-            # Find the dataset info for this provider
+            # Find the dataset info for this provider by matching the sanitized name
             dataset_info = next((info for key, info in metadata.items() 
-                               if info.get('provider_id') == provider_name), None)
+                               if Path(info.get('download_path')).parent.name.split('_', 1)[1] == provider_name), None)
             if not dataset_info:
                 raise HTTPException(status_code=404, detail=f"No dataset info found for provider {provider_name}")
             
