@@ -244,9 +244,9 @@ def process_trip_batch(args):
                 service_days=service_days,
                 stops=route_stops,
                 shape=shape,
-                short_name=routes_dict[route_id]['route_short_name'],
-                color=routes_dict[route_id]['color'],
-                text_color=routes_dict[route_id]['text_color']
+                short_name=route_info.get('route_short_name'),
+                color=route_info.get('route_color'),
+                text_color=route_info.get('route_text_color')
             )
         )
     
