@@ -8,7 +8,7 @@ import pandas as pd
 import logging
 from .logging_config import setup_logging
 
-from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape
+from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape, RouteInfo
 from .gtfs_loader import FlixbusFeed, load_feed
 
 app = FastAPI(title="Schedule Explorer API")
@@ -159,36 +159,8 @@ async def get_routes(
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d")
-            prev_date = target_date - timedelta(days=1)
-            
-            filtered_routes = []
-            for route in all_routes:
-                # Check all possible station combinations for this route
-                for from_id in from_stations:
-                    for to_id in to_stations:
-                        stops = route.get_stops_between(from_id, to_id)
-                        if not stops:
-                            continue
-                            
-                        # Parse departure time to check if it's a next-day arrival
-                        departure_time = stops[0].departure_time
-                        hours = int(departure_time.split(":")[0])
-                        
-                        # If departure is before midnight, check current day
-                        # If departure is after midnight, check previous day
-                        if hours < 24:
-                            if route.operates_on(target_date):
-                                filtered_routes.append((route, from_id, to_id))
-                                break  # Found a valid combination, no need to check others
-                        else:
-                            if route.operates_on(prev_date):
-                                filtered_routes.append((route, from_id, to_id))
-                                break  # Found a valid combination, no need to check others
-            
-            # Convert filtered routes back to the format we need
-            routes_with_stations = filtered_routes
-            all_routes = [r[0] for r in routes_with_stations]
-            
+            day_name = target_date.strftime("%A").lower()
+            all_routes = [r for r in all_routes if day_name in r.service_days]
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     
@@ -322,4 +294,62 @@ async def get_origins(
         )
         for stop_id in origins
         if stop_id in feed.stops
-    ] 
+    ]
+
+@app.get("/stations/{station_id}/routes", response_model=List[RouteInfo])
+async def get_station_routes(
+    station_id: str,
+    language: Optional[str] = Query('default', description="Language code (e.g., 'fr', 'nl') or 'default'")
+):
+    """Get all routes that serve this station with detailed information"""
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    
+    if station_id not in feed.stops:
+        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+    
+    # Find all routes that serve this station
+    routes_info = []
+    seen_route_ids = set()
+    
+    for route in feed.routes:
+        # Skip if we've already seen this route
+        if route.route_id in seen_route_ids:
+            continue
+            
+        # Check if this station is served by this route
+        station_in_route = False
+        for stop in route.stops:
+            if stop.stop.id == station_id:
+                station_in_route = True
+                break
+        
+        if station_in_route:
+            seen_route_ids.add(route.route_id)
+            
+            # Get stop names in the correct language
+            stop_names = [
+                feed.get_stop_name(stop.stop.id, language) if language != 'default' else stop.stop.name
+                for stop in route.stops
+            ]
+            
+            # Get parent station ID if available
+            parent_station_id = None
+            if hasattr(feed.stops[station_id], 'parent_station'):
+                parent_station_id = feed.stops[station_id].parent_station
+            
+            routes_info.append(RouteInfo(
+                route_id=route.route_id,
+                route_name=route.route_name,
+                short_name=route.short_name if hasattr(route, 'short_name') else None,
+                color=route.color if hasattr(route, 'color') else None,
+                text_color=route.text_color if hasattr(route, 'text_color') else None,
+                first_stop=stop_names[0],
+                last_stop=stop_names[-1],
+                stops=stop_names,
+                headsign=route.stops[-1].stop.name,  # Use last stop name as headsign
+                service_days=route.service_days,
+                parent_station_id=parent_station_id
+            ))
+    
+    return routes_info 

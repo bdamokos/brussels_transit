@@ -38,3 +38,16 @@ class StationResponse(BaseModel):
     name: str
     location: Location
     translations: Optional[dict[str, str]] = None 
+
+class RouteInfo(BaseModel):
+    route_id: str
+    route_name: str
+    short_name: Optional[str]
+    color: Optional[str]
+    text_color: Optional[str]
+    first_stop: str  # Name of first stop
+    last_stop: str   # Name of last stop
+    stops: List[str] # List of stop names in order
+    headsign: Optional[str]
+    service_days: List[str]
+    parent_station_id: Optional[str] = None 
