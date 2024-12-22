@@ -265,7 +265,6 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
 
     # Load translations
     df = pd.read_csv(translations_file)
-    logger.info(f"Loaded translations file with columns: {df.columns.tolist()}")
     
     # Check if this is STIB format (has trans_id column)
     if 'trans_id' in df.columns:
