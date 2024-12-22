@@ -67,3 +67,5 @@ flixbus.egg-info/*
 
 */performance_metrics/*
 downloads/
+*.egg-info/
+*.egg-info
