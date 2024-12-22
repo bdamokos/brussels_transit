@@ -66,6 +66,7 @@ logger = setup_logging()
 def find_gtfs_directories() -> List[Dict]:
     """Find all GTFS data directories in the downloads directory and their metadata."""
     providers = {}
+    sanitized_names_count = {}  # Keep track of how many times each sanitized name appears
     
     # Collect metadata from downloads
     if DOWNLOAD_DIR.exists():
@@ -74,19 +75,32 @@ def find_gtfs_directories() -> List[Dict]:
             try:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
+                    
+                    # First pass: count occurrences of sanitized names
                     for dataset_id, dataset_info in metadata.items():
                         provider_id = dataset_info.get('provider_id')
                         if provider_id:
-                            # Check if the dataset directory exists
                             dataset_dir = Path(dataset_info.get('download_path'))
                             if dataset_dir.exists():
-                                # Get the sanitized name from the download path
-                                # The path format is: downloads/provider_id_sanitized_name/dataset_id
+                                sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
+                                sanitized_names_count[sanitized_name] = sanitized_names_count.get(sanitized_name, 0) + 1
+                    
+                    # Second pass: create provider entries with MDB numbers if needed
+                    for dataset_id, dataset_info in metadata.items():
+                        provider_id = dataset_info.get('provider_id')
+                        if provider_id:
+                            dataset_dir = Path(dataset_info.get('download_path'))
+                            if dataset_dir.exists():
                                 sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
                                 
+                                # If this sanitized name appears more than once, append the MDB number
+                                provider_key = sanitized_name
+                                if sanitized_names_count[sanitized_name] > 1:
+                                    provider_key = f"{sanitized_name}_{provider_id}"
+                                
                                 # Convert to the format expected by the frontend
-                                providers[sanitized_name] = {
-                                    'id': sanitized_name,  # Use sanitized name as ID
+                                providers[provider_key] = {
+                                    'id': provider_key,  # Use sanitized name (with MDB if needed) as ID
                                     'raw_id': provider_id,  # Keep the raw ID for API calls
                                     'provider': dataset_info.get('provider_name'),
                                     'name': dataset_info.get('provider_name'),
@@ -159,11 +173,22 @@ async def set_provider(provider_name: str):
     """Set the current GTFS provider and load its data"""
     global feed, current_provider
     
-    # Get the list of available providers
+    # Get the current list of available providers
     providers = find_gtfs_directories()
     provider_ids = [p['id'] for p in providers]
     
+    # Check if the provider exists in the current list
     if provider_name not in provider_ids:
+        # Check if this might be a race condition with duplicate providers
+        base_name = provider_name.rsplit('_', 1)[0] if '_' in provider_name else provider_name
+        matching_providers = [p for p in provider_ids if p.startswith(base_name + '_') or p == base_name]
+        
+        if len(matching_providers) > 1:
+            # There are now multiple providers with this base name
+            raise HTTPException(
+                status_code=409,  # Conflict
+                detail="Provider list has been updated with multiple providers sharing the same name. Please reload the provider list."
+            )
         raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
     
     # If the requested provider is already loaded, return early
@@ -181,13 +206,37 @@ async def set_provider(provider_name: str):
             
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
-            # Find the dataset info for this provider by matching the sanitized name
-            dataset_info = next((info for key, info in metadata.items() 
-                               if Path(info.get('download_path')).parent.name.split('_', 1)[1] == provider_name), None)
+            
+            # Extract the MDB number if it exists in the provider name
+            mdb_number = provider_name.rsplit('_', 1)[1] if '_' in provider_name else None
+            base_name = provider_name.rsplit('_', 1)[0] if '_' in provider_name else provider_name
+            
+            # Find the dataset info for this provider
+            dataset_info = None
+            for info in metadata.values():
+                dataset_dir = Path(info.get('download_path'))
+                if dataset_dir.exists():
+                    sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
+                    if sanitized_name == base_name:
+                        if mdb_number:
+                            # If we have an MDB number, it must match
+                            if info.get('provider_id') == mdb_number:
+                                dataset_info = info
+                                dataset_dir = Path(dataset_info['download_path'])
+                                break
+                        else:
+                            # If we don't have an MDB number, there should be only one match
+                            if dataset_info is not None:
+                                # Found multiple matches without MDB number
+                                raise HTTPException(
+                                    status_code=409,  # Conflict
+                                    detail="Provider list has been updated with multiple providers sharing the same name. Please reload the provider list."
+                                )
+                            dataset_info = info
+                            dataset_dir = Path(dataset_info['download_path'])
+            
             if not dataset_info:
                 raise HTTPException(status_code=404, detail=f"No dataset info found for provider {provider_name}")
-            
-            dataset_dir = Path(dataset_info['download_path'])
         
         # Check if the dataset directory exists and contains GTFS files
         required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
