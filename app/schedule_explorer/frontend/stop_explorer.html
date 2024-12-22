@@ -13,39 +13,162 @@
     
     <style>
         #map {
-            height: 300px;
+            height: 400px;
             width: 100%;
             margin-bottom: 20px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
         }
-        .route-line {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 5px;
-            border-left: 5px solid;
-        }
-        .route-terminus {
-            font-weight: bold;
-        }
+        
         .backend-status {
             position: fixed;
             top: 20px;
             right: 20px;
-            z-index: 1000;
+            z-index: 2000;
             padding: 10px 15px;
             border-radius: 4px;
             font-weight: bold;
             display: none;
         }
+        
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+            z-index: 1500;
+        }
+        
+        #stopSearchResults {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        #stopSearchResults.show {
+            display: block;
+        }
+        
+        .search-result-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .search-result-item:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .selected-stops-table {
+            margin-bottom: 20px;
+        }
+        
+        .selected-stop-row {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .stop-color-indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 12px;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        
+        .stop-info {
+            flex-grow: 1;
+        }
+        
+        .stop-name {
+            font-weight: 500;
+        }
+        
+        .stop-id {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .remove-stop {
+            padding: 4px 8px;
+            background: none;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .remove-stop:hover {
+            color: #bd2130;
+        }
+        
+        .routes-container {
+            margin-top: 20px;
+        }
+        
+        .stop-routes-group {
+            margin-bottom: 20px;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .stop-routes-header {
+            padding: 12px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .route-line {
+            padding: 12px;
+            border-left: 4px solid;
+            margin: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        
+        .route-badge {
+            font-size: 1.1em;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+            display: inline-block;
+            min-width: 45px;
+            text-align: center;
+        }
+        
+        .marker-pin {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 3px solid white;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+        }
+        
         .backend-status.loading {
             display: block;
             background-color: #ffc107;
             color: #000;
         }
+        
         .backend-status.error {
             display: block;
             background-color: #dc3545;
             color: #fff;
         }
+        
         .backend-status.ready {
             display: block;
             background-color: #198754;
@@ -53,51 +176,9 @@
             opacity: 1;
             transition: opacity 2s;
         }
+        
         .backend-status.ready.fade-out {
             opacity: 0;
-        }
-        .search-form {
-            position: relative;
-            z-index: 1001;
-        }
-        .station-results {
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        .station-results .dropdown-item {
-            white-space: normal;
-            padding: 0.5rem 1rem;
-        }
-        .station-results .dropdown-header {
-            color: #6c757d;
-            font-style: italic;
-        }
-        .station-results .no-results {
-            padding: 0.5rem 1rem;
-            color: #6c757d;
-            font-style: italic;
-        }
-        .station-results .loading {
-            padding: 0.5rem 1rem;
-            color: #6c757d;
-            font-style: italic;
-        }
-        .nav-link {
-            font-size: 1.2em;
-        }
-        .stop-details {
-            background-color: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        .stop-name {
-            font-size: 1.5em;
-            font-weight: bold;
-        }
-        .stop-id {
-            color: #6c757d;
-            font-family: monospace;
         }
     </style>
 </head>
@@ -121,64 +202,39 @@
 
         <!-- Provider and Language Selection -->
         <div class="row mb-4">
-            <div class="col-md-4">
-                <label for="providerSelect" class="form-label">Provider</label>
-                <select class="form-control" id="providerSelect">
+            <div class="col-md-6">
+                <select id="providerSelect" class="form-select">
                     <option value="" selected disabled>Loading providers...</option>
                 </select>
             </div>
-            <div class="col-md-4">
-                <label for="languageSelect" class="form-label">Language</label>
-                <select class="form-control" id="languageSelect" disabled>
+            <div class="col-md-6">
+                <select id="languageSelect" class="form-select" disabled>
                     <option value="" selected disabled>Select provider first</option>
                 </select>
             </div>
         </div>
-        
-        <!-- Search Form -->
-        <div class="row mb-4 search-form">
-            <div class="col-md-8">
-                <label for="stopSearch" class="form-label">Search for a stop</label>
-                <div class="dropdown">
-                    <input type="text" 
-                           class="form-control" 
-                           id="stopSearch" 
-                           placeholder="Enter stop name"
-                           autocomplete="off"
-                           disabled>
-                    <div class="dropdown-menu station-results w-100" id="stopSearchResults"></div>
-                </div>
-            </div>
+
+        <!-- Stop Search -->
+        <div class="search-container">
+            <input type="text" id="stopSearch" class="form-control" placeholder="Search for a stop..." disabled>
+            <div id="stopSearchResults"></div>
         </div>
 
-        <!-- Stop Details -->
-        <div id="stopDetails" class="stop-details" style="display: none;">
-            <div class="row">
-                <div class="col-md-6">
-                    <h2 class="stop-name" id="selectedStopName"></h2>
-                    <p class="stop-id" id="selectedStopId"></p>
-                </div>
-            </div>
-        </div>
-        
+        <!-- Selected Stops Table -->
+        <div id="selectedStopsTable" class="selected-stops-table"></div>
+
         <!-- Map -->
         <div id="map"></div>
-        
-        <!-- Routes List -->
-        <div id="routesList" class="mt-4">
-            <div class="alert alert-info">
-                Please select a stop to see routes operating from it.
-            </div>
-        </div>
+
+        <!-- Routes Display -->
+        <div id="routesContainer" class="routes-container"></div>
     </div>
-    
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- Custom JS -->
+    <!-- App JS -->
     <script src="js/stop_explorer.js"></script>
 </body>
 </html> 
