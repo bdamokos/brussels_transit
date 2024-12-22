@@ -159,8 +159,36 @@ async def get_routes(
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d")
-            day_name = target_date.strftime("%A").lower()
-            all_routes = [r for r in all_routes if day_name in r.service_days]
+            prev_date = target_date - timedelta(days=1)
+            
+            filtered_routes = []
+            for route in all_routes:
+                # Check all possible station combinations for this route
+                for from_id in from_stations:
+                    for to_id in to_stations:
+                        stops = route.get_stops_between(from_id, to_id)
+                        if not stops:
+                            continue
+                            
+                        # Parse departure time to check if it's a next-day arrival
+                        departure_time = stops[0].departure_time
+                        hours = int(departure_time.split(":")[0])
+                        
+                        # If departure is before midnight, check current day
+                        # If departure is after midnight, check previous day
+                        if hours < 24:
+                            if route.operates_on(target_date):
+                                filtered_routes.append((route, from_id, to_id))
+                                break  # Found a valid combination, no need to check others
+                        else:
+                            if route.operates_on(prev_date):
+                                filtered_routes.append((route, from_id, to_id))
+                                break  # Found a valid combination, no need to check others
+            
+            # Convert filtered routes back to the format we need
+            routes_with_stations = filtered_routes
+            all_routes = [r[0] for r in routes_with_stations]
+            
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
     

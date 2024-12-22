@@ -58,6 +58,62 @@ class Shape:
     points: List[List[float]]
 
 @dataclass
+class StopTime:
+    """
+    Represents a stop time from stop_times.txt
+    STIB: trip_id, arrival_time, departure_time, stop_id, stop_sequence
+    Flixbus: trip_id, stop_id, arrival_time, departure_time, stop_sequence
+    """
+    trip_id: str
+    stop_id: str
+    arrival_time: str
+    departure_time: str
+    stop_sequence: int
+
+@dataclass
+class Trip:
+    """
+    Represents a trip from trips.txt
+    STIB: route_id, service_id, trip_id, trip_headsign, direction_id, block_id, shape_id
+    Flixbus: route_id, trip_id, service_id, trip_headsign, block_id, shape_id
+    """
+    id: str
+    route_id: str
+    service_id: str
+    headsign: Optional[str] = None
+    direction_id: Optional[str] = None
+    block_id: Optional[str] = None
+    shape_id: Optional[str] = None
+    stop_times: List[StopTime] = field(default_factory=list)
+
+@dataclass
+class Calendar:
+    """
+    Represents a service calendar from calendar.txt
+    Both: service_id, monday-sunday (0/1), start_date, end_date
+    """
+    service_id: str
+    monday: bool
+    tuesday: bool
+    wednesday: bool
+    thursday: bool
+    friday: bool
+    saturday: bool
+    sunday: bool
+    start_date: datetime
+    end_date: datetime
+
+@dataclass
+class CalendarDate:
+    """
+    Represents a calendar exception from calendar_dates.txt
+    Both: service_id, date, exception_type (1=added, 2=removed)
+    """
+    service_id: str
+    date: datetime
+    exception_type: int  # 1 = service added, 2 = service removed
+
+@dataclass
 class Route:
     route_id: str
     route_name: str
@@ -71,6 +127,45 @@ class Route:
     color: Optional[str] = None
     text_color: Optional[str] = None
     agency_id: Optional[str] = None
+    _feed: Optional['FlixbusFeed'] = field(default=None, repr=False)
+    
+    def operates_on(self, date: datetime) -> bool:
+        """Check if this route operates on a specific date"""
+        if not self._feed:
+            return False
+        
+        # Get service ID from trip ID
+        service_id = None
+        for trip in self._feed.trips.values():  # trips is a dictionary
+            if trip.id == self.trip_id:
+                service_id = trip.service_id
+                break
+        
+        if not service_id:
+            return False
+        
+        operates = False
+        has_exception = False
+        
+        # First check calendar_dates exceptions
+        for cal_date in self._feed.calendar_dates:
+            if cal_date.service_id == service_id and cal_date.date.date() == date.date():
+                has_exception = True
+                if cal_date.exception_type == 1:  # Service added
+                    operates = True
+                    break
+                elif cal_date.exception_type == 2:  # Service removed
+                    operates = False
+                    break
+        
+        # If no exception found, check regular calendar
+        if not has_exception and service_id in self._feed.calendars:
+            calendar = self._feed.calendars[service_id]
+            if calendar.start_date.date() <= date.date() <= calendar.end_date.date():
+                weekday = date.strftime("%A").lower()
+                operates = getattr(calendar, weekday)
+        
+        return operates
     
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
         """Get a stop in this route by its ID"""
@@ -133,6 +228,15 @@ class Route:
 class FlixbusFeed:
     stops: Dict[str, Stop]
     routes: List[Route]
+    calendars: Dict[str, Calendar] = field(default_factory=dict)
+    calendar_dates: List[CalendarDate] = field(default_factory=list)
+    trips: Dict[str, Trip] = field(default_factory=dict)
+    _feed: Optional['FlixbusFeed'] = field(default=None, repr=False)
+    
+    def __post_init__(self):
+        """Set feed reference on all routes"""
+        for route in self.routes:
+            route._feed = self
     
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Route]:
         """Find all routes between two stations in the specified direction"""
@@ -311,15 +415,25 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
 
-CACHE_VERSION = "2.3"
+CACHE_VERSION = "2.4"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
     try:
         logger.info("Starting GTFS feed serialization")
         
-        # Convert feed to dictionary format using asdict for all objects
+        # Convert feed to dictionary format
         data = asdict(feed)
+        
+        # Convert datetime objects to ISO format strings
+        if 'calendars' in data:
+            for calendar in data['calendars'].values():
+                calendar['start_date'] = calendar['start_date'].isoformat()
+                calendar['end_date'] = calendar['end_date'].isoformat()
+        
+        if 'calendar_dates' in data:
+            for cal_date in data['calendar_dates']:
+                cal_date['date'] = cal_date['date'].isoformat()
         
         # Pack with msgpack
         logger.debug("Packing data with msgpack")
@@ -364,25 +478,45 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
         logger.debug("Converting back to objects")
         t0 = time.time()
         
-        # Convert stops, preserving translations
+        # Convert stops
         stops = {}
         for stop_id, stop_data in raw_data['stops'].items():
-            # Ensure translations are preserved
-            translations = stop_data.get('translations', {})
-            if translations:
-                logger.debug(f"Preserving translations for stop {stop_id}: {translations}")
-            stop = Stop(**stop_data)
-            stops[stop_id] = stop
-        logger.info(f"Stop conversion took {time.time() - t0:.2f} seconds")
+            stops[stop_id] = Stop(**stop_data)
+        
+        # Convert calendars
+        calendars = {}
+        if 'calendars' in raw_data:
+            for cal_id, cal_data in raw_data['calendars'].items():
+                cal_data['start_date'] = datetime.fromisoformat(cal_data['start_date'])
+                cal_data['end_date'] = datetime.fromisoformat(cal_data['end_date'])
+                calendars[cal_id] = Calendar(**cal_data)
+        
+        # Convert calendar dates
+        calendar_dates = []
+        if 'calendar_dates' in raw_data:
+            for cal_date in raw_data['calendar_dates']:
+                cal_date['date'] = datetime.fromisoformat(cal_date['date'])
+                calendar_dates.append(CalendarDate(**cal_date))
+        
+        # Convert trips
+        trips = {}
+        if 'trips' in raw_data:
+            for trip_id, trip_data in raw_data['trips'].items():
+                # Convert stop times
+                stop_times = []
+                for stop_time_data in trip_data.get('stop_times', []):
+                    stop_time_data['trip_id'] = trip_id  # Add trip_id to the data
+                    stop_times.append(StopTime(**stop_time_data))
+                trip_data['stop_times'] = stop_times
+                trips[trip_id] = Trip(**trip_data)
         
         # Convert routes
-        t0 = time.time()
         routes = []
         for route_data in raw_data['routes']:
             # Convert route stops
             route_stops = [
                 RouteStop(
-                    stop=stops[stop_data['stop']['id']],  # Use the already converted stop
+                    stop=stops[stop_data['stop']['id']],
                     arrival_time=stop_data['arrival_time'],
                     departure_time=stop_data['departure_time'],
                     stop_sequence=stop_data['stop_sequence']
@@ -396,11 +530,17 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
                 route_data['shape'] = Shape(**route_data['shape'])
             
             routes.append(Route(**route_data))
-        logger.info(f"Route conversion took {time.time() - t0:.2f} seconds")
         
-        total_time = time.time() - start_time
-        logger.info(f"GTFS feed deserialization completed in {total_time:.2f} seconds")
-        return FlixbusFeed(stops=stops, routes=routes)
+        # Create feed instance
+        feed = FlixbusFeed(
+            stops=stops,
+            routes=routes,
+            calendars=calendars,
+            calendar_dates=calendar_dates,
+            trips=trips
+        )
+        
+        return feed
     except Exception as e:
         logger.error(f"Error deserializing GTFS data: {e}", exc_info=True)
         raise
@@ -563,36 +703,65 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             'thursday': int,
             'friday': int,
             'saturday': int,
-            'sunday': int
+            'sunday': int,
+            'start_date': str,
+            'end_date': str
         })
         use_calendar_dates = False
-        calendar_dict = {
-            row.service_id: {
-                'monday': row.monday,
-                'tuesday': row.tuesday,
-                'wednesday': row.wednesday,
-                'thursday': row.thursday,
-                'friday': row.friday,
-                'saturday': row.saturday,
-                'sunday': row.sunday
-            }
-            for row in calendar_df.itertuples()
-        }
+        calendars = {}
+        for _, row in calendar_df.iterrows():
+            service_id = str(row['service_id'])
+            calendars[service_id] = Calendar(
+                service_id=service_id,
+                monday=bool(row['monday']),
+                tuesday=bool(row['tuesday']),
+                wednesday=bool(row['wednesday']),
+                thursday=bool(row['thursday']),
+                friday=bool(row['friday']),
+                saturday=bool(row['saturday']),
+                sunday=bool(row['sunday']),
+                start_date=datetime.strptime(str(row['start_date']), '%Y%m%d'),
+                end_date=datetime.strptime(str(row['end_date']), '%Y%m%d')
+            )
         del calendar_df
     except FileNotFoundError:
         logger.info("calendar.txt not found, trying calendar_dates.txt...")
         calendar_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
             'service_id': str,
-            'date': str
+            'date': str,
+            'exception_type': int
         })
         use_calendar_dates = True
-        # Group dates by service_id
-        calendar_dict = {}
+        calendars = {}
+        calendar_dates = []
         for _, row in calendar_df.iterrows():
-            if row.service_id not in calendar_dict:
-                calendar_dict[row.service_id] = []
-            calendar_dict[row.service_id].append(str(row.date))
+            calendar_dates.append(CalendarDate(
+                service_id=str(row['service_id']),
+                date=datetime.strptime(str(row['date']), '%Y%m%d'),
+                exception_type=int(row['exception_type'])
+            ))
         del calendar_df
+    
+    # Load calendar_dates.txt for exceptions if we have regular calendars
+    if not use_calendar_dates:
+        try:
+            logger.info("Loading calendar_dates.txt for exceptions...")
+            calendar_dates_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
+                'service_id': str,
+                'date': str,
+                'exception_type': int
+            })
+            calendar_dates = []
+            for _, row in calendar_dates_df.iterrows():
+                calendar_dates.append(CalendarDate(
+                    service_id=str(row['service_id']),
+                    date=datetime.strptime(str(row['date']), '%Y%m%d'),
+                    exception_type=int(row['exception_type'])
+                ))
+            del calendar_dates_df
+        except FileNotFoundError:
+            logger.info("No calendar_dates.txt found")
+            calendar_dates = []
     
     # If we have target stops, pre-filter the trips that contain them
     if target_stops:
@@ -605,34 +774,100 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         trips_df = trips_df[trips_df['trip_id'].isin(relevant_trips)]
         logger.info(f"Found {len(trips_df)} relevant trips")
     
-    logger.info("Processing routes...")
-    # Convert trips DataFrame to list of dictionaries and free memory
-    trips_list = trips_df.to_dict('records')
+    # Convert trips DataFrame to dictionary
+    trips = {}
+    for _, row in trips_df.iterrows():
+        trip_id = str(row['trip_id'])
+        trip = Trip(
+            id=trip_id,
+            route_id=str(row['route_id']),
+            service_id=str(row['service_id']),
+            headsign=str(row['trip_headsign']) if 'trip_headsign' in row and pd.notna(row['trip_headsign']) else None,
+            direction_id=str(row['direction_id']) if 'direction_id' in row and pd.notna(row['direction_id']) else None,
+            block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
+            shape_id=str(row['shape_id']) if 'shape_id' in row and pd.notna(row['shape_id']) else None
+        )
+        # Add stop times
+        if trip_id in stop_times_dict:
+            for stop_time_data in stop_times_dict[trip_id]:
+                stop_time_data['trip_id'] = trip_id  # Add trip_id to the data
+                trip.stop_times.append(StopTime(**stop_time_data))
+        trips[trip_id] = trip
     del trips_df
     
-    # Process in smaller batches to reduce memory usage
-    batch_size = min(1000, max(100, len(trips_list) // (cpu_count() * 4)))
-    trip_batches = [trips_list[i:i + batch_size] for i in range(0, len(trips_list), batch_size)]
-    del trips_list
-    
-    # Process routes in parallel with progress indicator
+    logger.info("Processing routes...")
+    # Process routes
     routes = []
-    total_batches = len(trip_batches)
-    logger.info(f"Processing {total_batches} batches...")
-    
-    with Pool() as pool:
-        for i, batch_routes in enumerate(pool.imap_unordered(process_trip_batch, [
-            (batch, stops, shapes, routes_dict, calendar_dict, stop_times_dict, use_calendar_dates)
-            for batch in trip_batches
-        ])):
-            routes.extend(batch_routes)
-            if (i + 1) % 10 == 0 or (i + 1) == total_batches:
-                logger.info(f"Processed {i + 1}/{total_batches} batches")
+    for trip in trips.values():
+        route_id = trip.route_id
+        route_info = routes_dict.get(route_id, {})
+        route_name = route_info.get('route_long_name', '')
+        if pd.isna(route_name):
+            route_name = route_info.get('route_short_name', '') or f"Route {route_id}"
+        
+        # Get service days based on calendar type
+        if use_calendar_dates:
+            # For calendar_dates.txt, group by service_id and get unique dates
+            service_dates = [cal_date.date for cal_date in calendar_dates if cal_date.service_id == trip.service_id]
+            # Convert dates to days of the week
+            service_days = list(set(
+                date.strftime('%A').lower()
+                for date in service_dates
+            ))
+        else:
+            # For calendar.txt, use the existing logic
+            service = calendars.get(trip.service_id, None)
+            if service:
+                service_days = [
+                    day for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                    if getattr(service, day)
+                ]
+            else:
+                service_days = []
+        
+        # Get stops for this trip
+        route_stops = []
+        for stop_time in sorted(trip.stop_times, key=lambda x: x.stop_sequence):
+            stop_id = str(stop_time.stop_id)
+            if stop_id in stops:
+                route_stops.append(
+                    RouteStop(
+                        stop=stops[stop_id],
+                        arrival_time=stop_time.arrival_time,
+                        departure_time=stop_time.departure_time,
+                        stop_sequence=stop_time.stop_sequence
+                    )
+                )
+        
+        # Get shape for this trip if available
+        shape = None
+        if trip.shape_id and trip.shape_id in shapes:
+            shape = shapes[trip.shape_id]
+        
+        routes.append(
+            Route(
+                route_id=route_id,
+                route_name=route_name,
+                trip_id=trip.id,
+                service_days=service_days,
+                stops=route_stops,
+                shape=shape,
+                short_name=route_info.get('route_short_name'),
+                color=route_info.get('color'),
+                text_color=route_info.get('text_color')
+            )
+        )
     
     logger.info(f"Loaded {len(routes)} routes")
     
     # Create feed object
-    feed = FlixbusFeed(stops=stops, routes=routes)
+    feed = FlixbusFeed(
+        stops=stops,
+        routes=routes,
+        calendars=calendars,
+        calendar_dates=calendar_dates,
+        trips=trips
+    )
     
     # Save to cache
     logger.info(f"Saving to cache... with hash {current_hash}")
@@ -651,3 +886,5 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             pass
     
     return feed 
+
+ 
