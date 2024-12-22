@@ -455,7 +455,6 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     
     # Load translations first
     translations = load_translations(data_path)
-    logger.info(f"Loaded translations: {translations}")
     
     # Load stops
     logger.info("Loading stops...")
