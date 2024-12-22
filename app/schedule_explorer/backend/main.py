@@ -1,15 +1,50 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import pandas as pd
 import logging
-from .logging_config import setup_logging
+import sys
+import logging.config
+import json
+from mobility_db_api import MobilityAPI
 
 from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape, RouteInfo
 from .gtfs_loader import FlixbusFeed, load_feed
+
+# Configure download directory
+DOWNLOAD_DIR = Path(os.getenv('GTFS_DOWNLOAD_DIR', Path(__file__).parent.parent.parent.parent / 'downloads'))
+
+# Configure logging
+def setup_logging():
+    logging_config = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'standard': {
+                'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+            },
+        },
+        'handlers': {
+            'default': {
+                'level': 'INFO',
+                'formatter': 'standard',
+                'class': 'logging.StreamHandler',
+                'stream': 'ext://sys.stdout',
+            },
+        },
+        'loggers': {
+            '': {
+                'handlers': ['default'],
+                'level': 'INFO',
+                'propagate': True
+            }
+        }
+    }
+    logging.config.dictConfig(logging_config)
+    return logging.getLogger(__name__)
 
 app = FastAPI(title="Schedule Explorer API")
 
@@ -25,48 +60,89 @@ app.add_middleware(
 # Global variables
 feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
-available_providers: List[str] = []
+available_providers: List[Dict] = []
 logger = setup_logging()
 
-def find_gtfs_directories() -> List[str]:
-    """Find all GTFS data directories in the project's cache directory."""
-    # Start from the current file's location
-    current_path = Path(os.path.dirname(os.path.abspath(__file__)))
+def find_gtfs_directories() -> List[Dict]:
+    """Find all GTFS data directories in the downloads directory and their metadata."""
+    providers = {}
     
-    # Navigate up to the project root (where cache directory is)
-    project_root = current_path
-    while project_root.name != 'STIB':
-        project_root = project_root.parent
+    # Collect metadata from downloads
+    if DOWNLOAD_DIR.exists():
+        metadata_file = DOWNLOAD_DIR / 'datasets_metadata.json'
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    for dataset_id, dataset_info in metadata.items():
+                        provider_id = dataset_info.get('provider_id')
+                        if provider_id:
+                            # Check if the dataset directory exists
+                            dataset_dir = Path(dataset_info.get('download_path'))
+                            if dataset_dir.exists():
+                                # Convert to the format expected by the frontend
+                                providers[provider_id] = {
+                                    'id': provider_id,
+                                    'provider': dataset_info.get('provider_name'),
+                                    'name': dataset_info.get('provider_name'),
+                                    'latest_dataset': {
+                                        'id': dataset_info.get('dataset_id'),
+                                        'downloaded_at': dataset_info.get('download_date'),
+                                        'hash': dataset_info.get('file_hash'),
+                                        'hosted_url': dataset_info.get('source_url'),
+                                        'validation_report': {
+                                            'total_error': 0,  # We don't have this info yet
+                                            'total_warning': 0,
+                                            'total_info': 0
+                                        }
+                                    }
+                                }
+            except Exception as e:
+                logger.error(f"Error reading metadata file {metadata_file}: {str(e)}")
     
-    # Look in the cache directory
-    cache_path = project_root / 'cache'
-    gtfs_dirs = []
-    
-    # Look for directories that contain GTFS files
-    if cache_path.exists():
-        for item in cache_path.iterdir():
-            if item.is_dir():
-                # Check if directory contains required GTFS files
-                required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
-                # Either calendar.txt or calendar_dates.txt is required
-                calendar_files = ['calendar.txt', 'calendar_dates.txt']
-                
-                if (all((item / file).exists() for file in required_files) and 
-                    any((item / file).exists() for file in calendar_files)):
-                    gtfs_dirs.append(item.name)
-    
-    return sorted(gtfs_dirs)
+    return list(providers.values())
+
+@app.get("/api/providers/{country_code}", response_model=List[Dict])
+async def get_providers_by_country(country_code: str):
+    """Get list of available GTFS providers for a specific country"""
+    try:
+        db = MobilityAPI()
+        providers = db.get_providers_by_country(country_code)
+        return providers
+    except Exception as e:
+        logger.error(f"Error getting providers for country {country_code}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/download/{provider_id}")
+async def download_gtfs(provider_id: str):
+    """Download GTFS data for a specific provider"""
+    try:
+        # Create downloads directory if it doesn't exist
+        DOWNLOAD_DIR.mkdir(exist_ok=True)
+        
+        # Download the GTFS data
+        db = MobilityAPI()
+        result = db.download_latest_dataset(provider_id, str(DOWNLOAD_DIR))
+        
+        if result:
+            return {"status": "success", "message": f"Downloaded GTFS data for {provider_id}"}
+        else:
+            raise HTTPException(status_code=500, detail="Download failed")
+            
+    except Exception as e:
+        logger.error(f"Error downloading GTFS data for provider {provider_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/providers", response_model=List[Dict])
+async def get_providers():
+    """Get list of available GTFS providers with their metadata"""
+    return find_gtfs_directories()
 
 @app.on_event("startup")
 async def startup_event():
     """Load available GTFS providers on startup"""
     global available_providers
     available_providers = find_gtfs_directories()
-
-@app.get("/providers", response_model=List[str])
-async def get_providers():
-    """Get list of available GTFS providers"""
-    return available_providers
 
 @app.post("/provider/{provider_name}")
 async def set_provider(provider_name: str):
