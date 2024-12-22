@@ -127,7 +127,7 @@ class Route:
     color: Optional[str] = None
     text_color: Optional[str] = None
     agency_id: Optional[str] = None
-    _feed: Optional['FlixbusFeed'] = field(default=None, repr=False)
+    _feed: Optional['FlixbusFeed'] = field(default=None, repr=False, compare=False, hash=False)
     
     def operates_on(self, date: datetime) -> bool:
         """Check if this route operates on a specific date"""
@@ -422,8 +422,40 @@ def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     try:
         logger.info("Starting GTFS feed serialization")
         
-        # Convert feed to dictionary format
-        data = asdict(feed)
+        # Create a custom dictionary without _feed references
+        data = {
+            'stops': {stop_id: asdict(stop) for stop_id, stop in feed.stops.items()},
+            'routes': [],
+            'calendars': {cal_id: asdict(cal) for cal_id, cal in feed.calendars.items()},
+            'calendar_dates': [asdict(cal_date) for cal_date in feed.calendar_dates],
+            'trips': {trip_id: asdict(trip) for trip_id, trip in feed.trips.items()}
+        }
+        
+        # Handle routes separately to avoid _feed recursion
+        for route in feed.routes:
+            route_dict = {
+                'route_id': route.route_id,
+                'route_name': route.route_name,
+                'trip_id': route.trip_id,
+                'service_days': route.service_days,
+                'stops': [
+                    {
+                        'stop': asdict(rs.stop),
+                        'arrival_time': rs.arrival_time,
+                        'departure_time': rs.departure_time,
+                        'stop_sequence': rs.stop_sequence
+                    }
+                    for rs in route.stops
+                ],
+                'shape': asdict(route.shape) if route.shape else None,
+                'short_name': route.short_name,
+                'long_name': route.long_name,
+                'route_type': route.route_type,
+                'color': route.color,
+                'text_color': route.text_color,
+                'agency_id': route.agency_id
+            }
+            data['routes'].append(route_dict)
         
         # Convert datetime objects to ISO format strings
         if 'calendars' in data:
@@ -540,6 +572,7 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
             trips=trips
         )
         
+        logger.info(f"Deserialization completed in {time.time() - start_time:.2f} seconds")
         return feed
     except Exception as e:
         logger.error(f"Error deserializing GTFS data: {e}", exc_info=True)
