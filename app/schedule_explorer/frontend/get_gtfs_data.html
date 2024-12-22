@@ -11,6 +11,13 @@
     <style>
         .provider-card {
             margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .provider-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
         .backend-status {
             position: fixed;
@@ -45,17 +52,42 @@
         .validation-info {
             font-size: 0.9em;
             color: #666;
+            padding: 8px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-top: 10px;
         }
         .validation-error {
             color: #dc3545;
+            font-weight: 500;
         }
         .validation-warning {
             color: #ffc107;
+            font-weight: 500;
         }
         .provider-info {
             font-size: 0.9em;
             color: #666;
-            margin-bottom: 10px;
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+        .card-title {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        .text-info {
+            color: #0dcaf0;
+            font-weight: 500;
+        }
+        .text-muted {
+            color: #6c757d;
+            text-decoration: none;
+        }
+        .text-muted:hover {
+            color: #495057;
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -152,14 +184,18 @@
                         <div class="validation-info">
                             ${validationInfo.total_error ? `<span class="validation-error">Errors: ${validationInfo.total_error}</span> | ` : ''}
                             ${validationInfo.total_warning ? `<span class="validation-warning">Warnings: ${validationInfo.total_warning}</span>` : ''}
+                            ${validationInfo.total_info ? `<span class="text-info">Info: ${validationInfo.total_info}</span>` : ''}
                         </div>
                     `;
 
                     // Get provider info
                     const providerInfo = `
                         <div class="provider-info">
+                            ${provider.raw_id ? `Provider ID: ${provider.raw_id}<br>` : ''}
                             ${provider.feed_name ? `Feed: ${provider.feed_name}<br>` : ''}
+                            ${provider.latest_dataset ? `Dataset ID: ${provider.latest_dataset.id}<br>` : ''}
                             ${provider.latest_dataset ? `Last updated: ${new Date(provider.latest_dataset.downloaded_at).toLocaleString()}<br>` : ''}
+                            ${provider.latest_dataset?.hosted_url ? `<a href="${provider.latest_dataset.hosted_url}" target="_blank" class="text-muted">Source URL</a><br>` : ''}
                         </div>
                     `;
 
@@ -186,7 +222,7 @@
             async function loadCurrentProviders() {
                 showStatus('Loading current providers...', 'loading');
                 try {
-                    const response = await fetch('http://localhost:8000/providers');
+                    const response = await fetch('http://localhost:8000/providers_info');
                     if (!response.ok) throw new Error('Failed to fetch current providers');
                     const providers = await response.json();
                     displayProviders(providers, currentProvidersContainer, true);

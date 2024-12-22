@@ -474,8 +474,9 @@ async def get_station_routes(
     
     return routes_info 
 
-# Add a new endpoint for getting provider details
-@app.get("/api/providers", response_model=List[Dict])
-async def get_providers_with_details():
-    """Get list of available GTFS providers with their metadata"""
+
+
+@app.get("/providers_info", response_model=List[Dict])
+async def get_providers_info():
+    """Get list of available GTFS providers with full metadata"""
     return find_gtfs_directories()
