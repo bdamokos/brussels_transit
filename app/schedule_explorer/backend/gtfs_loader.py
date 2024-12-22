@@ -415,7 +415,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
 
-CACHE_VERSION = "2.4"
+CACHE_VERSION = "2.5"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
@@ -858,24 +858,32 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             route_name = route_info.get('route_short_name', '') or f"Route {route_id}"
         
         # Get service days based on calendar type
+        service_days = set()
         if use_calendar_dates:
             # For calendar_dates.txt, group by service_id and get unique dates
             service_dates = [cal_date.date for cal_date in calendar_dates if cal_date.service_id == trip.service_id]
             # Convert dates to days of the week
-            service_days = list(set(
+            service_days.update(
                 date.strftime('%A').lower()
                 for date in service_dates
-            ))
+            )
         else:
-            # For calendar.txt, use the existing logic
-            service = calendars.get(trip.service_id, None)
+            # For calendar.txt, use the regular calendar
+            service = calendars.get(trip.service_id)
             if service:
-                service_days = [
-                    day for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-                    if getattr(service, day)
-                ]
-            else:
-                service_days = []
+                # Add regular service days
+                for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
+                    if getattr(service, day):
+                        service_days.add(day)
+                
+                # Process exceptions from calendar_dates
+                for cal_date in calendar_dates:
+                    if cal_date.service_id == trip.service_id:
+                        day_name = cal_date.date.strftime('%A').lower()
+                        if cal_date.exception_type == 1:  # Service added
+                            service_days.add(day_name)
+                        elif cal_date.exception_type == 2:  # Service removed
+                            service_days.discard(day_name)
         
         # Get stops for this trip
         route_stops = []
@@ -901,7 +909,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 route_id=route_id,
                 route_name=route_name,
                 trip_id=trip.id,
-                service_days=service_days,
+                service_days=sorted(service_days),  # Convert set to sorted list
                 stops=route_stops,
                 shape=shape,
                 short_name=route_info.get('route_short_name'),
