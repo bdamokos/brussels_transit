@@ -277,7 +277,7 @@ The logging system now provides:
 4. Dynamic language detection from available translations
 5. Memory-efficient translation loading and caching
 
-**Next Steps for Step 4: Stop Hierarchy Integration**
+### ❌ Step 4: Integrate Stop Hierarchy for Enhanced GTFS Compliance (NOT IMPLEMENTED)
 
 To-Do List:
 1. Backend Changes:
@@ -308,116 +308,8 @@ To-Do List:
 
 This step will enhance GTFS compliance while maintaining compatibility with simpler GTFS feeds.
 
-### Step 4: Integrate Stop Hierarchy for Enhanced GTFS Compliance
 
-**Objective:** Accurately represent parent and child stations to improve GTFS compliance and data organization.
-
-#### Actions:
-
-1. **Backend:**
-   - **Port Stop Hierarchy Parsing:**
-     - Ensure the `Stop` dataclass includes `parent_station: Optional[str] = None` and related fields:
-       ```python
-       @dataclass
-       class Stop:
-           id: str
-           name: str
-           lat: float
-           lon: float
-           translations: Dict[str, str] = field(default_factory=dict)
-           location_type: Optional[int] = None
-           parent_station: Optional[str] = None
-           platform_code: Optional[str] = None
-           timezone: Optional[str] = None
-       ```
-     - Copy the hierarchy parsing logic from Flixbus `gtfs_loader.py`:
-       ```python
-       def load_stops(data_path: Path, translations: Dict[str, Dict[str, str]]) -> Dict[str, Stop]:
-           stops_df = pd.read_csv(data_path / "stops.txt")
-           stops = {}
-           for _, row in stops_df.iterrows():
-               stop = Stop(
-                   id=str(row['stop_id']),
-                   name=row['stop_name'],
-                   lat=row['stop_lat'],
-                   lon=row['stop_lon'],
-                   location_type=row.get('location_type'),
-                   parent_station=str(row['parent_station']) if pd.notna(row.get('parent_station')) else None,
-                   platform_code=row.get('platform_code'),
-                   timezone=row.get('timezone'),
-                   translations=translations.get(str(row['stop_id']), {})
-               )
-               stops[stop.id] = stop
-           return stops
-       ```
-   
-   - **Data Loading:**
-     - Update `load_feed` to use the new `load_stops` function that includes stop hierarchy.
-   
-   - **Graceful Degradation:**
-     - Ensure that if hierarchical data is missing, the system continues to operate using flat stop structures.
-   
-2. **Frontend:**
-   - **UI Enhancements:**
-     - Update station listings to display hierarchical relationships (e.g., child stops under parent stations).
-     - Example in `app/schedule_explorer/frontend/js/app.js`:
-       ```javascript
-       function displayStations(stations) {
-           const stationList = document.getElementById('stationList');
-           stationList.innerHTML = '';
-   
-           const groupedStations = groupStationsByParent(stations);
-   
-           for (const [parentId, children] of Object.entries(groupedStations)) {
-               const parentStation = stations.find(s => s.id === parentId);
-               const parentItem = document.createElement('div');
-               parentItem.innerHTML = `<strong>${parentStation.name}</strong>`;
-               stationList.appendChild(parentItem);
-   
-               children.forEach(child => {
-                   const childItem = document.createElement('div');
-                   childItem.style.paddingLeft = '20px';
-                   childItem.textContent = child.name;
-                   stationList.appendChild(childItem);
-               });
-           }
-       }
-   
-       function groupStationsByParent(stations) {
-           const groups = {};
-           stations.forEach(station => {
-               const parentId = station.parent_station || station.id;
-               if (!groups[parentId]) {
-                   groups[parentId] = [];
-               }
-               if (station.parent_station) {
-                   groups[parentId].push(station);
-               }
-           });
-           return groups;
-       }
-       ```
-   
-   - **Navigation Improvements:**
-     - Allow users to expand/collapse parent stations to view child stops.
-   
-3. **Testing:**
-   - **Hierarchy Tests:**
-     - Verify that parent and child relationships are correctly established in the backend.
-     - Ensure that the frontend accurately displays hierarchical station data.
-   
-   - **GTFS Compliance:**
-     - Confirm that the stop hierarchy adheres to GTFS specifications and enhances data organization.
-   
-4. **Version Control:**
-   - **Commit Message:** `🏛️ Implement stop hierarchy for enhanced GTFS compliance`
-
-**Business Case:**
-Implementing stop hierarchy organizes data more logically, improves data retrieval efficiency, and ensures compliance with GTFS standards, enhancing overall data integrity.
-
----
-
-### Step 5: Enhance the `Route` Model with Full GTFS Fields
+### ✅ Step 5: Enhance the `Route` Model with Full GTFS Fields
 
 **Objective:** Expand the `Route` data model to include comprehensive GTFS fields for better route management.
 
@@ -479,7 +371,7 @@ Adding comprehensive route fields enables more detailed route management and ric
 
 ---
 
-### Step 6: Implement the `Shape` Model for Geographical Path Representation
+### ❌ Step 6: Implement the `Shape` Model for Geographical Path Representation
 
 **Objective:** Introduce a `Shape` data model to represent the geographical path of routes.
 
