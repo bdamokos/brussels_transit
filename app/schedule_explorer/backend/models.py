@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import time
 
 class Location(BaseModel):
@@ -28,6 +28,8 @@ class Route(BaseModel):
     line_number: Optional[str] = None
     color: Optional[str] = None
     text_color: Optional[str] = None
+    headsigns: Optional[Dict[str, str]] = None  # direction_id -> headsign
+    service_ids: Optional[List[str]] = None  # List of service IDs for debugging
 
 class RouteResponse(BaseModel):
     routes: List[Route]
