@@ -583,6 +583,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     Load GTFS feed from the specified directory.
     If target_stops is provided, only loads routes that contain those stops.
     """
+    start_time = time.time()
     logger.info(f"Loading GTFS feed from: {data_dir}")
     
     # Start from the current file's location
@@ -627,9 +628,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
     
     # Load translations first
+    t0 = time.time()
     translations = load_translations(data_path)
+    logger.info(f"Loaded translations in {time.time() - t0:.2f} seconds")
     
     # Load stops
+    t0 = time.time()
     logger.info("Loading stops...")
     stops = {}
     for chunk in pd.read_csv(data_path / "stops.txt", 
@@ -651,9 +655,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             stops[stop.id] = stop
             if stop.translations:
                 logger.debug(f"Stop {stop.id} ({stop.name}) has translations: {stop.translations}")
-    logger.info(f"Loaded {len(stops)} stops")
+    logger.info(f"Loaded {len(stops)} stops in {time.time() - t0:.2f} seconds")
     
     # Load shapes if available
+    t0 = time.time()
     shapes = {}
     try:
         logger.info("Loading shapes...")
@@ -667,11 +672,12 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         for shape_id, group in shapes_df.groupby('shape_id'):
             sorted_points = group.sort_values('shape_pt_sequence')[['shape_pt_lat', 'shape_pt_lon']].values.tolist()
             shapes[shape_id] = Shape(shape_id=str(shape_id), points=sorted_points)
-        logger.info(f"Loaded {len(shapes)} shapes")
+        logger.info(f"Loaded {len(shapes)} shapes in {time.time() - t0:.2f} seconds")
     except FileNotFoundError:
         logger.warning("No shapes.txt found, routes will use stop coordinates")
     
     # Load routes and other data
+    t0 = time.time()
     logger.info("Loading routes, trips, stop times, and calendar...")
     routes_df = pd.read_csv(data_path / "routes.txt", dtype={
         'route_id': str,
@@ -692,6 +698,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         for row in routes_df.itertuples()
     }
     del routes_df
+    logger.info(f"Loaded routes, trips, stop times, and calendar in {time.time() - t0:.2f} seconds")
     
     # Load trips with correct dtypes
     trips_df = pd.read_csv(data_path / "trips.txt", dtype={
@@ -702,6 +709,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     }, low_memory=False)
     
     # Load stop times in chunks to handle large files
+    t0 = time.time()
     logger.info("Loading stop times...")
     chunk_size = 100000
     stop_times_dict = {}
@@ -724,8 +732,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 'departure_time': row.departure_time,
                 'stop_sequence': row.stop_sequence
             })
+    logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
     
     # Try to load calendar.txt first, fall back to calendar_dates.txt
+    t0 = time.time()
     try:
         logger.info("Loading calendar.txt...")
         calendar_df = pd.read_csv(data_path / "calendar.txt", dtype={
@@ -757,6 +767,7 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 end_date=datetime.strptime(str(row['end_date']), '%Y%m%d')
             )
         del calendar_df
+        logger.info(f"Loaded calendar.txt in {time.time() - t0:.2f} seconds")
     except FileNotFoundError:
         logger.info("calendar.txt not found, trying calendar_dates.txt...")
         calendar_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
@@ -774,9 +785,11 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 exception_type=int(row['exception_type'])
             ))
         del calendar_df
+        logger.info(f"Loaded calendar_dates.txt in {time.time() - t0:.2f} seconds")
     
     # Load calendar_dates.txt for exceptions if we have regular calendars
     if not use_calendar_dates:
+        t0 = time.time()
         try:
             logger.info("Loading calendar_dates.txt for exceptions...")
             calendar_dates_df = pd.read_csv(data_path / "calendar_dates.txt", dtype={
@@ -792,12 +805,14 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                     exception_type=int(row['exception_type'])
                 ))
             del calendar_dates_df
+            logger.info(f"Loaded calendar_dates.txt for exceptions in {time.time() - t0:.2f} seconds")
         except FileNotFoundError:
             logger.info("No calendar_dates.txt found")
             calendar_dates = []
     
     # If we have target stops, pre-filter the trips that contain them
     if target_stops:
+        t0 = time.time()
         logger.info(f"Pre-filtering trips containing stops: {target_stops}")
         # Get trips that contain any of our target stops
         relevant_trips = set()
@@ -806,8 +821,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 relevant_trips.add(trip_id)
         trips_df = trips_df[trips_df['trip_id'].isin(relevant_trips)]
         logger.info(f"Found {len(trips_df)} relevant trips")
+        logger.info(f"Pre-filtered trips in {time.time() - t0:.2f} seconds")
     
     # Convert trips DataFrame to dictionary
+    t0 = time.time()
     trips = {}
     for _, row in trips_df.iterrows():
         trip_id = str(row['trip_id'])
@@ -827,7 +844,9 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 trip.stop_times.append(StopTime(**stop_time_data))
         trips[trip_id] = trip
     del trips_df
+    logger.info(f"Converted trips to dictionary in {time.time() - t0:.2f} seconds")
     
+    t0 = time.time()
     logger.info("Processing routes...")
     # Process routes
     routes = []
@@ -891,9 +910,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             )
         )
     
-    logger.info(f"Loaded {len(routes)} routes")
+    logger.info(f"Loaded {len(routes)} routes in {time.time() - t0:.2f} seconds")
     
     # Create feed object
+    t0 = time.time()
     feed = FlixbusFeed(
         stops=stops,
         routes=routes,
@@ -901,8 +921,10 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         calendar_dates=calendar_dates,
         trips=trips
     )
+    logger.info(f"Created feed object in {time.time() - t0:.2f} seconds")
     
     # Save to cache
+    t0 = time.time()
     logger.info(f"Saving to cache... with hash {current_hash}")
     try:
         serialized_data = serialize_gtfs_data(feed)
@@ -917,7 +939,9 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             hash_file.unlink()
         except:
             pass
+    logger.info(f"Saved to cache in {time.time() - t0:.2f} seconds")
     
+    logger.info(f"Total time taken: {time.time() - start_time:.2f} seconds")
     return feed 
 
  
