@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Explorer - STIB/MIVB</title>
+    <title>Stop Explorer - STIB/MIVB</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
@@ -13,14 +13,17 @@
     
     <style>
         #map {
-            height: 500px;
+            height: 300px;
             width: 100%;
             margin-bottom: 20px;
         }
-        .route-card {
+        .route-line {
             margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 5px solid;
         }
-        .stop-time {
+        .route-terminus {
             font-weight: bold;
         }
         .backend-status {
@@ -55,14 +58,14 @@
         }
         .search-form {
             position: relative;
-            z-index: 1001;  /* Above the map */
+            z-index: 1001;
         }
         .station-results {
             max-height: 300px;
             overflow-y: auto;
         }
         .station-results .dropdown-item {
-            white-space: normal;  /* Allow wrapping of long station names */
+            white-space: normal;
             padding: 0.5rem 1rem;
         }
         .station-results .dropdown-header {
@@ -82,6 +85,20 @@
         .nav-link {
             font-size: 1.2em;
         }
+        .stop-details {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .stop-name {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        .stop-id {
+            color: #6c757d;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -96,15 +113,13 @@
             <div class="container-fluid">
                 <span class="navbar-brand">STIB/MIVB Explorer</span>
                 <div class="navbar-nav">
-                    <a class="nav-link active" href="index.html">Route Explorer</a>
-                    <a class="nav-link" href="stop_explorer.html">Stop Explorer</a>
+                    <a class="nav-link" href="index.html">Route Explorer</a>
+                    <a class="nav-link active" href="stop_explorer.html">Stop Explorer</a>
                 </div>
             </div>
         </nav>
 
-        <h1 class="mb-4">Flixbus Route Explorer</h1>
-        
-        <!-- Provider Selection -->
+        <!-- Provider and Language Selection -->
         <div class="row mb-4">
             <div class="col-md-4">
                 <label for="providerSelect" class="form-label">Provider</label>
@@ -122,50 +137,26 @@
         
         <!-- Search Form -->
         <div class="row mb-4 search-form">
-            <div class="col-md-5">
-                <label for="fromStation" class="form-label">From</label>
+            <div class="col-md-8">
+                <label for="stopSearch" class="form-label">Search for a stop</label>
                 <div class="dropdown">
                     <input type="text" 
                            class="form-control" 
-                           id="fromStation" 
-                           placeholder="Enter departure station"
+                           id="stopSearch" 
+                           placeholder="Enter stop name"
                            autocomplete="off"
                            disabled>
-                    <div class="dropdown-menu station-results w-100" id="fromStationResults"></div>
+                    <div class="dropdown-menu station-results w-100" id="stopSearchResults"></div>
                 </div>
-            </div>
-            <div class="col-md-5">
-                <label for="toStation" class="form-label">To</label>
-                <div class="dropdown">
-                    <input type="text" 
-                           class="form-control" 
-                           id="toStation" 
-                           placeholder="Enter destination station"
-                           autocomplete="off"
-                           disabled>
-                    <div class="dropdown-menu station-results w-100" id="toStationResults"></div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <label for="date" class="form-label">Date</label>
-                <input type="date" class="form-control" id="date" disabled>
             </div>
         </div>
-        
-        <!-- Search Options -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="showStopIds">
-                    <label class="form-check-label" for="showStopIds">Show stop IDs</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="mergeSameNameStations">
-                    <label class="form-check-label" for="mergeSameNameStations">Merge stations with same name</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="condensedTimetable">
-                    <label class="form-check-label" for="condensedTimetable">Condensed timetable view</label>
+
+        <!-- Stop Details -->
+        <div id="stopDetails" class="stop-details" style="display: none;">
+            <div class="row">
+                <div class="col-md-6">
+                    <h2 class="stop-name" id="selectedStopName"></h2>
+                    <p class="stop-id" id="selectedStopId"></p>
                 </div>
             </div>
         </div>
@@ -173,10 +164,10 @@
         <!-- Map -->
         <div id="map"></div>
         
-        <!-- Route Results -->
-        <div id="routeResults">
+        <!-- Routes List -->
+        <div id="routesList" class="mt-4">
             <div class="alert alert-info">
-                Please select a GTFS provider to start exploring routes.
+                Please select a stop to see routes operating from it.
             </div>
         </div>
     </div>
@@ -188,6 +179,6 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- Custom JS -->
-    <script src="js/app.js"></script>
+    <script src="js/stop_explorer.js"></script>
 </body>
 </html> 
