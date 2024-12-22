@@ -127,6 +127,9 @@ class Route:
     color: Optional[str] = None
     text_color: Optional[str] = None
     agency_id: Optional[str] = None
+    headsigns: Dict[str, str] = field(default_factory=dict)  # direction_id -> headsign
+    service_ids: List[str] = field(default_factory=list)  # List of all service IDs for this route
+    direction_id: Optional[str] = None  # Direction of this route variant
     _feed: Optional['FlixbusFeed'] = field(default=None, repr=False, compare=False, hash=False)
     
     def operates_on(self, date: datetime) -> bool:
@@ -134,38 +137,34 @@ class Route:
         if not self._feed:
             return False
         
-        # Get service ID from trip ID
-        service_id = None
-        for trip in self._feed.trips.values():  # trips is a dictionary
-            if trip.id == self.trip_id:
-                service_id = trip.service_id
-                break
+        # Check each service ID for this route
+        for service_id in self.service_ids:
+            operates = False
+            has_exception = False
+            
+            # First check calendar_dates exceptions
+            for cal_date in self._feed.calendar_dates:
+                if cal_date.service_id == service_id and cal_date.date.date() == date.date():
+                    has_exception = True
+                    if cal_date.exception_type == 1:  # Service added
+                        operates = True
+                        break
+                    elif cal_date.exception_type == 2:  # Service removed
+                        operates = False
+                        break
+            
+            # If no exception found, check regular calendar
+            if not has_exception and service_id in self._feed.calendars:
+                calendar = self._feed.calendars[service_id]
+                if calendar.start_date.date() <= date.date() <= calendar.end_date.date():
+                    weekday = date.strftime("%A").lower()
+                    operates = getattr(calendar, weekday)
+            
+            # If any service ID operates on this date, the route operates
+            if operates:
+                return True
         
-        if not service_id:
-            return False
-        
-        operates = False
-        has_exception = False
-        
-        # First check calendar_dates exceptions
-        for cal_date in self._feed.calendar_dates:
-            if cal_date.service_id == service_id and cal_date.date.date() == date.date():
-                has_exception = True
-                if cal_date.exception_type == 1:  # Service added
-                    operates = True
-                    break
-                elif cal_date.exception_type == 2:  # Service removed
-                    operates = False
-                    break
-        
-        # If no exception found, check regular calendar
-        if not has_exception and service_id in self._feed.calendars:
-            calendar = self._feed.calendars[service_id]
-            if calendar.start_date.date() <= date.date() <= calendar.end_date.date():
-                weekday = date.strftime("%A").lower()
-                operates = getattr(calendar, weekday)
-        
-        return operates
+        return False
     
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
         """Get a stop in this route by its ID"""
@@ -197,11 +196,12 @@ class Route:
         if start_seq is None or end_seq is None:
             return []
             
-        # Keep original order based on stop_sequence
+        # Handle both directions
         if start_seq <= end_seq:
             return [s for s in self.stops if start_seq <= s.stop_sequence <= end_seq]
         else:
-            return []  # Don't return stops in reverse order
+            # For reverse direction, return stops in the original order
+            return [s for s in self.stops if end_seq <= s.stop_sequence <= start_seq]
     
     def calculate_duration(self, start_id: str, end_id: str) -> Optional[timedelta]:
         """Calculate duration between any two stops in the route"""
@@ -826,99 +826,121 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     # Convert trips DataFrame to dictionary
     t0 = time.time()
     trips = {}
+    # First, group trips by route_id to collect all service_ids and headsigns
+    route_service_ids = {}  # route_id -> set of service_ids
+    route_headsigns = {}    # route_id -> dict of direction_id -> headsign
     for _, row in trips_df.iterrows():
         trip_id = str(row['trip_id'])
-        trip = Trip(
+        route_id = str(row['route_id'])
+        service_id = str(row['service_id'])
+        direction_id = str(getattr(row, 'direction_id', '0'))
+        headsign = getattr(row, 'trip_headsign', None)
+        
+        # Collect service IDs for each route
+        if route_id not in route_service_ids:
+            route_service_ids[route_id] = set()
+        route_service_ids[route_id].add(service_id)
+        
+        # Collect headsigns for each route direction
+        if headsign:
+            if route_id not in route_headsigns:
+                route_headsigns[route_id] = {}
+            route_headsigns[route_id][direction_id] = headsign
+        
+        # Store trip information
+        trips[trip_id] = Trip(
             id=trip_id,
-            route_id=str(row['route_id']),
-            service_id=str(row['service_id']),
-            headsign=str(row['trip_headsign']) if 'trip_headsign' in row and pd.notna(row['trip_headsign']) else None,
-            direction_id=str(row['direction_id']) if 'direction_id' in row and pd.notna(row['direction_id']) else None,
-            block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
+            route_id=route_id,
+            service_id=service_id,
+            headsign=headsign,
+            direction_id=direction_id,
             shape_id=str(row['shape_id']) if 'shape_id' in row and pd.notna(row['shape_id']) else None
         )
-        # Add stop times
-        if trip_id in stop_times_dict:
-            for stop_time_data in stop_times_dict[trip_id]:
-                stop_time_data['trip_id'] = trip_id  # Add trip_id to the data
-                trip.stop_times.append(StopTime(**stop_time_data))
-        trips[trip_id] = trip
     del trips_df
-    logger.info(f"Converted trips to dictionary in {time.time() - t0:.2f} seconds")
+    logger.info(f"Processed {len(trips)} trips in {time.time() - t0:.2f} seconds")
     
-    t0 = time.time()
-    logger.info("Processing routes...")
     # Process routes
+    t0 = time.time()
     routes = []
-    for trip in trips.values():
-        route_id = trip.route_id
-        route_info = routes_dict.get(route_id, {})
-        route_name = route_info.get('route_long_name', '')
-        if pd.isna(route_name):
-            route_name = route_info.get('route_short_name', '') or f"Route {route_id}"
+    for route_id, route_info in routes_dict.items():
+        # Get all trips for this route
+        route_trips = [trip for trip in trips.values() if trip.route_id == route_id]
+        if not route_trips:
+            continue
         
-        # Get service days based on calendar type
-        service_days = set()
-        if use_calendar_dates:
-            # For calendar_dates.txt, group by service_id and get unique dates
-            service_dates = [cal_date.date for cal_date in calendar_dates if cal_date.service_id == trip.service_id]
-            # Convert dates to days of the week
-            service_days.update(
-                date.strftime('%A').lower()
-                for date in service_dates
-            )
-        else:
-            # For calendar.txt, use the regular calendar
-            service = calendars.get(trip.service_id)
-            if service:
-                # Add regular service days
-                for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
-                    if getattr(service, day):
-                        service_days.add(day)
-                
-                # Process exceptions from calendar_dates
-                for cal_date in calendar_dates:
-                    if cal_date.service_id == trip.service_id:
-                        day_name = cal_date.date.strftime('%A').lower()
-                        if cal_date.exception_type == 1:  # Service added
-                            service_days.add(day_name)
-                        elif cal_date.exception_type == 2:  # Service removed
-                            service_days.discard(day_name)
+        # Group trips by direction
+        trips_by_direction = {}
+        for trip in route_trips:
+            direction = str(trip.direction_id) if trip.direction_id is not None else "0"
+            if direction not in trips_by_direction:
+                trips_by_direction[direction] = []
+            trips_by_direction[direction].append(trip)
         
-        # Get stops for this trip
-        route_stops = []
-        for stop_time in sorted(trip.stop_times, key=lambda x: x.stop_sequence):
-            stop_id = str(stop_time.stop_id)
-            if stop_id in stops:
-                route_stops.append(
-                    RouteStop(
-                        stop=stops[stop_id],
-                        arrival_time=stop_time.arrival_time,
-                        departure_time=stop_time.departure_time,
-                        stop_sequence=stop_time.stop_sequence
-                    )
-                )
-        
-        # Get shape for this trip if available
-        shape = None
-        if trip.shape_id and trip.shape_id in shapes:
-            shape = shapes[trip.shape_id]
-        
-        routes.append(
-            Route(
+        # Create a route object for each direction
+        for direction, direction_trips in trips_by_direction.items():
+            # Use the first trip of this direction as a reference
+            reference_trip = direction_trips[0]
+            
+            # Get stop times for this trip
+            stop_times = stop_times_dict.get(reference_trip.id, [])
+            if not stop_times:
+                continue
+            
+            # Sort stop times by sequence
+            stop_times.sort(key=lambda x: x['stop_sequence'])
+            
+            # Create RouteStop objects
+            route_stops = []
+            for stop_time in stop_times:
+                stop_id = stop_time['stop_id']
+                if stop_id not in stops:
+                    continue
+                route_stops.append(RouteStop(
+                    stop=stops[stop_id],
+                    arrival_time=stop_time['arrival_time'],
+                    departure_time=stop_time['departure_time'],
+                    stop_sequence=stop_time['stop_sequence']
+                ))
+            
+            # Calculate service days based on all service IDs for this route
+            service_days = set()
+            for service_id in route_service_ids[route_id]:
+                if service_id in calendars:
+                    calendar = calendars[service_id]
+                    if calendar.monday:
+                        service_days.add('monday')
+                    if calendar.tuesday:
+                        service_days.add('tuesday')
+                    if calendar.wednesday:
+                        service_days.add('wednesday')
+                    if calendar.thursday:
+                        service_days.add('thursday')
+                    if calendar.friday:
+                        service_days.add('friday')
+                    if calendar.saturday:
+                        service_days.add('saturday')
+                    if calendar.sunday:
+                        service_days.add('sunday')
+            
+            # Create the route object
+            route = Route(
                 route_id=route_id,
-                route_name=route_name,
-                trip_id=trip.id,
-                service_days=sorted(service_days),  # Convert set to sorted list
+                route_name=route_info['route_long_name'] or f"Route {route_id}",
+                trip_id=reference_trip.id,
+                service_days=sorted(list(service_days)),
                 stops=route_stops,
-                shape=shape,
-                short_name=route_info.get('route_short_name'),
-                color=route_info.get('color'),
-                text_color=route_info.get('text_color')
+                shape=shapes.get(reference_trip.shape_id) if reference_trip.shape_id else None,
+                short_name=route_info['route_short_name'],
+                long_name=route_info['route_long_name'],
+                color=route_info['color'],
+                text_color=route_info['text_color'],
+                headsigns=route_headsigns.get(route_id, {}),
+                service_ids=list(route_service_ids[route_id]),
+                direction_id=direction
             )
-        )
+            routes.append(route)
     
-    logger.info(f"Loaded {len(routes)} routes in {time.time() - t0:.2f} seconds")
+    logger.info(f"Created {len(routes)} routes in {time.time() - t0:.2f} seconds")
     
     # Create feed object
     t0 = time.time()
