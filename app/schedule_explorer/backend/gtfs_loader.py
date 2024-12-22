@@ -359,20 +359,76 @@ def process_trip_batch(args):
 def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     """Load translations from translations.txt file.
     
-    For STIB format, the trans_id is the stop name, not the stop ID.
-    We need to map these translations back to stop IDs.
+    Handles both translation formats:
+    1. Simple format: trans_id,translation,lang
+    2. Table-based format: table_name,field_name,language,translation,record_id[,record_sub_id,field_value]
+    
+    Returns a dictionary mapping stop_id to a dictionary of language codes to translations.
     """
     translations_file = os.path.join(gtfs_dir, 'translations.txt')
     if not os.path.exists(translations_file):
         logger.warning(f"No translations file found at {translations_file}")
         return {}
 
-    # Load translations
-    df = pd.read_csv(translations_file)
+    # First, determine which format we're dealing with by reading the header
+    with open(translations_file, 'r', encoding='utf-8') as f:
+        header = f.readline().strip().split(',')
     
-    # Check if this is STIB format (has trans_id column)
-    if 'trans_id' in df.columns:
-        logger.info("Using STIB format for translations")
+    # Create a mapping of stop IDs to translations
+    translations = {}
+    
+    if 'table_name' in header:  # Table-based format
+        logger.info("Using table-based format for translations")
+        
+        # Read translations file
+        df = pd.read_csv(translations_file)
+        
+        # Filter for stop name translations only
+        stop_translations = df[
+            (df['table_name'] == 'stops') & 
+            (df['field_name'] == 'stop_name')
+        ]
+        
+        # Load stops.txt to get the mapping between stop_id and stop_name
+        stops_df = pd.read_csv(os.path.join(gtfs_dir, 'stops.txt'))
+        
+        # Create a mapping of stop_name to stop_id
+        # Some stops might share the same name, so we need to handle that
+        name_to_ids = {}
+        for _, stop in stops_df.iterrows():
+            stop_name = stop['stop_name']
+            stop_id = str(stop['stop_id'])
+            if stop_name not in name_to_ids:
+                name_to_ids[stop_name] = []
+            name_to_ids[stop_name].append(stop_id)
+        
+        # Process each translation
+        for _, row in stop_translations.iterrows():
+            # Get the original stop name either from record_id or field_value
+            original_name = row.get('field_value', row.get('record_id'))
+            if pd.isna(original_name):
+                continue
+                
+            # Find all stop IDs that match this name
+            stop_ids = name_to_ids.get(original_name, [])
+            if not stop_ids:
+                continue
+            
+            # Add translation for each matching stop ID
+            for stop_id in stop_ids:
+                if stop_id not in translations:
+                    translations[stop_id] = {}
+                translations[stop_id][row['language']] = row['translation']
+                
+    else:  # Simple format (trans_id,translation,lang)
+        logger.info("Using simple format for translations")
+        
+        # Read translations file
+        df = pd.read_csv(translations_file)
+        
+        # Load stops.txt to get the mapping between stop_id and stop_name
+        stops_df = pd.read_csv(os.path.join(gtfs_dir, 'stops.txt'))
+        
         # Create a mapping of stop names to translations
         name_translations = {}
         for _, row in df.iterrows():
@@ -381,36 +437,12 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
                 name_translations[trans_id] = {}
             name_translations[trans_id][row['lang']] = row['translation']
         
-        logger.info(f"Created name translations map with {len(name_translations)} entries")
-        logger.debug(f"First few name translations: {dict(list(name_translations.items())[:3])}")
-        
-        # Now map these to stop IDs by loading stops.txt
-        # For STIB format, stop_name is in the third column
-        stops_df = pd.read_csv(os.path.join(gtfs_dir, 'stops.txt'))
-        logger.info(f"Loaded stops file with {len(stops_df)} stops")
-        logger.debug(f"First few stops: {stops_df.head().to_dict('records')}")
-        
-        translations = {}
-        
-        # For each stop, if its name has translations, add them
+        # Map translations to stop IDs
         for _, stop in stops_df.iterrows():
             stop_id = str(stop['stop_id'])
-            stop_name = stop['stop_name'].strip('"')  # Remove quotes
+            stop_name = stop['stop_name']
             if stop_name in name_translations:
                 translations[stop_id] = name_translations[stop_name]
-                logger.debug(f"Added translations for stop {stop_id} ({stop_name}): {translations[stop_id]}")
-        
-        logger.info(f"Created translations map with {len(translations)} entries")
-        return translations
-    
-    # Default format (stop_id based)
-    logger.info("Using default format for translations")
-    translations = {}
-    for _, row in df.iterrows():
-        stop_id = str(row['stop_id'])
-        if stop_id not in translations:
-            translations[stop_id] = {}
-        translations[stop_id][row['lang']] = row['translation']
     
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
