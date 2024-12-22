@@ -7,6 +7,34 @@ const API_BASE_URL = 'http://localhost:8000';
 const MARKER_COLORS = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00'];
 let colorIndex = 0;
 
+// Backend status handling
+const backendStatus = document.getElementById('backendStatus');
+const providerSelect = document.getElementById('providerSelect');
+const languageSelect = document.getElementById('languageSelect');
+const searchInput = document.getElementById('searchInput');
+
+// Function to update backend status
+function updateBackendStatus(status, message) {
+    backendStatus.className = 'backend-status ' + status;
+    backendStatus.querySelector('.status-text').textContent = message;
+    
+    // Enable/disable inputs based on status
+    const inputs = [searchInput];
+    inputs.forEach(input => {
+        input.disabled = status !== 'ready';
+    });
+    
+    // Initialize dropdowns when backend is ready
+    if (status === 'ready') {
+        setTimeout(() => {
+            backendStatus.classList.add('fade-out');
+            setTimeout(() => {
+                backendStatus.style.display = 'none';
+            }, 2000);
+        }, 3000);
+    }
+}
+
 // Initialize the map
 function initMap() {
     map = L.map('map').setView([50.8503, 4.3517], 13);  // Brussels center
