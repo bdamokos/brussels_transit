@@ -175,13 +175,13 @@ async def set_provider(provider_name: str):
     
     # Get the current list of available providers
     providers = find_gtfs_directories()
-    provider_ids = [p['id'] for p in providers]
+    providers_dict = {p['id']: p for p in providers}  # Create a lookup dictionary
     
     # Check if the provider exists in the current list
-    if provider_name not in provider_ids:
+    if provider_name not in providers_dict:
         # Check if this might be a race condition with duplicate providers
         base_name = provider_name.rsplit('_', 1)[0] if '_' in provider_name else provider_name
-        matching_providers = [p for p in provider_ids if p.startswith(base_name + '_') or p == base_name]
+        matching_providers = [p for p in providers_dict.keys() if p.startswith(base_name + '_') or p == base_name]
         
         if len(matching_providers) > 1:
             # There are now multiple providers with this base name
@@ -199,6 +199,9 @@ async def set_provider(provider_name: str):
     try:
         logger.info(f"Loading GTFS data for provider {provider_name}")
         
+        # Get the selected provider's info
+        provider_info = providers_dict[provider_name]
+        
         # Find the provider's dataset directory
         metadata_file = DOWNLOAD_DIR / 'datasets_metadata.json'
         if not metadata_file.exists():
@@ -207,36 +210,18 @@ async def set_provider(provider_name: str):
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
             
-            # Extract the MDB number if it exists in the provider name
-            mdb_number = provider_name.rsplit('_', 1)[1] if '_' in provider_name else None
-            base_name = provider_name.rsplit('_', 1)[0] if '_' in provider_name else provider_name
-            
-            # Find the dataset info for this provider
+            # Find the dataset info that matches both the provider ID and the dataset ID
             dataset_info = None
             for info in metadata.values():
-                dataset_dir = Path(info.get('download_path'))
-                if dataset_dir.exists():
-                    sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
-                    if sanitized_name == base_name:
-                        if mdb_number:
-                            # If we have an MDB number, it must match
-                            if info.get('provider_id') == mdb_number:
-                                dataset_info = info
-                                dataset_dir = Path(dataset_info['download_path'])
-                                break
-                        else:
-                            # If we don't have an MDB number, there should be only one match
-                            if dataset_info is not None:
-                                # Found multiple matches without MDB number
-                                raise HTTPException(
-                                    status_code=409,  # Conflict
-                                    detail="Provider list has been updated with multiple providers sharing the same name. Please reload the provider list."
-                                )
-                            dataset_info = info
-                            dataset_dir = Path(dataset_info['download_path'])
+                if (info.get('provider_id') == provider_info['raw_id'] and 
+                    info.get('dataset_id') == provider_info['latest_dataset']['id']):
+                    dataset_info = info
+                    break
             
             if not dataset_info:
                 raise HTTPException(status_code=404, detail=f"No dataset info found for provider {provider_name}")
+            
+            dataset_dir = Path(dataset_info['download_path'])
         
         # Check if the dataset directory exists and contains GTFS files
         required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
