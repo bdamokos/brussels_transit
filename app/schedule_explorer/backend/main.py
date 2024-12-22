@@ -133,10 +133,12 @@ async def download_gtfs(provider_id: str):
         logger.error(f"Error downloading GTFS data for provider {provider_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/providers", response_model=List[Dict])
+@app.get("/providers", response_model=List[str])
 async def get_providers():
-    """Get list of available GTFS providers with their metadata"""
-    return find_gtfs_directories()
+    """Get list of available GTFS providers"""
+    providers = find_gtfs_directories()
+    # Convert to the old format - just return the provider IDs
+    return [p['id'] for p in providers]
 
 @app.on_event("startup")
 async def startup_event():
@@ -149,7 +151,11 @@ async def set_provider(provider_name: str):
     """Set the current GTFS provider and load its data"""
     global feed, current_provider
     
-    if provider_name not in available_providers:
+    # Get the list of available providers
+    providers = find_gtfs_directories()
+    provider_ids = [p['id'] for p in providers]
+    
+    if provider_name not in provider_ids:
         raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
     
     # If the requested provider is already loaded, return early
@@ -159,9 +165,37 @@ async def set_provider(provider_name: str):
     
     try:
         logger.info(f"Loading GTFS data for provider {provider_name}")
-        feed = load_feed(provider_name)
+        
+        # Find the provider's dataset directory
+        metadata_file = DOWNLOAD_DIR / 'datasets_metadata.json'
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail=f"No metadata found for provider {provider_name}")
+            
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+            # Find the dataset info for this provider
+            dataset_info = next((info for key, info in metadata.items() 
+                               if info.get('provider_id') == provider_name), None)
+            if not dataset_info:
+                raise HTTPException(status_code=404, detail=f"No dataset info found for provider {provider_name}")
+            
+            dataset_dir = Path(dataset_info['download_path'])
+        
+        # Check if the dataset directory exists and contains GTFS files
+        required_files = ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']
+        calendar_files = ['calendar.txt', 'calendar_dates.txt']
+        
+        if not dataset_dir.exists() or not (
+            all((dataset_dir / file).exists() for file in required_files) and 
+            any((dataset_dir / file).exists() for file in calendar_files)
+        ):
+            raise HTTPException(status_code=404, detail=f"GTFS data not found for provider {provider_name}")
+        
+        feed = load_feed(str(dataset_dir))
         current_provider = provider_name
         return {"status": "success", "message": f"Loaded GTFS data for {provider_name}"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error loading provider {provider_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -431,3 +465,9 @@ async def get_station_routes(
             ))
     
     return routes_info 
+
+# Add a new endpoint for getting provider details
+@app.get("/api/providers", response_model=List[Dict])
+async def get_providers_with_details():
+    """Get list of available GTFS providers with their metadata"""
+    return find_gtfs_directories()
