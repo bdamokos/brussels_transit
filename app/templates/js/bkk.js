@@ -156,11 +156,38 @@ async function fetchBkkWaitingTimes() {
     try {
         const response = await fetch('/api/bkk/waiting_times');
         if (!response.ok) throw new Error('Failed to fetch BKK waiting times');
-        return await response.json();
+        const data = await response.json();
+        
+        // Add line info to waiting times data
+        if (data.stops_data) {
+            Object.entries(data.stops_data).forEach(([stopId, stopInfo]) => {
+                if (stopInfo.lines) {
+                    Object.entries(stopInfo.lines).forEach(([lineId, lineData]) => {
+                        const info = getLineInfo(lineId);
+                        if (info) {
+                            // Add line colors to the global colors object
+                            data.colors = data.colors || {};
+                            data.colors[lineId] = {
+                                text: info.textColor,
+                                background: info.color,
+                                text_border: info.textColor,
+                                background_border: info.color
+                            };
+                            
+                            // Add display name to metadata
+                            lineData._metadata = lineData._metadata || {};
+                            lineData._metadata.route_short_name = info.displayName;
+                        }
+                    });
+                }
+            });
+        }
+        
+        return data;
     } catch (error) {
         console.error('Error fetching BKK waiting times:', error);
         return {
-            stops: {},
+            stops_data: {},
             colors: {}
         };
     }

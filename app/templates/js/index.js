@@ -58,6 +58,28 @@ async function fetchAndUpdateData() {
         console.log("STIB response status:", stibResponse.status);
         const stibData = await stibResponse.json();
         
+        // Fetch STIB colors for monitored lines
+        if (stibData.stops_data) {
+            const monitoredLines = new Set();
+            Object.values(stibData.stops_data).forEach(stop => {
+                if (stop.lines) {
+                    Object.keys(stop.lines).forEach(line => monitoredLines.add(line));
+                }
+            });
+
+            for (const line of monitoredLines) {
+                try {
+                    const colorResponse = await fetch(`/api/stib/colors/${line}`);
+                    if (colorResponse.ok) {
+                        const color = await colorResponse.json();
+                        transitApp.lineColors[line] = color;
+                    }
+                } catch (error) {
+                    console.warn(`Error fetching color for STIB line ${line}:`, error);
+                }
+            }
+        }
+        
         // Initialize De Lijn data with empty defaults
         let delijnData = { stops_data: {}, messages: [], processed_vehicles: [] };
         let delijnMessages = [];
@@ -136,13 +158,27 @@ async function fetchAndUpdateData() {
                 }
                 
                 // Transform waiting times data into the expected format
-                if (bkkWaitingTimes.stops) {
-                    Object.entries(bkkWaitingTimes.stops).forEach(([stopId, stopInfo]) => {
+                if (bkkWaitingTimes.stops_data) {
+                    Object.entries(bkkWaitingTimes.stops_data).forEach(([stopId, stopInfo]) => {
                         if (stopInfo.lines) {
                             bkkData.stops_data[stopId] = {
                                 name: stopInfo.name,
                                 coordinates: stopInfo.coordinates,
-                                lines: stopInfo.lines
+                                lines: Object.entries(stopInfo.lines).reduce((acc, [lineId, lineData]) => {
+                                    // Get line info for display name
+                                    const info = transitApp.bkkModule.getLineInfo(lineId);
+                                    const metadata = {
+                                        route_short_name: info?.displayName || lineData._metadata?.route_short_name || lineId
+                                    };
+                                    
+                                    // Remove metadata from line data and add it separately
+                                    const { _metadata, ...destinations } = lineData;
+                                    acc[lineId] = {
+                                        _metadata: metadata,
+                                        ...destinations
+                                    };
+                                    return acc;
+                                }, {})
                             };
                         }
                     });
@@ -205,7 +241,7 @@ async function fetchAndUpdateData() {
         updateStopsData(combinedData.stops_data);
         
         console.log("Updating service messages...");
-        updateServiceMessages(combinedData.messages);
+        await updateServiceMessages(combinedData.messages);
         
         console.log("Updating map data...");
         await updateMapData(combinedData);
@@ -416,7 +452,7 @@ function updateStopsData(stopsData) {
     });
 }
 
-function updateServiceMessages(messages) {
+async function updateServiceMessages(messages) {
     const primaryContainer = document.getElementById('primary-messages-container');
     const secondaryContainer = document.getElementById('secondary-messages-container');
     
@@ -424,6 +460,31 @@ function updateServiceMessages(messages) {
         primaryContainer.innerHTML = '';
         secondaryContainer.innerHTML = '';
         return;
+    }
+
+    // Collect all STIB lines from messages and fetch their colors if not already in transitApp.lineColors
+    const stibLines = new Set();
+    messages.messages.forEach(message => {
+        const lines = message.lines || message.affected_lines || [];
+        // Only collect lines that don't have colors yet and don't have line_info or line_colors (which would indicate BKK or De Lijn)
+        lines.forEach(line => {
+            if (!transitApp.lineColors[line] && !message.line_info && !message.line_colors) {
+                stibLines.add(line);
+            }
+        });
+    });
+
+    // Fetch colors for STIB lines
+    for (const line of stibLines) {
+        try {
+            const colorResponse = await fetch(`/api/stib/colors/${line}`);
+            if (colorResponse.ok) {
+                const color = await colorResponse.json();
+                transitApp.lineColors[line] = color;
+            }
+        } catch (error) {
+            console.warn(`Error fetching color for STIB line ${line}:`, error);
+        }
     }
     
     const primaryMessages = messages.messages.filter(m => m.is_monitored);
@@ -497,8 +558,27 @@ function renderMessages(messages, isSecondary) {
                 `;
             } else {
                 // Default STIB styling
+                const lineColor = transitApp.lineColors[line];
+                let style;
+                
+                // Check if the color is an object with the specific keys for De Lijn/BKK format
+                if (lineColor && typeof lineColor === 'object' && 
+                    'background' in lineColor && 'text' in lineColor) {
+                    style = `
+                        --text-color: ${lineColor.text};
+                        --bg-color: ${lineColor.background};
+                        --text-border-color: ${lineColor.text_border};
+                        --bg-border-color: ${lineColor.background_border};
+                    `;
+                } else {
+                    // For STIB, the color is an object with line numbers as keys
+                    const stibColor = lineColor && lineColor[line];
+                    style = `background-color: ${stibColor || '#666'}`;
+                }
+
                 return `
-                    <span class="line-number" style="background-color: ${transitApp.lineColors[line] || '#666'}">
+                    <span class="${lineColor && typeof lineColor === 'object' && 'background' in lineColor ? 'delijn-line-number' : 'line-number'}" 
+                          style="${style}">
                         ${line}
                     </span>
                 `;
