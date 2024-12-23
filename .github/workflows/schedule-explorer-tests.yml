@@ -24,6 +24,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pytest pytest-asyncio
+        pip install fastapi==0.115.6 mobility-db-api==0.1.1 msgpack-python==0.5.6 pandas==2.2.3 psutil==6.1.1 pydantic==2.10.4
         cd app/schedule_explorer
         pip install -e .
         
@@ -35,4 +36,4 @@ jobs:
     - name: Run tests
       run: |
         cd app/schedule_explorer
-        python -m pytest backend/tests/ -v 
+        python -m pytest backend/tests/ -v
