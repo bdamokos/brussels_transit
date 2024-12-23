@@ -124,195 +124,150 @@ async def get_stops() -> Dict[str, Stop]:
     return stops
 
 async def get_vehicle_positions() -> List[Dict]:
-    """Get real-time vehicle positions"""
+    """Get current vehicle positions.
+    
+    Returns:
+        List[Dict]: List of vehicle position dictionaries with provider information
+    """
     try:
+        # Get latest config
+        config = get_provider_config('bkk')
+        monitored_lines = config.get('MONITORED_LINES', [])
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                VEHICLE_POSITIONS_URL,
-                params={'key': API_KEY}
-            )
+            response = await client.get(VEHICLE_POSITIONS_URL)
+            response.raise_for_status()
             
-            if response.status_code != 200:
-                logger.error(f"Failed to get vehicle positions: {response.status_code}")
-                return []
-                
-            # Parse protobuf message
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
             vehicles = []
             for entity in feed.entity:
-                if entity.HasField('vehicle'):
-                    vehicle = entity.vehicle
+                vehicle = entity.vehicle
+                if not vehicle.trip.route_id:
+                    continue
                     
-                    # Only process vehicles for monitored lines
-                    trip_id = vehicle.trip.trip_id
-                    line_id = _get_line_id_from_trip(trip_id)
-                    if MONITORED_LINES and line_id not in MONITORED_LINES:
-                        continue
-                        
-                    # Get destination from GTFS data
-                    destination = _get_destination_from_trip(trip_id)
+                line_id = _get_line_id_from_trip(vehicle.trip.route_id)
+                if monitored_lines and line_id not in monitored_lines:
+                    continue
                     
-                    vehicles.append({
-                        'line': line_id,
-                        'trip_id': trip_id,
-                        'destination': destination,
-                        'position': {
-                            'lat': vehicle.position.latitude,
-                            'lon': vehicle.position.longitude
-                        },
-                        'bearing': vehicle.position.bearing,
-                        'timestamp': datetime.fromtimestamp(
-                            vehicle.timestamp, 
-                            tz=timezone.utc
-                        ).isoformat(),
-                        'vehicle_id': vehicle.vehicle.id
-                    })
-                    
-            return vehicles
+                vehicles.append({
+                    'id': vehicle.vehicle.id,
+                    'line': line_id,
+                    'lat': vehicle.position.latitude,
+                    'lon': vehicle.position.longitude,
+                    'bearing': vehicle.position.bearing if vehicle.position.HasField('bearing') else None,
+                    'destination': _get_destination_from_trip(vehicle.trip.trip_id),
+                    'timestamp': datetime.fromtimestamp(vehicle.timestamp, timezone.utc).isoformat(),
+                    'provider': 'bkk'
+                })
             
+            return vehicles
     except Exception as e:
         logger.error(f"Error getting vehicle positions: {e}")
         return []
 
 async def get_waiting_times() -> Dict:
-    """Get real-time waiting times for monitored stops"""
+    """Get waiting times for monitored stops.
+    
+    Returns:
+        Dict: Dictionary of stop IDs mapping to their waiting times with provider information
+    """
     try:
+        # Get latest config
+        config = get_provider_config('bkk')
+        monitored_lines = config.get('MONITORED_LINES', [])
+        stop_ids = config.get('STOP_IDS', [])
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                TRIP_UPDATES_URL,
-                params={'key': API_KEY}
-            )
+            response = await client.get(TRIP_UPDATES_URL)
+            response.raise_for_status()
             
-            if response.status_code != 200:
-                logger.error(f"Failed to get waiting times: {response.status_code}")
-                return {}
-                
-            # Parse protobuf message
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
-            stops_data = {}
+            waiting_times = {}
             for entity in feed.entity:
-                if entity.HasField('trip_update'):
-                    trip_update = entity.trip_update
-                    trip_id = trip_update.trip.trip_id
-                    line_id = _get_line_id_from_trip(trip_id)
-                    destination = _get_destination_from_trip(trip_id)
+                if not entity.HasField('trip_update'):
+                    continue
                     
-                    # Process each stop time update
-                    for stop_update in trip_update.stop_time_update:
-                        stop_id = stop_update.stop_id
+                trip = entity.trip_update
+                line_id = _get_line_id_from_trip(trip.trip.route_id)
+                if monitored_lines and line_id not in monitored_lines:
+                    continue
+                
+                for stop_time in trip.stop_time_update:
+                    stop_id = stop_time.stop_id
+                    if stop_ids and stop_id not in stop_ids:
+                        continue
                         
-                        # Skip if not in monitored stops
-                        if STOP_IDS and stop_id not in STOP_IDS:
-                            continue
-                            
-                        # Initialize stop data if needed
-                        if stop_id not in stops_data:
-                            stops_data[stop_id] = {
-                                'lines': {}
-                            }
-                            
-                        # Initialize line data if needed
-                        if line_id not in stops_data[stop_id]['lines']:
-                            stops_data[stop_id]['lines'][line_id] = {}
-                            
-                        # Initialize destination data if needed
-                        if destination not in stops_data[stop_id]['lines'][line_id]:
-                            stops_data[stop_id]['lines'][line_id][destination] = []
-                            
-                        # Calculate arrival time
-                        arrival_time = None
-                        if stop_update.HasField('arrival'):
-                            arrival_time = stop_update.arrival.time
-                        elif stop_update.HasField('departure'):
-                            arrival_time = stop_update.departure.time
-                            
-                        if arrival_time:
-                            arrival_dt = datetime.fromtimestamp(arrival_time, tz=timezone.utc)
-                            now = datetime.now(timezone.utc)
-                            minutes = int((arrival_dt - now).total_seconds() / 60)
-                            
-                            stops_data[stop_id]['lines'][line_id][destination].append({
-                                'minutes': minutes,
-                                'scheduled': arrival_dt.strftime('%H:%M')
-                            })
-                            
-            return stops_data
+                    if stop_id not in waiting_times:
+                        waiting_times[stop_id] = []
+                        
+                    if stop_time.HasField('arrival'):
+                        arrival_time = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
+                        waiting_times[stop_id].append({
+                            'line': line_id,
+                            'destination': _get_destination_from_trip(trip.trip.trip_id),
+                            'minutes_until': _format_minutes_until(arrival_time),
+                            'timestamp': arrival_time.isoformat(),
+                            'provider': 'bkk'
+                        })
             
+            # Sort waiting times by arrival time
+            for stop_id in waiting_times:
+                waiting_times[stop_id].sort(key=lambda x: datetime.fromisoformat(x['timestamp']))
+            
+            return waiting_times
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
         return {}
 
 async def get_service_alerts() -> List[Dict]:
-    """Get service disruption messages"""
+    """Get current service alerts.
+    
+    Returns:
+        List[Dict]: List of service alert dictionaries with provider information
+    """
     try:
+        # Get latest config
+        config = get_provider_config('bkk')
+        monitored_lines = config.get('MONITORED_LINES', [])
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                ALERTS_URL,
-                params={'key': API_KEY}
-            )
+            response = await client.get(ALERTS_URL)
+            response.raise_for_status()
             
-            if response.status_code != 200:
-                logger.error(f"Failed to get service alerts: {response.status_code}")
-                return []
-                
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
             alerts = []
             for entity in feed.entity:
-                if entity.HasField('alert'):
-                    alert = entity.alert
+                if not entity.HasField('alert'):
+                    continue
                     
-                    # Check if alert affects monitored lines/stops
-                    affects_monitored = False
-                    affected_entities = []
+                alert = entity.alert
+                affected_lines = set()
+                for informed_entity in alert.informed_entity:
+                    if informed_entity.HasField('route_id'):
+                        line_id = _get_line_id_from_trip(informed_entity.route_id)
+                        if not monitored_lines or line_id in monitored_lines:
+                            affected_lines.add(line_id)
+                
+                if not affected_lines:
+                    continue
                     
-                    for informed_entity in alert.informed_entity:
-                        if (informed_entity.HasField('route_id') and 
-                            informed_entity.route_id in MONITORED_LINES):
-                            affects_monitored = True
-                            affected_entities.append({
-                                'type': 'line',
-                                'id': informed_entity.route_id
-                            })
-                        elif (informed_entity.HasField('stop_id') and 
-                              informed_entity.stop_id in STOP_IDS):
-                            affects_monitored = True
-                            affected_entities.append({
-                                'type': 'stop',
-                                'id': informed_entity.stop_id
-                            })
-                    
-                    if not affects_monitored and (MONITORED_LINES or STOP_IDS):
-                        continue
-                    
-                    alerts.append({
-                        'id': entity.id,
-                        'title': _get_translated_text(alert.header_text),
-                        'description': _get_translated_text(alert.description_text),
-                        'effect': alert.effect,
-                        'affected_entities': affected_entities,
-                        'active_period': [
-                            {
-                                'start': datetime.fromtimestamp(
-                                    period.start, 
-                                    tz=timezone.utc
-                                ).isoformat(),
-                                'end': datetime.fromtimestamp(
-                                    period.end,
-                                    tz=timezone.utc
-                                ).isoformat() if period.HasField('end') else None
-                            }
-                            for period in alert.active_period
-                        ]
-                    })
-                    
-            return alerts
+                alerts.append({
+                    'id': entity.id,
+                    'lines': list(affected_lines),
+                    'title': _get_translated_text(alert.header_text),
+                    'description': _get_translated_text(alert.description_text),
+                    'start': datetime.fromtimestamp(alert.active_period[0].start, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('start') else None,
+                    'end': datetime.fromtimestamp(alert.active_period[0].end, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('end') else None,
+                    'provider': 'bkk'
+                })
             
+            return alerts
     except Exception as e:
         logger.error(f"Error getting service alerts: {e}")
         return []
@@ -405,46 +360,35 @@ def _get_translated_text(text_container) -> str:
         return text_container.translation[0].text
     return ""
 
-async def get_static_data() -> Dict:
-    """Get static data from GTFS feed"""
-    try:
-        # Ensure GTFS data is available
-        gtfs_dir = GTFS_DIR
-        if not gtfs_dir.exists():
-            gtfs_dir.mkdir(parents=True, exist_ok=True)
-            
-        # Download latest GTFS data if needed
-        await download_gtfs_data()
-        
-        return {
-            'provider': 'BKK',
-            'gtfs_dir': str(gtfs_dir),
-            'monitored_lines': MONITORED_LINES,
-            'stop_ids': STOP_IDS
-        }
-    except Exception as e:
-        logger.error(f"Error getting static data: {e}")
-        return {'error': 'Could not access GTFS data'}
+async def get_static_data() -> Dict[str, Any]:
+    """Get static data for the provider.
+    
+    Returns:
+        Dict[str, Any]: Dictionary containing static data with provider information
+    """
+    return {
+        'provider': 'bkk',
+        'monitored_lines': MONITORED_LINES,
+        'stop_ids': STOP_IDS,
+        'has_vehicle_positions': True,
+        'has_service_alerts': True,
+        'has_waiting_times': True
+    }
 
-async def download_gtfs_data() -> None:
-    """Download and extract GTFS data"""
-    try:
-        # Create GTFS directory if it doesn't exist
-        gtfs_dir = GTFS_DIR
-        if not gtfs_dir.exists():
-            gtfs_dir.mkdir(parents=True, exist_ok=True)
-            
-        # Download latest dataset
-        api = MobilityAPI(
-            data_dir=str(gtfs_dir),
-            refresh_token=os.getenv('MOBILITY_API_REFRESH_TOKEN')
-        )
-        api.download_latest_dataset(PROVIDER_ID)
-        
-    except Exception as e:
-        logger.error(f"Error downloading GTFS data: {e}")
-        raise
-
-def bkk_config():
-    """Get BKK provider configuration"""
-    return provider_config
+async def bkk_config() -> Dict[str, Any]:
+    """Get BKK provider configuration.
+    
+    Returns:
+        Dict[str, Any]: Configuration dictionary with provider information
+    """
+    # Get latest config values
+    config = get_provider_config('bkk')
+    
+    return {
+        'provider': 'bkk',
+        'monitored_lines': config.get('MONITORED_LINES', []),
+        'stop_ids': config.get('STOP_IDS', []),
+        'has_vehicle_positions': True,
+        'has_service_alerts': True,
+        'has_waiting_times': True
+    }
