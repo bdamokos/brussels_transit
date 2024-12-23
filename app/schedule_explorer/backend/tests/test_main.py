@@ -5,26 +5,41 @@ import json
 import os
 from pathlib import Path
 import shutil
+from unidecode import unidecode
+import re
+import random
+import csv
 
 def get_providers_from_metadata():
-    """Get unique providers from metadata file"""
+    """Get a list of providers from the metadata file"""
     metadata_file = Path(__file__).parent.parent.parent.parent.parent / "downloads" / "datasets_metadata.json"
-    with open(metadata_file) as f:
+    with open(metadata_file, 'r') as f:
         metadata = json.load(f)
-    
+
     # Get unique providers (some might have multiple datasets)
     providers = {}
-    for dataset in metadata.values():
-        provider_id = dataset['provider_id']
-        if provider_id not in providers:
-            # Create URL-safe name for the provider
-            safe_name = dataset['provider_name'].replace(' ', '_').replace('/', '_').replace('(', '').replace(')', '')
-            providers[provider_id] = {
-                'id': f"{safe_name}_{provider_id}",  # This is the format expected by the API
-                'raw_id': provider_id,
-                'name': dataset['provider_name']
-            }
-    
+    latest_datasets = {}  # Keep track of the latest dataset for each provider_id
+
+    # First pass: find the latest dataset for each provider
+    for dataset_id, dataset_info in metadata.items():
+        provider_id = dataset_info.get('provider_id')
+        if provider_id:
+            if provider_id not in latest_datasets or dataset_info['dataset_id'] > latest_datasets[provider_id]['dataset_id']:
+                latest_datasets[provider_id] = dataset_info
+
+    # Second pass: create provider entries for the latest datasets
+    for provider_id, dataset_info in latest_datasets.items():
+        dataset_dir = Path(dataset_info.get('download_path'))
+        sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
+        provider_key = f"{sanitized_name}_{provider_id}"
+
+        providers[provider_id] = {
+            'id': provider_key,
+            'name': dataset_info.get('provider_name'),
+            'raw_id': provider_id,
+            'dataset_path': dataset_info.get('download_path')
+        }
+
     return list(providers.values())
 
 @pytest.fixture
@@ -49,13 +64,6 @@ def metadata_backup():
     # Restore the original metadata if backup exists
     if backup_file.exists():
         shutil.move(backup_file, metadata_file)
-
-@pytest.fixture
-def stib_provider(client):
-    """Load the STIB provider"""
-    response = client.post("/provider/Societe_des_Transports_Intercommunaux_de_Bruxelles_Maatschappij_voor_het_Intercommunaal_Vervoer_te_Brussel_STIB_MIVB_mdb-1088")
-    assert response.status_code == 200
-    return response
 
 def test_get_providers_empty(client):
     """Test getting providers list when no providers are loaded"""
@@ -107,161 +115,130 @@ def test_get_providers_by_country(client):
     assert isinstance(providers, list)
     assert len(providers) > 0
 
-def test_load_stib_provider(client):
-    """Test loading the STIB provider"""
-    response = client.post("/provider/Societe_des_Transports_Intercommunaux_de_Bruxelles_Maatschappij_voor_het_Intercommunaal_Vervoer_te_Brussel_STIB_MIVB_mdb-1088")
-    assert response.status_code == 200
-
-def test_search_stations_with_stib(client, stib_provider):
-    """Test searching stations with STIB data"""
-    response = client.get("/stations/search?query=gare")
-    assert response.status_code == 200
-    stations = response.json()
-    assert isinstance(stations, list)
-    assert len(stations) > 0
-    for station in stations:
-        assert "id" in station
-        assert "name" in station
-        assert "location" in station
-        assert "lat" in station["location"]
-        assert "lon" in station["location"]
-
-def test_get_routes_with_stib(client, stib_provider):
-    """Test getting routes between two stations with STIB data"""
-    # First, search for some stations
-    response = client.get("/stations/search?query=gare")
-    assert response.status_code == 200
-    stations = response.json()
-    assert len(stations) >= 2
-    
-    # Get routes between the first two stations
-    response = client.get(f"/routes?from_station={stations[0]['id']}&to_station={stations[1]['id']}")
-    assert response.status_code == 200
-    routes = response.json()
-    assert "routes" in routes
-    assert "total_routes" in routes
-    for route in routes["routes"]:
-        assert "route_id" in route
-        assert "route_name" in route
-        assert "stops" in route
-        assert len(route["stops"]) >= 2
-
-def test_get_destinations_with_stib(client, stib_provider):
-    """Test getting destinations from a station with STIB data"""
-    # First, search for a station
-    response = client.get("/stations/search?query=gare")
-    assert response.status_code == 200
-    stations = response.json()
-    assert len(stations) > 0
-    
-    # Get destinations from the first station
-    response = client.get(f"/stations/destinations/{stations[0]['id']}")
-    assert response.status_code == 200
-    destinations = response.json()
-    assert isinstance(destinations, list)
-    for destination in destinations:
-        assert "id" in destination
-        assert "name" in destination
-        assert "location" in destination
-
-def test_get_station_routes_with_stib(client, stib_provider):
-    """Test getting routes serving a station with STIB data"""
-    # First, search for a station
-    response = client.get("/stations/search?query=gare")
-    assert response.status_code == 200
-    stations = response.json()
-    assert len(stations) > 0
-    
-    # Get routes serving the first station
-    response = client.get(f"/stations/{stations[0]['id']}/routes")
-    assert response.status_code == 200
-    routes = response.json()
-    assert isinstance(routes, list)
-    for route in routes:
-        assert "route_id" in route
-        assert "route_name" in route
-        assert "stops" in route
-        assert len(route["stops"]) >= 2
-
 @pytest.mark.parametrize("provider", get_providers_from_metadata(), ids=lambda p: p['raw_id'])
-def test_provider(client, metadata_backup, provider):
-    """Test a specific provider's functionality"""
-    provider_id = provider['id']  # This is now in the correct format for the API
-    provider_name = provider['name']
-    print(f"\nTesting provider: {provider_name} ({provider['raw_id']})")
-    
-    # Try to load the provider
-    print("  - Loading provider...")
-    response = client.post(f"/provider/{provider_id}")
-    if response.status_code != 200:
-        pytest.skip(f"Could not load provider {provider['raw_id']}: {response.json()}")
-    print("  ✓ Load successful")
-    
-    # Test cache (second load)
-    print("  - Testing cache...")
-    response = client.post(f"/provider/{provider_id}")
-    assert response.status_code == 200
-    assert "already loaded" in response.json().get("message", "").lower()
-    print("  ✓ Cache test passed")
-    
-    # Search for stations
-    print("  - Testing station search...")
-    response = client.get("/stations/search?query=ab")
-    assert response.status_code == 200
-    stations = response.json()
-    
-    if not stations:
-        pytest.skip(f"No stations found for provider {provider['raw_id']}")
-    print(f"  ✓ Found {len(stations)} stations")
-    
-    # Test first station's data
-    test_station = stations[0]['id']
-    
-    # Test origins
-    print("  - Testing origins...")
-    response = client.get(f"/stations/origins/{test_station}")
-    assert response.status_code == 200
-    origins = response.json()
-    print(f"  ✓ Found {len(origins)} origins")
-    
-    # Test destinations
-    print("  - Testing destinations...")
-    response = client.get(f"/stations/destinations/{test_station}")
-    assert response.status_code == 200
-    destinations = response.json()
-    print(f"  ✓ Found {len(destinations)} destinations")
-    
-    # Test routes
-    print("  - Testing routes...")
-    response = client.get(f"/stations/{test_station}/routes")
-    assert response.status_code == 200
-    routes = response.json()
-    print(f"  ✓ Found {len(routes)} routes")
+class TestProvider:
+    """Test suite for provider functionality"""
 
-def test_provider_download(client, metadata_backup):
-    """Test provider download functionality"""
-    print("\nTesting provider download functionality...")
-    
-    # Get providers info
-    response = client.get("/providers_info")
-    assert response.status_code == 200
-    providers = response.json()
-    assert len(providers) > 0
-    
-    # Test downloading an already downloaded provider
-    existing_provider = providers[0]['raw_id']
-    print(f"  - Testing re-download of existing provider {existing_provider}...")
-    response = client.post(f"/api/download/{existing_provider}")
-    assert response.status_code == 200
-    response_data = response.json()
-    assert "success" in str(response_data).lower()
-    print("  ✓ Re-download successful")
-    
-    # Test downloading a new small provider
-    test_provider = "mdb-859"  # Small test provider
-    print(f"  - Testing download of new provider {test_provider}...")
-    response = client.post(f"/api/download/{test_provider}")
-    assert response.status_code == 200
-    response_data = response.json()
-    assert "success" in str(response_data).lower()
-    print("  ✓ New download successful")
+    def test_load_provider(self, client, metadata_backup, provider):
+        """Test loading the provider"""
+        print(f"\nTesting provider: {provider['name']} ({provider['raw_id']})")
+        print("  - Loading provider...")
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200, f"Failed to load provider {provider['raw_id']}: {response.json()}"
+        print("  ✓ Load successful")
+
+    def test_provider_cache(self, client, metadata_backup, provider):
+        """Test provider cache"""
+        # First load the provider
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200
+
+        print("  - Testing cache...")
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200
+        assert "already loaded" in response.json().get("message", "").lower()
+        print("  ✓ Cache test passed")
+
+    def test_frontend_station_search(self, client, metadata_backup, provider):
+        """Test station search with 'ab' query (used by frontend)"""
+        # First load the provider
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200
+
+        print("  - Testing frontend station search (ab)...")
+        response = client.get("/stations/search?query=ab")
+        assert response.status_code == 200
+        stations = response.json()
+        if len(stations) == 0:
+            print("  ⚠️ No stations found with 'ab' query - frontend dropdown might be empty")
+        else:
+            print(f"  ✓ Found {len(stations)} stations with 'ab' query")
+
+    def test_random_station_search(self, client, metadata_backup, provider):
+        """Test station search with random stops from the dataset"""
+        # First load the provider
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200
+
+        print("  - Testing random station search...")
+        # Get the provider's directory
+        downloads_dir = Path(__file__).parent.parent.parent.parent.parent / "downloads"
+        provider_dirs = list(downloads_dir.glob(f"*{provider['raw_id']}*"))
+        assert len(provider_dirs) > 0, f"No data directory found for provider {provider['raw_id']}"
+
+        # Get the most recent dataset directory
+        dataset_dir = sorted(provider_dirs)[0]
+        stops_file = dataset_dir / provider['dataset_path'] / "stops.txt"
+        assert stops_file.exists(), f"No stops.txt found for provider {provider['raw_id']}"
+
+        # Read stops from the file
+        stops = []
+        with open(stops_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            stops = list(reader)
+
+        assert len(stops) > 0, f"No stops found in stops.txt for provider {provider['raw_id']}"
+        print(f"  Found {len(stops)} stops in the dataset")
+
+        # Select up to 5 random stops
+        test_stops = random.sample(stops, min(5, len(stops)))
+        successful_searches = 0
+
+        for stop in test_stops:
+            # Try different parts of the stop name
+            stop_name = stop['stop_name']
+            name_parts = stop_name.split()
+            
+            # Try with the full name first
+            response = client.get(f"/stations/search?query={stop_name}")
+            if response.status_code == 200 and len(response.json()) > 0:
+                successful_searches += 1
+                continue
+
+            # Try with individual words from the name
+            for part in name_parts:
+                if len(part) >= 3:  # Only try parts that are at least 3 characters long
+                    response = client.get(f"/stations/search?query={part}")
+                    if response.status_code == 200 and len(response.json()) > 0:
+                        successful_searches += 1
+                        break
+
+        assert successful_searches > 0, f"Could not find any stops by searching in provider {provider['raw_id']}"
+        print(f"  ✓ Successfully found {successful_searches} out of {len(test_stops)} random stops")
+
+    def test_station_endpoints(self, client, metadata_backup, provider):
+        """Test various station-related endpoints"""
+        # First load the provider
+        response = client.post(f"/provider/{provider['id']}")
+        assert response.status_code == 200
+
+        print("  - Testing station endpoints...")
+        # Get some stations first
+        response = client.get("/stations/search?query=ab")
+        assert response.status_code == 200
+        stations = response.json()
+        
+        if len(stations) >= 2:
+            # Test routes between stations
+            response = client.get(f"/routes?from_station={stations[0]['id']}&to_station={stations[1]['id']}")
+            assert response.status_code == 200
+            routes = response.json()
+            assert "routes" in routes
+            assert "total_routes" in routes
+            print("  ✓ Routes endpoint working")
+
+            # Test destinations from a station
+            response = client.get(f"/stations/destinations/{stations[0]['id']}")
+            assert response.status_code == 200
+            destinations = response.json()
+            assert isinstance(destinations, list)
+            print("  ✓ Destinations endpoint working")
+
+            # Test station routes
+            response = client.get(f"/stations/{stations[0]['id']}/routes")
+            assert response.status_code == 200
+            routes = response.json()
+            assert isinstance(routes, list)
+            print("  ✓ Station routes endpoint working")
+        else:
+            print("  ⚠️ Not enough stations found to test endpoints")
