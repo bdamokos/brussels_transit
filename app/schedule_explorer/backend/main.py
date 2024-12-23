@@ -300,7 +300,7 @@ async def get_routes(
     all_routes = []
     for from_id in from_stations:
         for to_id in to_stations:
-            routes = feed.find_routes_between_stations(from_id, to_id)
+            routes = feed.find_trips_between_stations(from_id, to_id)
             all_routes.extend(routes)
     
     # Filter by date if provided

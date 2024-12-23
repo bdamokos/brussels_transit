@@ -231,6 +231,7 @@ class FlixbusFeed:
     calendars: Dict[str, Calendar] = field(default_factory=dict)
     calendar_dates: List[CalendarDate] = field(default_factory=list)
     trips: Dict[str, Trip] = field(default_factory=dict)
+    stop_times_dict: Dict[str, List[Dict]] = field(default_factory=dict)  # trip_id -> list of stop times
     _feed: Optional['FlixbusFeed'] = field(default=None, repr=False)
     
     def __post_init__(self):
@@ -242,31 +243,63 @@ class FlixbusFeed:
         """Find all routes between two stations in any direction (start_id → end_id or end_id → start_id)"""
         routes = []
         
+        # Group routes by route_id to check all variants
+        routes_by_id = {}
         for route in self.routes:
-            # Check forward direction (start_id → end_id)
-            stops_forward = route.get_stops_between(start_id, end_id)
-            if len(stops_forward) >= 2 and stops_forward[0].stop.id == start_id and stops_forward[-1].stop.id == end_id:
-                routes.append(route)
-            
-            # Check reverse direction (end_id → start_id)
-            stops_reverse = route.get_stops_between(end_id, start_id)
-            if len(stops_reverse) >= 2 and stops_reverse[0].stop.id == end_id and stops_reverse[-1].stop.id == start_id:
-                routes.append(route)
-            
-            # Check other variants of this route (different direction_id)
-            for other_route in self.routes:
-                if other_route == route:
+            if route.route_id not in routes_by_id:
+                routes_by_id[route.route_id] = []
+            routes_by_id[route.route_id].append(route)
+        
+        # Check each route group
+        for route_variants in routes_by_id.values():
+            for route in route_variants:
+                # Get all stops in sequence
+                stop_sequences = [(stop.stop.id, idx) for idx, stop in enumerate(route.stops)]
+                
+                # Find positions of our target stops
+                start_positions = [idx for sid, idx in stop_sequences if sid == start_id]
+                end_positions = [idx for sid, idx in stop_sequences if sid == end_id]
+                
+                # Skip if either stop is not in this route
+                if not start_positions or not end_positions:
                     continue
-                if other_route.route_id == route.route_id and other_route.direction_id != route.direction_id:
-                    # Check forward direction in other variant
-                    stops = other_route.get_stops_between(start_id, end_id)
-                    if len(stops) >= 2 and stops[0].stop.id == start_id and stops[-1].stop.id == end_id:
-                        routes.append(other_route)
-                    
-                    # Check reverse direction in other variant
-                    stops = other_route.get_stops_between(end_id, start_id)
-                    if len(stops) >= 2 and stops[0].stop.id == end_id and stops[-1].stop.id == start_id:
-                        routes.append(other_route)
+                
+                # Check if we have a valid sequence
+                for start_idx in start_positions:
+                    for end_idx in end_positions:
+                        # Check if the stops appear in sequence (either direction)
+                        if start_idx < end_idx:  # Forward direction
+                            # Verify no other occurrence of start_id or end_id between these positions
+                            intermediate_stops = stop_sequences[start_idx + 1:end_idx]
+                            if not any(sid in (start_id, end_id) for sid, _ in intermediate_stops):
+                                routes.append(route)
+                                break
+                        elif start_idx > end_idx:  # Reverse direction
+                            # Verify no other occurrence of start_id or end_id between these positions
+                            intermediate_stops = stop_sequences[end_idx + 1:start_idx]
+                            if not any(sid in (start_id, end_id) for sid, _ in intermediate_stops):
+                                # Create a new route object with reversed direction_id
+                                reversed_route = Route(
+                                    route_id=route.route_id,
+                                    route_name=route.route_name,
+                                    trip_id=route.trip_id,
+                                    service_days=route.service_days,
+                                    stops=route.stops,
+                                    shape=route.shape,
+                                    short_name=route.short_name,
+                                    long_name=route.long_name,
+                                    route_type=route.route_type,
+                                    color=route.color,
+                                    text_color=route.text_color,
+                                    agency_id=route.agency_id,
+                                    headsigns=route.headsigns,
+                                    service_ids=route.service_ids,
+                                    direction_id="1" if route.direction_id == "0" else "0"
+                                )
+                                routes.append(reversed_route)
+                                break
+                    if route in routes:  # Skip checking more positions if we already added this route
+                        break
         
         return routes
         
@@ -278,6 +311,109 @@ class FlixbusFeed:
         if language and stop.translations and language in stop.translations:
             return stop.translations[language]
         return stop.name
+    
+    def find_trips_between_stations(self, start_id: str, end_id: str) -> List[Route]:
+        """Find all trips/services between two stations, including duplicates for different times."""
+        routes = []
+        
+        # Group trips by route_id to check all variants
+        trips_by_route = {}
+        for trip_id, trip in self.trips.items():
+            if trip.route_id not in trips_by_route:
+                trips_by_route[trip.route_id] = []
+            trips_by_route[trip.route_id].append(trip)
+        
+        # Check each route's trips
+        for route_id, trips in trips_by_route.items():
+            # Find the base route for this trip
+            base_route = next((r for r in self.routes if r.route_id == route_id), None)
+            if not base_route:
+                continue
+                
+            for trip in trips:
+                # Get stop times for this trip
+                stop_times = sorted(trip.stop_times, key=lambda x: x.stop_sequence)
+                if not stop_times:  # If no stop times in trip object, get from dictionary
+                    stop_times = [
+                        StopTime(
+                            trip_id=trip.id,
+                            stop_id=st['stop_id'],
+                            arrival_time=st['arrival_time'],
+                            departure_time=st['departure_time'],
+                            stop_sequence=st['stop_sequence']
+                        )
+                        for st in sorted(self.stop_times_dict.get(trip.id, []), key=lambda x: x['stop_sequence'])
+                    ]
+                
+                # Find positions of our target stops
+                start_pos = next((i for i, st in enumerate(stop_times) if st.stop_id == start_id), None)
+                end_pos = next((i for i, st in enumerate(stop_times) if st.stop_id == end_id), None)
+                
+                # Skip if either stop is not in this trip
+                if start_pos is None or end_pos is None:
+                    continue
+                
+                # Check if stops appear in sequence (either direction)
+                if start_pos < end_pos:  # Forward direction
+                    relevant_stops = stop_times[start_pos:end_pos + 1]
+                elif start_pos > end_pos:  # Reverse direction
+                    relevant_stops = stop_times[end_pos:start_pos + 1]
+                    relevant_stops.reverse()  # Reverse to maintain from -> to order
+                else:
+                    continue  # Same stop
+                
+                # Create RouteStop objects
+                route_stops = [
+                    RouteStop(
+                        stop=self.stops[st.stop_id],
+                        arrival_time=st.arrival_time,
+                        departure_time=st.departure_time,
+                        stop_sequence=st.stop_sequence
+                    )
+                    for st in relevant_stops
+                ]
+                
+                # Get service days for this trip
+                service_days = set()
+                service_id = trip.service_id
+                if service_id in self.calendars:
+                    calendar = self.calendars[service_id]
+                    if calendar.monday:
+                        service_days.add('monday')
+                    if calendar.tuesday:
+                        service_days.add('tuesday')
+                    if calendar.wednesday:
+                        service_days.add('wednesday')
+                    if calendar.thursday:
+                        service_days.add('thursday')
+                    if calendar.friday:
+                        service_days.add('friday')
+                    if calendar.saturday:
+                        service_days.add('saturday')
+                    if calendar.sunday:
+                        service_days.add('sunday')
+                
+                # Create a new route object with this trip's specific times
+                route = Route(
+                    route_id=base_route.route_id,
+                    route_name=base_route.route_name,
+                    trip_id=trip.id,
+                    service_days=sorted(list(service_days)),
+                    stops=route_stops,
+                    shape=base_route.shape,
+                    short_name=base_route.short_name,
+                    long_name=base_route.long_name,
+                    route_type=base_route.route_type,
+                    color=base_route.color,
+                    text_color=base_route.text_color,
+                    agency_id=base_route.agency_id,
+                    headsigns=base_route.headsigns,
+                    service_ids=[trip.service_id],
+                    direction_id=trip.direction_id
+                )
+                routes.append(route)
+        
+        return routes
 
 def calculate_gtfs_hash(data_path: Path) -> str:
     """Calculate a hash of the GTFS files to determine if cache is valid."""
@@ -465,7 +601,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
 
-CACHE_VERSION = "2.5"
+CACHE_VERSION = "2.6"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
@@ -478,7 +614,8 @@ def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
             'routes': [],
             'calendars': {cal_id: asdict(cal) for cal_id, cal in feed.calendars.items()},
             'calendar_dates': [asdict(cal_date) for cal_date in feed.calendar_dates],
-            'trips': {trip_id: asdict(trip) for trip_id, trip in feed.trips.items()}
+            'trips': {trip_id: asdict(trip) for trip_id, trip in feed.trips.items()},
+            'stop_times_dict': feed.stop_times_dict
         }
         
         # Handle routes separately to avoid _feed recursion
@@ -503,7 +640,10 @@ def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
                 'route_type': route.route_type,
                 'color': route.color,
                 'text_color': route.text_color,
-                'agency_id': route.agency_id
+                'agency_id': route.agency_id,
+                'headsigns': route.headsigns,
+                'service_ids': route.service_ids,
+                'direction_id': route.direction_id
             }
             data['routes'].append(route_dict)
         
@@ -619,7 +759,8 @@ def deserialize_gtfs_data(data: bytes) -> 'FlixbusFeed':
             routes=routes,
             calendars=calendars,
             calendar_dates=calendar_dates,
-            trips=trips
+            trips=trips,
+            stop_times_dict=raw_data['stop_times_dict']
         )
         
         logger.info(f"Deserialization completed in {time.time() - start_time:.2f} seconds")
@@ -999,7 +1140,8 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         routes=routes,
         calendars=calendars,
         calendar_dates=calendar_dates,
-        trips=trips
+        trips=trips,
+        stop_times_dict=stop_times_dict
     )
     logger.info(f"Created feed object in {time.time() - t0:.2f} seconds")
     
