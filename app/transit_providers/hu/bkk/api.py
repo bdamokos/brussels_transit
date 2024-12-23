@@ -20,6 +20,28 @@ from transit_providers.nearest_stop import (
 # Setup logging
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)
+
+# Add handler for BKK provider if not exists
+if 'handlers' not in logging_config:
+    logging_config['handlers'] = {}
+if 'loggers' not in logging_config:
+    logging_config['loggers'] = {}
+
+logging_config['handlers']['bkk_file'] = {
+    'class': 'logging.handlers.RotatingFileHandler',
+    'filename': str(Path('logs/bkk.log').absolute()),
+    'maxBytes': 1024 * 1024,  # 1MB
+    'backupCount': 3,
+    'formatter': 'standard',
+    'level': 'DEBUG'
+}
+
+logging_config['loggers']['bkk'] = {
+    'handlers': ['bkk_file', 'file'],
+    'level': 'DEBUG',
+    'propagate': True
+}
+
 dictConfig(logging_config)
 logger = logging.getLogger('bkk')
 
@@ -133,6 +155,7 @@ async def get_vehicle_positions() -> List[Dict]:
         # Get latest config
         config = get_provider_config('bkk')
         monitored_lines = config.get('MONITORED_LINES', [])
+        logger.debug(f"Monitoring lines: {monitored_lines}")
         
         async with httpx.AsyncClient() as client:
             response = await client.get(VEHICLE_POSITIONS_URL)
@@ -140,15 +163,24 @@ async def get_vehicle_positions() -> List[Dict]:
             
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
+            logger.debug(f"Parsed protobuf feed with {len(feed.entity)} entities")
             
             vehicles = []
             for entity in feed.entity:
+                if not entity.HasField('vehicle'):
+                    logger.debug("Entity does not have vehicle field")
+                    continue
+                    
                 vehicle = entity.vehicle
                 if not vehicle.trip.route_id:
+                    logger.debug("Vehicle does not have route_id")
                     continue
                     
                 line_id = _get_line_id_from_trip(vehicle.trip.route_id)
+                logger.debug(f"Found vehicle with route_id {vehicle.trip.route_id}, extracted line_id {line_id}")
+                
                 if monitored_lines and line_id not in monitored_lines:
+                    logger.debug(f"Skipping vehicle for line {line_id} as it's not in monitored lines")
                     continue
                     
                 vehicles.append({
@@ -162,6 +194,7 @@ async def get_vehicle_positions() -> List[Dict]:
                     'provider': 'bkk'
                 })
             
+            logger.debug(f"Found {len(vehicles)} vehicles for monitored lines")
             return vehicles
     except Exception as e:
         logger.error(f"Error getting vehicle positions: {e}")
@@ -273,42 +306,34 @@ async def get_service_alerts() -> List[Dict]:
         return []
 
 # Helper functions
-def _get_line_id_from_trip(trip_id: str) -> str:
-    """Extract line ID from trip ID based on GTFS data structure"""
+def _get_line_id_from_trip(route_id: str) -> str:
+    """Extract line ID from route ID based on GTFS data structure"""
     try:
-        # Load trip information from GTFS data
+        # First try direct route ID to route short name mapping from routes.txt
         gtfs_dir = GTFS_DIR
         if not gtfs_dir.exists():
-            return ''
+            return route_id  # Return original ID if GTFS data is not available
             
-        trips_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/trips.txt'
-        if not trips_file.exists():
-            return ''
-            
-        with open(trips_file, 'r', encoding='utf-8') as f:
-            # Skip header line
-            next(f)
-            for line in f:
-                if trip_id in line:
-                    # Extract route_id from the line
-                    fields = line.strip().split(',')
-                    if len(fields) >= 1:
-                        route_id = fields[0]
-                        # Get route short name from routes.txt
-                        routes_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/routes.txt'
-                        if routes_file.exists():
-                            with open(routes_file, 'r', encoding='utf-8') as rf:
-                                # Skip header line
-                                next(rf)
-                                for route_line in rf:
-                                    if route_id in route_line:
-                                        route_fields = route_line.strip().split(',')
-                                        if len(route_fields) >= 3:
-                                            return route_fields[2]  # route_short_name
-        return ''
+        routes_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/routes.txt'
+        if routes_file.exists():
+            with open(routes_file, 'r', encoding='utf-8') as rf:
+                # Skip header line
+                header = next(rf).strip().split(',')
+                route_id_index = header.index('route_id')
+                route_short_name_index = header.index('route_short_name')
+                
+                for route_line in rf:
+                    fields = route_line.strip().split(',')
+                    if len(fields) > max(route_id_index, route_short_name_index) and fields[route_id_index] == route_id:
+                        # Found the route, return the route_id as is since it's already in the correct format
+                        return route_id
+        
+        # If not found in routes.txt, return the route_id as is
+        # The real-time feed uses the same format as our monitored lines
+        return route_id
     except Exception as e:
-        logger.error(f"Error extracting line ID from trip {trip_id}: {e}")
-        return ''
+        logger.error(f"Error extracting line ID from route {route_id}: {e}")
+        return route_id  # Return original ID if something goes wrong
 
 def _get_destination_from_trip(trip_id: str) -> str:
     """Extract destination from trip ID based on GTFS data structure"""
@@ -324,13 +349,16 @@ def _get_destination_from_trip(trip_id: str) -> str:
             
         with open(trips_file, 'r', encoding='utf-8') as f:
             # Skip header line
-            next(f)
+            header = next(f).strip().split(',')
+            trip_id_index = header.index('trip_id')
+            trip_headsign_index = header.index('trip_headsign')
+            
             for line in f:
-                if trip_id in line:
-                    # Extract headsign from the line
-                    fields = line.strip().split(',')
-                    if len(fields) >= 4:  # trip_headsign is the 4th field
-                        return fields[3].strip('"')
+                fields = line.strip().split(',')
+                if len(fields) > max(trip_id_index, trip_headsign_index) and fields[trip_id_index] == trip_id:
+                    # Remove quotes if present
+                    headsign = fields[trip_headsign_index].strip('"')
+                    return headsign
         return ''
     except Exception as e:
         logger.error(f"Error getting destination for trip {trip_id}: {e}")
