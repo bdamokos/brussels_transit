@@ -17,6 +17,17 @@ from transit_providers.nearest_stop import (
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
 
+# Export public API functions
+__all__ = [
+    'get_vehicle_positions',
+    'get_waiting_times',
+    'get_service_alerts',
+    'get_static_data',
+    'bkk_config',
+    'get_line_info',
+    'get_route_shapes'
+]
+
 # Setup logging
 logging_config = get_config('LOGGING_CONFIG')
 logging_config['log_dir'].mkdir(exist_ok=True)
@@ -306,6 +317,47 @@ async def get_service_alerts() -> List[Dict]:
         return []
 
 # Helper functions
+def _get_current_gtfs_path() -> Optional[Path]:
+    """Get the path to the current GTFS dataset"""
+    try:
+        # First try reading from metadata file
+        metadata_file = GTFS_DIR / 'datasets_metadata.json'
+        if metadata_file.exists():
+            import json
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+                # Find the latest BKK dataset
+                bkk_datasets = [
+                    (k, v) for k, v in metadata.items() 
+                    if v['provider_id'] == PROVIDER_ID
+                ]
+                if bkk_datasets:
+                    # Sort by download date and get the latest
+                    latest = sorted(
+                        bkk_datasets,
+                        key=lambda x: datetime.fromisoformat(x[1]['download_date']),
+                        reverse=True
+                    )[0]
+                    return Path(latest[1]['download_path'])
+        
+        # Fallback to using MobilityAPI
+        mobility_api = MobilityAPI(
+            data_dir=str(GTFS_DIR),
+            refresh_token=os.getenv('MOBILITY_API_REFRESH_TOKEN')
+        )
+        datasets = mobility_api.datasets
+        current_dataset = next(
+            (d for d in datasets.values() if d.provider_id == PROVIDER_ID),
+            None
+        )
+        if current_dataset:
+            return Path(current_dataset.download_path)
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting current GTFS path: {e}")
+        return None
+
 def _get_line_id_from_trip(route_id: str) -> str:
     """Extract line ID from route ID based on GTFS data structure"""
     try:
@@ -314,7 +366,11 @@ def _get_line_id_from_trip(route_id: str) -> str:
         if not gtfs_dir.exists():
             return route_id  # Return original ID if GTFS data is not available
             
-        routes_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/routes.txt'
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return route_id
+            
+        routes_file = gtfs_path / 'routes.txt'
         if routes_file.exists():
             with open(routes_file, 'r', encoding='utf-8') as rf:
                 # Skip header line
@@ -343,7 +399,11 @@ def _get_destination_from_trip(trip_id: str) -> str:
         if not gtfs_dir.exists():
             return ''
             
-        trips_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/trips.txt'
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return ''
+            
+        trips_file = gtfs_path / 'trips.txt'
         if not trips_file.exists():
             return ''
             
@@ -389,34 +449,214 @@ def _get_translated_text(text_container) -> str:
     return ""
 
 async def get_static_data() -> Dict[str, Any]:
-    """Get static data for the provider.
+    """Get static data for the BKK provider.
     
     Returns:
-        Dict[str, Any]: Dictionary containing static data with provider information
+        Dict[str, Any]: Static data including line info and route shapes
     """
-    return {
-        'provider': 'bkk',
-        'monitored_lines': MONITORED_LINES,
-        'stop_ids': STOP_IDS,
-        'has_vehicle_positions': True,
-        'has_service_alerts': True,
-        'has_waiting_times': True
-    }
+    try:
+        # Get line information for monitored lines
+        line_info = await get_line_info()
+        
+        # Get route shapes for monitored lines
+        route_shapes = await get_route_shapes()
+        
+        return {
+            'provider': 'bkk',
+            'line_info': line_info,
+            'route_shapes': route_shapes
+        }
+    except Exception as e:
+        logger.error(f"Error getting static data: {e}")
+        return {
+            'provider': 'bkk',
+            'line_info': {},
+            'route_shapes': {}
+        }
 
 async def bkk_config() -> Dict[str, Any]:
     """Get BKK provider configuration.
     
     Returns:
-        Dict[str, Any]: Configuration dictionary with provider information
+        Dict[str, Any]: Provider configuration
     """
-    # Get latest config values
-    config = get_provider_config('bkk')
-    
     return {
-        'provider': 'bkk',
-        'monitored_lines': config.get('MONITORED_LINES', []),
-        'stop_ids': config.get('STOP_IDS', []),
-        'has_vehicle_positions': True,
-        'has_service_alerts': True,
-        'has_waiting_times': True
+        'name': 'BKK',
+        'city': 'Budapest',
+        'country': 'Hungary',
+        'monitored_lines': MONITORED_LINES,
+        'stop_ids': STOP_IDS,
+        'capabilities': {
+            'has_vehicle_positions': True,
+            'has_waiting_times': True,
+            'has_service_alerts': True,
+            'has_line_info': True,
+            'has_route_shapes': True
+        }
     }
+
+async def get_line_info() -> Dict[str, Dict[str, Any]]:
+    """Get information about all monitored lines, including display names and colors.
+    
+    Returns:
+        Dict[str, Dict[str, Any]]: Dictionary mapping route_ids to their information
+    """
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return {}
+            
+        line_info = {}
+        routes_file = gtfs_path / 'routes.txt'
+        
+        if not routes_file.exists():
+            logger.error(f"Routes file not found at {routes_file}")
+            return {}
+            
+        with open(routes_file, 'r', encoding='utf-8') as f:
+            # Read header
+            header = f.readline().strip().split(',')
+            route_id_index = header.index('route_id')
+            route_short_name_index = header.index('route_short_name')
+            route_long_name_index = header.index('route_long_name') if 'route_long_name' in header else -1
+            route_type_index = header.index('route_type') if 'route_type' in header else -1
+            route_color_index = header.index('route_color') if 'route_color' in header else -1
+            route_text_color_index = header.index('route_text_color') if 'route_text_color' in header else -1
+            
+            # Read routes
+            for line in f:
+                # Split by comma but preserve quoted fields
+                fields = []
+                current_field = []
+                in_quotes = False
+                for char in line.strip():
+                    if char == '"':
+                        in_quotes = not in_quotes
+                    elif char == ',' and not in_quotes:
+                        fields.append(''.join(current_field))
+                        current_field = []
+                    else:
+                        current_field.append(char)
+                fields.append(''.join(current_field))
+                
+                # Remove quotes from fields
+                fields = [f.strip('"') for f in fields]
+                
+                route_id = fields[route_id_index]
+                
+                # Only include monitored lines
+                if route_id not in MONITORED_LINES:
+                    continue
+                    
+                info = {
+                    'route_id': route_id,
+                    'display_name': fields[route_short_name_index],
+                    'provider': 'bkk'
+                }
+                
+                # Add optional fields if available
+                if route_long_name_index >= 0:
+                    info['long_name'] = fields[route_long_name_index]
+                if route_type_index >= 0:
+                    info['route_type'] = int(fields[route_type_index])
+                if route_color_index >= 0 and len(fields) > route_color_index:
+                    color = fields[route_color_index].strip()
+                    if color:
+                        info['color'] = f"#{color}"
+                if route_text_color_index >= 0 and len(fields) > route_text_color_index:
+                    text_color = fields[route_text_color_index].strip()
+                    if text_color:
+                        info['text_color'] = f"#{text_color}"
+                
+                line_info[route_id] = info
+        
+        return line_info
+    except Exception as e:
+        logger.error(f"Error getting line information: {e}")
+        return {}
+
+async def get_route_shapes() -> Dict[str, List[Dict[str, float]]]:
+    """Get route shapes for all monitored lines.
+    
+    Returns:
+        Dict[str, List[Dict[str, float]]]: Dictionary mapping route_ids to their shape coordinates
+    """
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return {}
+            
+        # First get shape IDs for monitored lines from trips.txt
+        shape_ids = set()
+        trips_file = gtfs_path / 'trips.txt'
+        
+        if not trips_file.exists():
+            logger.error(f"Trips file not found at {trips_file}")
+            return {}
+            
+        with open(trips_file, 'r', encoding='utf-8') as f:
+            # Read header
+            header = f.readline().strip().split(',')
+            route_id_index = header.index('route_id')
+            shape_id_index = header.index('shape_id') if 'shape_id' in header else -1
+            
+            if shape_id_index < 0:
+                logger.error("No shape_id column found in trips.txt")
+                return {}
+                
+            # Read trips
+            for line in f:
+                fields = line.strip().split(',')
+                route_id = fields[route_id_index].strip('"')
+                
+                # Only include monitored lines
+                if route_id not in MONITORED_LINES:
+                    continue
+                    
+                shape_id = fields[shape_id_index].strip('"')
+                shape_ids.add(shape_id)
+        
+        # Now get coordinates for each shape from shapes.txt
+        shapes_file = gtfs_path / 'shapes.txt'
+        route_shapes = {route_id: [] for route_id in MONITORED_LINES}
+        
+        if not shapes_file.exists():
+            logger.error(f"Shapes file not found at {shapes_file}")
+            return {}
+            
+        with open(shapes_file, 'r', encoding='utf-8') as f:
+            # Read header
+            header = f.readline().strip().split(',')
+            shape_id_index = header.index('shape_id')
+            lat_index = header.index('shape_pt_lat')
+            lon_index = header.index('shape_pt_lon')
+            sequence_index = header.index('shape_pt_sequence')
+            
+            # Read shapes
+            shape_points = {}
+            for line in f:
+                fields = line.strip().split(',')
+                shape_id = fields[shape_id_index].strip('"')
+                
+                # Only include monitored shapes
+                if shape_id not in shape_ids:
+                    continue
+                    
+                lat = float(fields[lat_index])
+                lon = float(fields[lon_index])
+                sequence = int(fields[sequence_index])
+                
+                if shape_id not in shape_points:
+                    shape_points[shape_id] = []
+                shape_points[shape_id].append((sequence, {'lat': lat, 'lon': lon}))
+        
+        # Sort points by sequence and add to route shapes
+        for shape_id, points in shape_points.items():
+            points.sort(key=lambda x: x[0])  # Sort by sequence
+            for route_id in MONITORED_LINES:
+                route_shapes[route_id].extend([p[1] for p in points])
+        
+        return route_shapes
+    except Exception as e:
+        logger.error(f"Error getting route shapes: {e}")
+        return {}

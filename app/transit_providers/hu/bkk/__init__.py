@@ -24,7 +24,9 @@ from .api import (
     get_waiting_times,
     get_service_alerts,
     get_vehicle_positions,
-    get_static_data
+    get_static_data,
+    get_line_info,
+    get_route_shapes
 )
 
 provider_config = get_provider_config('bkk')
@@ -49,7 +51,9 @@ class BKKProvider(TransitProvider):
             'waiting_times': get_waiting_times,
             'service_messages': get_service_alerts,
             'vehicles': get_vehicle_positions,
-            'static_data': get_static_data
+            'static_data': get_static_data,
+            'line_info': get_line_info,
+            'route_shapes': get_route_shapes
         }
         
         # Call parent class constructor
@@ -74,5 +78,7 @@ __all__ = [
     'get_waiting_times',
     'get_service_alerts',
     'get_vehicle_positions',
-    'get_static_data'
+    'get_static_data',
+    'get_line_info',
+    'get_route_shapes'
 ]
