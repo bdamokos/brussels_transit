@@ -488,17 +488,20 @@ async def get_station_routes(
             if hasattr(feed.stops[station_id], 'parent_station'):
                 parent_station_id = feed.stops[station_id].parent_station
             
-            # Handle NaN values in route name
+            # Handle NaN values in route name and colors
             route_name = route.route_name
             if pd.isna(route_name):
                 route_name = f"Route {route.route_id}"
             
+            color = route.color if hasattr(route, 'color') and not pd.isna(route.color) else None
+            text_color = route.text_color if hasattr(route, 'text_color') and not pd.isna(route.text_color) else None
+
             routes_info.append(RouteInfo(
                 route_id=route.route_id,
                 route_name=route_name,
                 short_name=route.short_name if hasattr(route, 'short_name') else None,
-                color=route.color if hasattr(route, 'color') else None,
-                text_color=route.text_color if hasattr(route, 'text_color') else None,
+                color=color,
+                text_color=text_color,
                 first_stop=stop_names[0],
                 last_stop=stop_names[-1],
                 stops=stop_names,
