@@ -16,7 +16,12 @@
             LOCATION_UPDATE_INTERVAL: Number('{{ location_update_interval }}') * 1000,  // Convert to milliseconds
             REFRESH_INTERVAL: Number('{{ refresh_interval }}') * 1000,  // Convert to milliseconds
             lineColors: JSON.parse('{{ route_colors|tojson|safe }}'),  // Initialize before loading index.js
-            bkkModule: {},  // Initialize BKK module namespace
+            bkkModule: {
+                processMessages: function(response) {
+                    // Extract messages array from response
+                    return response && response.messages ? response.messages : [];
+                }
+            },  // Initialize BKK module namespace with message processing
             config: {  // Store provider configs
                 bkk: null,
                 delijn: null

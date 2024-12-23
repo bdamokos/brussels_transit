@@ -82,16 +82,25 @@ async function fetchBkkData() {
     }
 }
 
-// Function to fetch BKK service messages
+// Function to fetch and process BKK service messages
 async function fetchBkkMessages() {
     try {
         const response = await fetch('/api/bkk/messages');
         if (!response.ok) throw new Error('Failed to fetch BKK messages');
-        return await response.json();
+        const data = await response.json();
+        return processMessages(data);
     } catch (error) {
         console.error('Error fetching BKK messages:', error);
         return [];
     }
+}
+
+// Function to process BKK messages
+function processMessages(data) {
+    if (!data || !data.messages) {
+        return [];
+    }
+    return data.messages;
 }
 
 // Function to fetch BKK waiting times
@@ -123,5 +132,6 @@ Object.assign(transitApp.bkkModule, {
     fetchBkkData,
     fetchBkkMessages,
     fetchBkkWaitingTimes,
+    processMessages,
     BKK_STOP_IDS: transitApp.bkkModule.BKK_STOP_IDS
 }); 

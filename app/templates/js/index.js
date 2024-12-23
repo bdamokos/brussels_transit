@@ -123,48 +123,52 @@ async function fetchAndUpdateData() {
         
         // Fetch BKK data if enabled
         if (transitApp.config.bkk) {
-            // Fetch BKK waiting times
-            const bkkWaitingTimes = await transitApp.bkkModule.fetchBkkWaitingTimes();
-            console.log("BKK waiting times:", bkkWaitingTimes);
-            
-            // Store colors for later use
-            if (bkkWaitingTimes.colors) {
-                Object.entries(bkkWaitingTimes.colors).forEach(([line, colors]) => {
-                    transitApp.lineColors[line] = colors;
-                });
-            }
-            
-            // Transform waiting times data into the expected format
-            if (bkkWaitingTimes.stops) {
-                Object.entries(bkkWaitingTimes.stops).forEach(([stopId, stopInfo]) => {
-                    if (stopInfo.lines) {
-                        bkkData.stops_data[stopId] = {
-                            name: stopInfo.name,
-                            coordinates: stopInfo.coordinates,
-                            lines: stopInfo.lines
-                        };
-                    }
-                });
-            }
-            
-            // Fetch BKK messages
-            bkkMessages = await transitApp.bkkModule.fetchBkkMessages();
-            
-            // Fetch BKK vehicles
-            if (transitApp.config.bkk.monitored_lines) {
-                const bkkVehiclesPromises = transitApp.config.bkk.monitored_lines.map(async line => {
-                    try {
-                        const response = await fetch(`/api/bkk/vehicles/${line}`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            return Array.isArray(data) ? data : data.vehicles || [];
+            try {
+                // Fetch BKK waiting times
+                const bkkWaitingTimes = await transitApp.bkkModule.fetchBkkWaitingTimes();
+                console.log("BKK waiting times:", bkkWaitingTimes);
+                
+                // Store colors for later use
+                if (bkkWaitingTimes.colors) {
+                    Object.entries(bkkWaitingTimes.colors).forEach(([line, colors]) => {
+                        transitApp.lineColors[line] = colors;
+                    });
+                }
+                
+                // Transform waiting times data into the expected format
+                if (bkkWaitingTimes.stops) {
+                    Object.entries(bkkWaitingTimes.stops).forEach(([stopId, stopInfo]) => {
+                        if (stopInfo.lines) {
+                            bkkData.stops_data[stopId] = {
+                                name: stopInfo.name,
+                                coordinates: stopInfo.coordinates,
+                                lines: stopInfo.lines
+                            };
                         }
-                    } catch (error) {
-                        console.warn(`Error fetching vehicles for line ${line}:`, error);
-                    }
-                    return [];
-                });
-                bkkVehiclesData = await Promise.all(bkkVehiclesPromises);
+                    });
+                }
+                
+                // Fetch BKK messages
+                bkkMessages = await transitApp.bkkModule.fetchBkkMessages();
+                
+                // Fetch BKK vehicles
+                if (transitApp.config.bkk.monitored_lines) {
+                    const bkkVehiclesPromises = transitApp.config.bkk.monitored_lines.map(async line => {
+                        try {
+                            const response = await fetch(`/api/bkk/vehicles/${line}`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                return Array.isArray(data) ? data : data.vehicles || [];
+                            }
+                        } catch (error) {
+                            console.warn(`Error fetching vehicles for line ${line}:`, error);
+                        }
+                        return [];
+                    });
+                    bkkVehiclesData = await Promise.all(bkkVehiclesPromises);
+                }
+            } catch (error) {
+                console.error('Error fetching BKK data:', error);
             }
         }
 
