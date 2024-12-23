@@ -234,11 +234,46 @@ class TestProvider:
             assert isinstance(destinations, list)
             print("  ✓ Destinations endpoint working")
 
+            # Test origins for a station
+            response = client.get(f"/stations/origins/{stations[0]['id']}")
+            assert response.status_code == 200
+            origins = response.json()
+            assert isinstance(origins, list)
+            print("  ✓ Origins endpoint working")
+
             # Test station routes
             response = client.get(f"/stations/{stations[0]['id']}/routes")
             assert response.status_code == 200
             routes = response.json()
             assert isinstance(routes, list)
             print("  ✓ Station routes endpoint working")
+
+            # Verify that the routes contain valid data
+            if len(routes) > 0:
+                route = routes[0]
+                assert "route_id" in route, "Route should have an ID"
+                assert "route_name" in route, "Route should have a name"
+                assert "stops" in route, "Route should have stops"
+                assert len(route["stops"]) >= 2, "Route should have at least 2 stops"
+                print("  ✓ Route data structure verified")
+
+            # Verify that destinations and origins contain valid data
+            if len(destinations) > 0:
+                destination = destinations[0]
+                assert "id" in destination, "Destination should have an ID"
+                assert "name" in destination, "Destination should have a name"
+                assert "location" in destination, "Destination should have a location"
+                assert "lat" in destination["location"], "Location should have latitude"
+                assert "lon" in destination["location"], "Location should have longitude"
+                print("  ✓ Destination data structure verified")
+
+            if len(origins) > 0:
+                origin = origins[0]
+                assert "id" in origin, "Origin should have an ID"
+                assert "name" in origin, "Origin should have a name"
+                assert "location" in origin, "Origin should have a location"
+                assert "lat" in origin["location"], "Location should have latitude"
+                assert "lon" in origin["location"], "Location should have longitude"
+                print("  ✓ Origin data structure verified")
         else:
             print("  ⚠️ Not enough stations found to test endpoints")
