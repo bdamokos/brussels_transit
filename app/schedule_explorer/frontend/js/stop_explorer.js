@@ -7,6 +7,16 @@ const API_BASE_URL = 'http://localhost:8000';
 const MARKER_COLORS = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00'];
 let colorIndex = 0;
 
+// Function to escape HTML special characters
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 // Backend status handling
 const backendStatus = document.getElementById('backendStatus');
 const providerSelect = document.getElementById('providerSelect');
@@ -197,7 +207,7 @@ async function loadAllRoutes() {
         // Group routes by stop
         routesContainer.innerHTML = results.map(({ stopId, routes }) => {
             const { color } = stopMarkers.get(stopId);
-            const stopName = document.querySelector(`#stop-row-${stopId} .stop-name`).textContent;
+            const stopName = escapeHtml(document.querySelector(`#stop-row-${stopId} .stop-name`).textContent);
             
             return `
                 <div class="stop-routes-group">
@@ -244,6 +254,7 @@ async function loadAllRoutes() {
         routesContainer.innerHTML = '<div class="alert alert-danger">Failed to load routes.</div>';
     }
 }
+
 
 // Setup event listeners
 function setupEventListeners() {
