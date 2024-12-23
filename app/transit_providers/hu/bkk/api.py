@@ -25,7 +25,8 @@ __all__ = [
     'get_static_data',
     'bkk_config',
     'get_line_info',
-    'get_route_shapes'
+    'get_route_shapes',
+    'get_route_variants_api'
 ]
 
 # Setup logging
@@ -125,9 +126,18 @@ class GTFSManager:
         if not dataset.feed_end_date:
             return True
             
+        # Convert string to datetime if needed
+        if isinstance(dataset.feed_end_date, str):
+            try:
+                end_date = datetime.fromisoformat(dataset.feed_end_date)
+            except ValueError:
+                # If we can't parse the date, consider it expired
+                return True
+        else:
+            end_date = dataset.feed_end_date
+            
         # Ensure we're comparing timezone-aware datetimes
         now = datetime.now(timezone.utc)
-        end_date = dataset.feed_end_date
         if not end_date.tzinfo:
             end_date = end_date.replace(tzinfo=timezone.utc)
             
@@ -660,3 +670,71 @@ async def get_route_shapes() -> Dict[str, List[Dict[str, float]]]:
     except Exception as e:
         logger.error(f"Error getting route shapes: {e}")
         return {}
+
+async def get_route_variants_api(route_id: str) -> Dict:
+    """Get route variants for a specific route.
+    
+    Args:
+        route_id: The route ID to get variants for
+    
+    Returns:
+        Dict: Dictionary containing route variants with their shapes and stops
+    """
+    try:
+        # Get fresh GTFS data if needed
+        gtfs_manager = GTFSManager()
+        gtfs_dir = await gtfs_manager.ensure_gtfs_data()
+        if not gtfs_dir:
+            return {'shapes': []}
+        
+        # Get monitored stops for matching with shapes
+        stops = await get_stops()
+        monitored_stops = [
+            {'lat': float(stop.lat), 'lon': float(stop.lon)}
+            for stop in stops.values()
+        ]
+        
+        # Get variants for the route
+        from .routes import get_route_variants
+        variants = get_route_variants(route_id, monitored_stops, gtfs_dir)
+        if not variants:
+            return {'shapes': []}
+        
+        # Convert to API format
+        shapes = []
+        for variant_num, points in variants['variants'].items():
+            # Convert points to [lon, lat] format
+            shape_points = points  # points are already in [lon, lat] format
+            
+            # Get stops for this variant
+            variant_stops = []
+            for stop in stops.values():
+                if _point_matches_any_point(stop, points):
+                    variant_stops.append({
+                        'coordinates': {
+                            'lat': float(stop.lat),
+                            'lon': float(stop.lon)
+                        },
+                        'id': stop.id,
+                        'name': stop.name,
+                        'order': len(variant_stops) + 1
+                    })
+            
+            shapes.append({
+                'points': shape_points,
+                'stops': variant_stops,
+                'variante': int(variant_num)
+            })
+        
+        return {'shapes': shapes}
+        
+    except Exception as e:
+        logger.error(f"Error getting route variants: {e}")
+        return {'shapes': []}
+
+def _point_matches_any_point(stop: Stop, points: List[List[float]], threshold: float = 0.0001) -> bool:
+    """Check if a stop matches any point in a list of points"""
+    for point in points:
+        if abs(point[1] - float(stop.lat)) < threshold and abs(point[0] - float(stop.lon)) < threshold:
+            return True
+    return False
