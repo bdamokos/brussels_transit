@@ -14,8 +14,8 @@ from mobility_db_api import MobilityAPI
 from .models import RouteResponse, StationResponse, Route, Stop, Location, Shape, RouteInfo
 from .gtfs_loader import FlixbusFeed, load_feed
 
-# Configure download directory
-DOWNLOAD_DIR = Path(os.getenv('GTFS_DOWNLOAD_DIR', Path(__file__).parent.parent.parent.parent / 'downloads'))
+# Configure download directory - hardcoded to project root/downloads
+DOWNLOAD_DIR = Path(__file__).parent.parent.parent.parent / 'downloads'
 
 # Configure logging
 def setup_logging():
