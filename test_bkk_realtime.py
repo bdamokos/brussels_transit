@@ -28,18 +28,13 @@ async def main():
     # Test waiting times
     print("\nGetting waiting times...")
     waiting_times = await get_waiting_times()
-    print("Waiting times for stop F00583 (Raktár utca):\n")
+    print("Waiting times for stop F01111 (Wesselényi utca / Erzsébet körút):\n")
     
-    if 'F00583' in waiting_times:
-        stop_data = waiting_times['F00583']
-        for line_id, line_data in stop_data['lines'].items():
-            print(f"Line {line_id}:")
-            for destination, arrivals in line_data.items():
-                print(f"  To {destination}:")
-                for arrival in arrivals:
-                    print(f"    Arriving in {arrival['minutes']}' (scheduled: {arrival['scheduled']})")
+    if 'F01111' in waiting_times:
+        for arrival in waiting_times['F01111']:
+            print(f"Line {arrival['line']} to {arrival['destination']}: {arrival['minutes_until']} (at {arrival['timestamp']})")
     else:
-        print("No waiting times found for stop F00583")
+        print("No waiting times found for stop F01111")
 
     # Test vehicle positions
     print("\nGetting vehicle positions...")
@@ -47,11 +42,11 @@ async def main():
     print(f"Found {len(vehicles)} vehicles for monitored lines\n")
     
     # Display first 5 vehicles
-    for i, vehicle in enumerate(vehicles[:5]):
-        print(f"Vehicle {vehicle['vehicle_id']}:")
+    for vehicle in vehicles[:5]:
+        print(f"Vehicle {vehicle['id']}:")
         print(f"  Line: {vehicle['line']}")
         print(f"  To: {vehicle['destination']}")
-        print(f"  Position: {vehicle['position']}")
+        print(f"  Position: {vehicle['lat']}, {vehicle['lon']}")
         print(f"  Last update: {vehicle['timestamp']}\n")
 
     # Test service alerts
@@ -63,8 +58,12 @@ async def main():
     for alert in alerts[:10]:
         print(f"Alert: {alert['title']}")
         print(f"Description: {alert['description']}")
-        print(f"Affects: {alert['affected_entities']}")
-        print(f"Active period: {alert['active_period']}\n")
+        print(f"Affects lines: {alert['lines']}")
+        if alert['start']:
+            print(f"Start: {alert['start']}")
+        if alert['end']:
+            print(f"End: {alert['end']}")
+        print()
 
 if __name__ == "__main__":
     asyncio.run(main()) 
