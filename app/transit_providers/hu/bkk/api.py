@@ -9,6 +9,7 @@ import asyncio
 from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
 import httpx
 from google.transit import gtfs_realtime_pb2
+from google.protobuf import json_format
 from mobility_db_api import MobilityAPI
 from transit_providers.config import get_provider_config
 from config import get_config
@@ -380,60 +381,105 @@ async def get_stops() -> Dict[str, Stop]:
         cache_stops(stops, cache_path)
     return stops
 
-async def get_vehicle_positions() -> List[Dict]:
-    """Get current vehicle positions.
+async def get_vehicle_positions(line=None, direction=None):
+    """Get vehicle positions from BKK GTFS-RT feed.
     
-    Returns:
-        List[Dict]: List of vehicle position dictionaries with provider information
-    """
-    try:
-        # Get latest config
-        config = get_provider_config('bkk')
-        monitored_lines = config.get('MONITORED_LINES', [])
-        logger.debug(f"Monitoring lines: {monitored_lines}")
+    Args:
+        line (str, optional): Filter vehicles by line number. Defaults to None.
+        direction (str, optional): Filter vehicles by direction. Defaults to None.
         
-        async with httpx.AsyncClient() as client:
-            response = await client.get(VEHICLE_POSITIONS_URL)
-            response.raise_for_status()
-            
-            feed = gtfs_realtime_pb2.FeedMessage()
-            feed.ParseFromString(response.content)
-            logger.debug(f"Parsed protobuf feed with {len(feed.entity)} entities")
-            
-            vehicles = []
-            for entity in feed.entity:
-                if not entity.HasField('vehicle'):
-                    logger.debug("Entity does not have vehicle field")
-                    continue
-                    
-                vehicle = entity.vehicle
-                if not vehicle.trip.route_id:
-                    logger.debug("Vehicle does not have route_id")
-                    continue
-                    
-                line_id = _get_line_id_from_trip(vehicle.trip.route_id)
-                logger.debug(f"Found vehicle with route_id {vehicle.trip.route_id}, extracted line_id {line_id}")
+    Returns:
+        list: List of vehicle position dictionaries.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(VEHICLE_POSITIONS_URL, params={"key": API_KEY})
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(response.content)
+        
+        vehicles = []
+        for entity in feed.entity:
+            if not entity.HasField("vehicle"):
+                continue
                 
-                if monitored_lines and line_id not in monitored_lines:
-                    logger.debug(f"Skipping vehicle for line {line_id} as it's not in monitored lines")
-                    continue
-                    
-                vehicles.append({
-                    'id': vehicle.vehicle.id,
-                    'line': line_id,
-                    'lat': vehicle.position.latitude,
-                    'lon': vehicle.position.longitude,
-                    'bearing': vehicle.position.bearing if vehicle.position.HasField('bearing') else None,
-                    'destination': _get_destination_from_trip(vehicle.trip.trip_id),
-                    'timestamp': datetime.fromtimestamp(vehicle.timestamp, timezone.utc).isoformat(),
-                    'provider': 'bkk'
-                })
+            vehicle = entity.vehicle
+            if not vehicle.HasField("trip"):
+                continue
+                
+            # Filter by line if specified
+            route_id = vehicle.trip.route_id.lstrip("0")
+            if line and route_id != line.lstrip("0"):
+                continue
+                
+            # Get vehicle details
+            vehicle_dict = {
+                "id": vehicle.vehicle.id,
+                "line": vehicle.trip.route_id,
+                "direction": direction,  # We don't have direction info in the feed
+                "destination": vehicle.vehicle.label,
+                "position": {
+                    "lat": float(vehicle.position.latitude),
+                    "lon": float(vehicle.position.longitude),
+                    "bearing": float(vehicle.position.bearing) if vehicle.position.HasField("bearing") else None,
+                    "speed": float(vehicle.position.speed) if vehicle.position.HasField("speed") else 0.0,
+                },
+                "timestamp": datetime.fromtimestamp(int(vehicle.timestamp)).isoformat() + "+00:00",
+                "delay": None,  # Delay is not provided in the feed
+                "status": vehicle.current_status,
+                "stop_id": vehicle.stop_id,
+                "stop_sequence": vehicle.current_stop_sequence,
+                "license_plate": vehicle.vehicle.license_plate,
+                "provider": "bkk",
+            }
             
-            logger.debug(f"Found {len(vehicles)} vehicles for monitored lines")
-            return vehicles
-    except Exception as e:
-        logger.error(f"Error getting vehicle positions: {e}")
-        return []
+            # Store raw vehicle data for debugging
+            vehicle_dict["raw_vehicle"] = json_format.MessageToDict(
+                vehicle.vehicle,
+                preserving_proto_field_name=True,
+                use_integers_for_enums=True
+            )
+            
+            # Store raw bytes for debugging
+            raw_bytes = vehicle.vehicle.SerializeToString()
+            vehicle_dict["raw_bytes"] = raw_bytes
+            
+            # Parse BKK-specific fields from raw bytes
+            try:
+                # Find vehicle model (field 62, tag 0xF2 0x3E)
+                model_start = raw_bytes.find(b'\xf2\x3e')
+                if model_start >= 0:
+                    # Skip tag and length byte
+                    model_start += 3
+                    # Find end of string (next tag or end of bytes)
+                    model_end = raw_bytes.find(b'\x18', model_start)
+                    if model_end < 0:
+                        model_end = len(raw_bytes)
+                    model = raw_bytes[model_start:model_end].decode('utf-8')
+                    # Remove the extra characters at the beginning
+                    if model.startswith('\n)'):
+                        model = model[2:]
+                    
+                    # Find door status (field 3, tag 0x18)
+                    door_start = raw_bytes.find(b'\x18', model_end)
+                    if door_start >= 0:
+                        door_open = raw_bytes[door_start + 2] == 1
+                        
+                        # Find stop distance (field 5, tag 0x28)
+                        dist_start = raw_bytes.find(b'\x28', door_start)
+                        if dist_start >= 0:
+                            stop_distance = raw_bytes[dist_start + 1]
+                            
+                            # Add BKK-specific fields
+                            vehicle_dict["bkk_specific"] = {
+                                "vehicle_model": model,
+                                "door_open": door_open,
+                                "stop_distance": stop_distance
+                            }
+            except Exception as e:
+                print(f"Error parsing BKK-specific fields: {e}")
+            
+            vehicles.append(vehicle_dict)
+            
+        return vehicles
 
 async def get_waiting_times() -> Dict:
     """Get waiting times for monitored stops."""
