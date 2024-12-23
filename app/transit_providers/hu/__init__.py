@@ -3,7 +3,6 @@
 from transit_providers import register_provider
 from . import bkk
 
-# Register providers
-bkk.register_bkk_provider(register_provider)
+# The BKK provider will register itself if enabled in configuration
 
 __all__ = ['bkk']

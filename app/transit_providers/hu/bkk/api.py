@@ -30,19 +30,27 @@ provider_config = get_provider_config('bkk')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 GTFS_DIR = provider_config.get('GTFS_DIR')
 API_KEY = provider_config.get('API_KEY')
-PROVIDER_ID = provider_config.get('PROVIDER_ID', 'tld-5862')  # BKK's ID in Mobility DB
+PROVIDER_ID = provider_config.get('PROVIDER_ID', 'mdb-990')  # BKK's ID in Mobility DB
 MONITORED_LINES = provider_config.get('MONITORED_LINES', [])
 STOP_IDS = provider_config.get('STOP_IDS', [])
 
+# Create necessary directories
+if CACHE_DIR:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+if GTFS_DIR:
+    GTFS_DIR.mkdir(parents=True, exist_ok=True)
+
 # GTFS-realtime endpoints
-VEHICLE_POSITIONS_URL = 'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/VehiclePositions.pb'
-TRIP_UPDATES_URL = 'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/TripUpdates.pb'
-ALERTS_URL = 'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb'
+VEHICLE_POSITIONS_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/VehiclePositions.pb?key={API_KEY}'
+TRIP_UPDATES_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/TripUpdates.pb?key={API_KEY}'
+ALERTS_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb?key={API_KEY}'
 
 class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
     
     def __init__(self):
+        if not GTFS_DIR:
+            raise ValueError("GTFS_DIR is not set in provider configuration")
         self.mobility_api = MobilityAPI(
             data_dir=str(GTFS_DIR),
             refresh_token=os.getenv('MOBILITY_API_REFRESH_TOKEN')
@@ -52,12 +60,16 @@ class GTFSManager:
         """Ensure GTFS data is downloaded and up to date"""
         try:
             # Create GTFS directory if it doesn't exist
-            GTFS_DIR.mkdir(parents=True, exist_ok=True)
+            if GTFS_DIR:
+                GTFS_DIR.mkdir(parents=True, exist_ok=True)
+            else:
+                logger.error("GTFS_DIR is not set in provider configuration")
+                return None
             
             # Check if we need to download new data
-            datasets = self.mobility_api.list_downloaded_datasets()
+            datasets = self.mobility_api.datasets
             current_dataset = next(
-                (d for d in datasets if d.provider_id == PROVIDER_ID), 
+                (d for d in datasets.values() if d.provider_id == PROVIDER_ID), 
                 None
             )
             
@@ -139,9 +151,13 @@ async def get_vehicle_positions() -> List[Dict]:
                     if MONITORED_LINES and line_id not in MONITORED_LINES:
                         continue
                         
+                    # Get destination from GTFS data
+                    destination = _get_destination_from_trip(trip_id)
+                    
                     vehicles.append({
                         'line': line_id,
                         'trip_id': trip_id,
+                        'destination': destination,
                         'position': {
                             'lat': vehicle.position.latitude,
                             'lon': vehicle.position.longitude
@@ -161,7 +177,7 @@ async def get_vehicle_positions() -> List[Dict]:
         return []
 
 async def get_waiting_times() -> Dict:
-    """Get real-time arrival predictions"""
+    """Get real-time waiting times for monitored stops"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -170,53 +186,60 @@ async def get_waiting_times() -> Dict:
             )
             
             if response.status_code != 200:
-                logger.error(f"Failed to get trip updates: {response.status_code}")
+                logger.error(f"Failed to get waiting times: {response.status_code}")
                 return {}
                 
+            # Parse protobuf message
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
-            # Process and format arrival times
             stops_data = {}
             for entity in feed.entity:
                 if entity.HasField('trip_update'):
-                    update = entity.trip_update
+                    trip_update = entity.trip_update
+                    trip_id = trip_update.trip.trip_id
+                    line_id = _get_line_id_from_trip(trip_id)
+                    destination = _get_destination_from_trip(trip_id)
                     
-                    # Only process monitored lines
-                    line_id = _get_line_id_from_trip(update.trip.trip_id)
-                    if MONITORED_LINES and line_id not in MONITORED_LINES:
-                        continue
+                    # Process each stop time update
+                    for stop_update in trip_update.stop_time_update:
+                        stop_id = stop_update.stop_id
                         
-                    for stop_time in update.stop_time_update:
-                        stop_id = stop_time.stop_id
+                        # Skip if not in monitored stops
                         if STOP_IDS and stop_id not in STOP_IDS:
                             continue
                             
+                        # Initialize stop data if needed
                         if stop_id not in stops_data:
-                            stops_data[stop_id] = {'lines': {}}
+                            stops_data[stop_id] = {
+                                'lines': {}
+                            }
                             
+                        # Initialize line data if needed
                         if line_id not in stops_data[stop_id]['lines']:
                             stops_data[stop_id]['lines'][line_id] = {}
                             
-                        # Format arrival time
-                        arrival_time = datetime.fromtimestamp(
-                            stop_time.arrival.time,
-                            tz=timezone.utc
-                        )
-                        
-                        arrival_data = {
-                            'scheduled_time': arrival_time.strftime('%H:%M'),
-                            'scheduled_minutes': _format_minutes_until(arrival_time),
-                            'is_realtime': True,
-                            'delay': stop_time.arrival.delay
-                        }
-                        
-                        # Add to appropriate destination
-                        destination = _get_destination_from_trip(update.trip.trip_id)
+                        # Initialize destination data if needed
                         if destination not in stops_data[stop_id]['lines'][line_id]:
                             stops_data[stop_id]['lines'][line_id][destination] = []
-                        stops_data[stop_id]['lines'][line_id][destination].append(arrival_data)
-                        
+                            
+                        # Calculate arrival time
+                        arrival_time = None
+                        if stop_update.HasField('arrival'):
+                            arrival_time = stop_update.arrival.time
+                        elif stop_update.HasField('departure'):
+                            arrival_time = stop_update.departure.time
+                            
+                        if arrival_time:
+                            arrival_dt = datetime.fromtimestamp(arrival_time, tz=timezone.utc)
+                            now = datetime.now(timezone.utc)
+                            minutes = int((arrival_dt - now).total_seconds() / 60)
+                            
+                            stops_data[stop_id]['lines'][line_id][destination].append({
+                                'minutes': minutes,
+                                'scheduled': arrival_dt.strftime('%H:%M')
+                            })
+                            
             return stops_data
             
     except Exception as e:
@@ -298,11 +321,35 @@ async def get_service_alerts() -> List[Dict]:
 def _get_line_id_from_trip(trip_id: str) -> str:
     """Extract line ID from trip ID based on GTFS data structure"""
     try:
-        # BKK trip_id format: "line_number.direction.variant.service_id"
-        # Example: "3040.1.123.123"
-        parts = trip_id.split('.')
-        if len(parts) >= 1 and parts[0].isdigit():
-            return parts[0]
+        # Load trip information from GTFS data
+        gtfs_dir = GTFS_DIR
+        if not gtfs_dir.exists():
+            return ''
+            
+        trips_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/trips.txt'
+        if not trips_file.exists():
+            return ''
+            
+        with open(trips_file, 'r', encoding='utf-8') as f:
+            # Skip header line
+            next(f)
+            for line in f:
+                if trip_id in line:
+                    # Extract route_id from the line
+                    fields = line.strip().split(',')
+                    if len(fields) >= 1:
+                        route_id = fields[0]
+                        # Get route short name from routes.txt
+                        routes_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/routes.txt'
+                        if routes_file.exists():
+                            with open(routes_file, 'r', encoding='utf-8') as rf:
+                                # Skip header line
+                                next(rf)
+                                for route_line in rf:
+                                    if route_id in route_line:
+                                        route_fields = route_line.strip().split(',')
+                                        if len(route_fields) >= 3:
+                                            return route_fields[2]  # route_short_name
         return ''
     except Exception as e:
         logger.error(f"Error extracting line ID from trip {trip_id}: {e}")
@@ -316,16 +363,18 @@ def _get_destination_from_trip(trip_id: str) -> str:
         if not gtfs_dir.exists():
             return ''
             
-        trips_file = gtfs_dir / 'trips.txt'
+        trips_file = gtfs_dir / 'mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412230112/trips.txt'
         if not trips_file.exists():
             return ''
             
         with open(trips_file, 'r', encoding='utf-8') as f:
+            # Skip header line
+            next(f)
             for line in f:
                 if trip_id in line:
                     # Extract headsign from the line
                     fields = line.strip().split(',')
-                    if len(fields) >= 4:  # Assuming trip_headsign is the 4th field
+                    if len(fields) >= 4:  # trip_headsign is the 4th field
                         return fields[3].strip('"')
         return ''
     except Exception as e:
@@ -357,21 +406,44 @@ def _get_translated_text(text_container) -> str:
     return ""
 
 async def get_static_data() -> Dict:
-    """Get static configuration data"""
-    gtfs_manager = GTFSManager()
-    gtfs_dir = await gtfs_manager.ensure_gtfs_data()
-    
-    if not gtfs_dir:
-        return {
-            "error": "Could not access GTFS data"
-        }
+    """Get static data from GTFS feed"""
+    try:
+        # Ensure GTFS data is available
+        gtfs_dir = GTFS_DIR
+        if not gtfs_dir.exists():
+            gtfs_dir.mkdir(parents=True, exist_ok=True)
+            
+        # Download latest GTFS data if needed
+        await download_gtfs_data()
         
-    return {
-        "provider": "BKK",
-        "gtfs_dir": str(gtfs_dir),
-        "monitored_lines": MONITORED_LINES,
-        "stop_ids": STOP_IDS
-    }
+        return {
+            'provider': 'BKK',
+            'gtfs_dir': str(gtfs_dir),
+            'monitored_lines': MONITORED_LINES,
+            'stop_ids': STOP_IDS
+        }
+    except Exception as e:
+        logger.error(f"Error getting static data: {e}")
+        return {'error': 'Could not access GTFS data'}
+
+async def download_gtfs_data() -> None:
+    """Download and extract GTFS data"""
+    try:
+        # Create GTFS directory if it doesn't exist
+        gtfs_dir = GTFS_DIR
+        if not gtfs_dir.exists():
+            gtfs_dir.mkdir(parents=True, exist_ok=True)
+            
+        # Download latest dataset
+        api = MobilityAPI(
+            data_dir=str(gtfs_dir),
+            refresh_token=os.getenv('MOBILITY_API_REFRESH_TOKEN')
+        )
+        api.download_latest_dataset(PROVIDER_ID)
+        
+    except Exception as e:
+        logger.error(f"Error downloading GTFS data: {e}")
+        raise
 
 def bkk_config():
     """Get BKK provider configuration"""

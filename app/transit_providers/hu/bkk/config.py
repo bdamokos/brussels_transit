@@ -6,7 +6,7 @@ from transit_providers.config import register_provider_config
 
 # Default configuration
 DEFAULT_CONFIG = {
-    'PROVIDER_ID': 'tld-5862',  # BKK's ID in Mobility Database
+    'PROVIDER_ID': 'mdb-990',  # BKK's ID in Mobility Database
     'API_KEY': os.getenv('BKK_API_KEY'),
     'CACHE_DIR': Path('cache/bkk'),
     'GTFS_DIR': Path('cache/bkk/gtfs'),
