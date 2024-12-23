@@ -33,6 +33,9 @@ jobs:
         mkdir -p app/schedule_explorer/downloads
         cp -r app/schedule_explorer/backend/tests/test_data/downloads/* app/schedule_explorer/downloads/
         
+        mkdir -p /home/runner/work/brussels_transit/brussels_transit/downloads
+        cp app/schedule_explorer/backend/tests/test_data/downloads/datasets_metadata.json /home/runner/work/brussels_transit/brussels_transit/downloads/
+        
     - name: Run tests
       run: |
         cd app/schedule_explorer
