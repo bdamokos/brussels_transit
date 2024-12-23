@@ -66,7 +66,7 @@ logger = setup_logging()
 def find_gtfs_directories() -> List[Dict]:
     """Find all GTFS data directories in the downloads directory and their metadata."""
     providers = {}
-    sanitized_names_count = {}  # Keep track of how many times each sanitized name appears
+    latest_datasets = {}  # Keep track of the latest dataset for each provider_id
     
     # Collect metadata from downloads
     if DOWNLOAD_DIR.exists():
@@ -76,46 +76,42 @@ def find_gtfs_directories() -> List[Dict]:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
                     
-                    # First pass: count occurrences of sanitized names
+                    # First pass: find the latest dataset for each provider
                     for dataset_id, dataset_info in metadata.items():
                         provider_id = dataset_info.get('provider_id')
                         if provider_id:
                             dataset_dir = Path(dataset_info.get('download_path'))
                             if dataset_dir.exists():
-                                sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
-                                sanitized_names_count[sanitized_name] = sanitized_names_count.get(sanitized_name, 0) + 1
+                                # If we haven't seen this provider yet, or if this dataset is newer
+                                if provider_id not in latest_datasets or dataset_info['dataset_id'] > latest_datasets[provider_id]['dataset_id']:
+                                    latest_datasets[provider_id] = dataset_info
                     
-                    # Second pass: create provider entries with MDB numbers if needed
-                    for dataset_id, dataset_info in metadata.items():
-                        provider_id = dataset_info.get('provider_id')
-                        if provider_id:
-                            dataset_dir = Path(dataset_info.get('download_path'))
-                            if dataset_dir.exists():
-                                sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
-                                
-                                # If this sanitized name appears more than once, append the MDB number
-                                provider_key = sanitized_name
-                                if sanitized_names_count[sanitized_name] > 1:
-                                    provider_key = f"{sanitized_name}_{provider_id}"
-                                
-                                # Convert to the format expected by the frontend
-                                providers[provider_key] = {
-                                    'id': provider_key,  # Use sanitized name (with MDB if needed) as ID
-                                    'raw_id': provider_id,  # Keep the raw ID for API calls
-                                    'provider': dataset_info.get('provider_name'),
-                                    'name': dataset_info.get('provider_name'),
-                                    'latest_dataset': {
-                                        'id': dataset_info.get('dataset_id'),
-                                        'downloaded_at': dataset_info.get('download_date'),
-                                        'hash': dataset_info.get('file_hash'),
-                                        'hosted_url': dataset_info.get('source_url'),
-                                        'validation_report': {
-                                            'total_error': 0,  # We don't have this info yet
-                                            'total_warning': 0,
-                                            'total_info': 0
-                                        }
-                                    }
+                    # Second pass: create provider entries for the latest datasets
+                    for provider_id, dataset_info in latest_datasets.items():
+                        dataset_dir = Path(dataset_info.get('download_path'))
+                        sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
+                        
+                        # Always append the provider_id to make each provider unique
+                        provider_key = f"{sanitized_name}_{provider_id}"
+                        
+                        # Convert to the format expected by the frontend
+                        providers[provider_key] = {
+                            'id': provider_key,  # Use sanitized name with provider_id as ID
+                            'raw_id': provider_id,  # Keep the raw ID for API calls
+                            'provider': dataset_info.get('provider_name'),
+                            'name': dataset_info.get('provider_name'),
+                            'latest_dataset': {
+                                'id': dataset_info.get('dataset_id'),
+                                'downloaded_at': dataset_info.get('download_date'),
+                                'hash': dataset_info.get('file_hash'),
+                                'hosted_url': dataset_info.get('source_url'),
+                                'validation_report': {
+                                    'total_error': 0,  # We don't have this info yet
+                                    'total_warning': 0,
+                                    'total_info': 0
                                 }
+                            }
+                        }
             except Exception as e:
                 logger.error(f"Error reading metadata file {metadata_file}: {str(e)}")
     
