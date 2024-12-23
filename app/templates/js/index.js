@@ -282,7 +282,11 @@ function updateStopsData(stopsData) {
                             <div class="times-container">
                                 ${times.map(time => {
                                     if (time.message) {
-                                        return `<span class="service-message end-service">${time.message}</span>`;
+                                        // Handle translated messages
+                                        const message = typeof time.message === 'object' ?
+                                            (time.message.en || time.message.hu || Object.values(time.message)[0]) :
+                                            time.message;
+                                        return `<span class="service-message end-service">${message}</span>`;
                                     } else if (provider === 'delijn' || provider === 'bkk') {
                                         if (time.is_realtime) {
                                             const delay = time.delay || 0;
@@ -450,9 +454,16 @@ function updateServiceMessages(messages) {
 
 function renderMessages(messages, isSecondary) {
     return messages.map(message => {
-        const title = message.title || '';
-        const text = message.text || message.description || '';
-        const messageContent = title ? `<strong>${title}</strong><br>${text}` : text;
+        // Get title and description, handling translations
+        const title = typeof message.title === 'object' ? 
+            (message.title.en || message.title.hu || Object.values(message.title)[0]) : 
+            message.title || '';
+            
+        const description = typeof message.description === 'object' ? 
+            (message.description.en || message.description.hu || Object.values(message.description)[0]) : 
+            message.description || message.text || '';
+            
+        const messageContent = title ? `<strong>${title}</strong><br>${description}` : description;
 
         // Get the lines array
         const lines = message.lines || message.affected_lines || [];
@@ -483,9 +494,34 @@ function renderMessages(messages, isSecondary) {
         const stops = message.stops ? message.stops.join(', ') : 
                      message.affected_stops ? message.affected_stops.map(stop => stop.name).join(', ') : '';
 
+        // Add BKK-specific fields if available
+        let bkkInfo = '';
+        if (message._metadata) {
+            const startText = message._metadata.start_text?.en || message._metadata.start_text?.hu;
+            const endText = message._metadata.end_text?.en || message._metadata.end_text?.hu;
+            
+            if (startText || endText) {
+                bkkInfo = `
+                    <div class="message-timing">
+                        ${startText ? `<div>From: ${startText}</div>` : ''}
+                        ${endText ? `<div>Until: ${endText}</div>` : ''}
+                    </div>
+                `;
+            }
+        }
+
+        // Add URL if available
+        const urlInfo = message.url ? `
+            <div class="message-url">
+                <a href="${message.url}" target="_blank" rel="noopener noreferrer">More information</a>
+            </div>
+        ` : '';
+
         return `
             <div class="message ${isSecondary ? 'secondary' : ''}">
                 ${messageContent}
+                ${bkkInfo}
+                ${urlInfo}
                 <div class="affected-details">
                     <div class="affected-lines">
                         Lines: ${lineElements}
