@@ -1,10 +1,11 @@
-"""Main application package initialization"""
+"""Main application package"""
 
-# Import transit providers first - this will trigger automatic discovery
-import transit_providers
+import os
+import sys
 
-# Then import the main application
-from . import main
+# Add the app directory to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Export the Flask app instance
-app = main.app
+from . import transit_providers  # noqa
+
+__all__ = ['transit_providers']

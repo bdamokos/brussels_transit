@@ -35,3 +35,5 @@ app/config/local.py
 gtfs_transit.zip
 .brussels_transit_requirements_version
 eslint.config.mjs
+
+transit_providers.egg-info/
