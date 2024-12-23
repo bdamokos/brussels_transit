@@ -470,7 +470,21 @@ function renderMessages(messages, isSecondary) {
         
         // Render affected lines with proper styling
         const lineElements = lines.map(line => {
-            // Check if this message has line_colors data
+            // Check if this is a BKK message with line_info
+            if (message.line_info) {
+                const lineInfo = message.line_info.find(info => info.id === line);
+                if (lineInfo) {
+                    return `
+                        <span class="delijn-line-number" style="
+                            --text-color: ${lineInfo.colors.text};
+                            --bg-color: ${lineInfo.colors.background};
+                            --text-border-color: ${lineInfo.colors.text_border};
+                            --bg-border-color: ${lineInfo.colors.background_border};
+                        ">${lineInfo.display_name}</span>
+                    `;
+                }
+            }
+            // Check if this message has line_colors data (De Lijn)
             if (message.line_colors && message.line_colors[line]) {
                 const colors = message.line_colors[line];
                 return `

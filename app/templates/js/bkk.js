@@ -1,7 +1,8 @@
 // BKK-specific utility functions and data handling
 
-// Store BKK configuration
+// Store BKK configuration and line info
 let bkkConfig = null;
+let bkkLineInfo = null;
 
 // Function to check if BKK provider is enabled
 async function isBkkEnabled() {
@@ -12,6 +13,31 @@ async function isBkkEnabled() {
         console.log('BKK provider not enabled');
         return false;
     }
+}
+
+// Function to fetch BKK line info
+async function fetchBkkLineInfo() {
+    try {
+        const response = await fetch('/api/bkk/line_info');
+        if (!response.ok) throw new Error('Failed to fetch BKK line info');
+        bkkLineInfo = await response.json();
+        return bkkLineInfo;
+    } catch (error) {
+        console.error('Error fetching BKK line info:', error);
+        return null;
+    }
+}
+
+// Function to get line display name and colors
+function getLineInfo(lineId) {
+    if (!bkkLineInfo) return null;
+    const info = bkkLineInfo[lineId];
+    if (!info) return null;
+    return {
+        displayName: info.display_name || lineId,
+        color: info.color || '#666',
+        textColor: info.text_color || '#fff'
+    };
 }
 
 // Function to fetch BKK configuration
@@ -25,6 +51,9 @@ async function fetchBkkConfig() {
         if (!transitApp.bkkModule.BKK_STOP_IDS && bkkConfig && bkkConfig.stops) {
             transitApp.bkkModule.BKK_STOP_IDS = new Set(bkkConfig.stops.map(stop => stop.id));
         }
+        
+        // Fetch line info after config is loaded
+        await fetchBkkLineInfo();
         
         return bkkConfig;
     } catch (error) {
@@ -100,7 +129,26 @@ function processMessages(data) {
     if (!data || !data.messages) {
         return [];
     }
-    return data.messages;
+    
+    // Add line info to messages
+    return data.messages.map(message => {
+        if (message.lines) {
+            message.line_info = message.lines.map(lineId => {
+                const info = getLineInfo(lineId);
+                return {
+                    id: lineId,
+                    display_name: info?.displayName || lineId,
+                    colors: {
+                        text: info?.textColor || '#fff',
+                        background: info?.color || '#666',
+                        text_border: info?.textColor || '#fff',
+                        background_border: info?.color || '#666'
+                    }
+                };
+            });
+        }
+        return message;
+    });
 }
 
 // Function to fetch BKK waiting times
@@ -133,5 +181,6 @@ Object.assign(transitApp.bkkModule, {
     fetchBkkMessages,
     fetchBkkWaitingTimes,
     processMessages,
+    getLineInfo,
     BKK_STOP_IDS: transitApp.bkkModule.BKK_STOP_IDS
 }); 
