@@ -1,0 +1,3 @@
+﻿fare_id,price,currency_type,payment_method,transfers
+F800,800,CZK,0,0
+F500,500,CZK,0,0

@@ -1,0 +1,6 @@
+agency_id,agency_name,agency_url,agency_timezone,agency_lang,agency_phone
+"B","TEC Brabant Wallon",http://www.letec.be,Europe/Brussels,fr,+32 10 23 53 53
+"C","TEC Charleroi",http://www.letec.be,Europe/Brussels,fr,+32 71 23 41 15
+"H","TEC Hainaut",http://www.letec.be,Europe/Brussels,fr,+32 65 38 88 15
+"L","TEC Liège - Verviers",http://www.letec.be,Europe/Brussels,fr,+32 43 61 94 44
+"N","TEC Namur - Luxembourg",http://www.letec.be,Europe/Brussels,fr,+32 81 25 35 55

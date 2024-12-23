@@ -1,0 +1,9 @@
+route_id,route_short_name,route_long_name,route_type,route_url
+CKVIE,,Cesky Krumlov to Vienna,3,http://www.beanshuttle.com/en/transfers/cesky-krumlov-to-vienna/
+VIECK,,Vienna to Cesky Krumlov,3,http://www.beanshuttle.com/en/transfers/vienna-to-cesky-krumlov/
+CKSLZ,,Cesky Krumlov to Salzburg,3,http://www.beanshuttle.com/en/transfers/cesky-krumlov-to-salzburg/
+SLZCK,,Salzburg to Cesky Krumlov,3,http://www.beanshuttle.com/en/transfers/salzburg-to-cesky-krumlov/
+CKHAL,,Cesky Krumlov to Hallstatt,3,http://www.beanshuttle.com/en/transfers/cesky-krumlov-to-hallstatt/
+HALCK,,Hallstatt to Cesky Krumlov,3,http://www.beanshuttle.com/en/transfers/hallstatt-to-cesky-krumlov/
+CKLNZ,,Cesky Krumlov to Linz,3,http://www.beanshuttle.com/en/transfers/cesky-krumlov-to-linz/
+LNZCK,,Linz to Cesky Krumlov,3,http://www.beanshuttle.com/en/transfers/linz-to-cesky-krumlov/

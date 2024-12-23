@@ -1,0 +1,2 @@
+﻿agency_name,agency_url,agency_timezone,agency_lang,agency_phone,agency_fare_url
+Bean Shuttle,http://www.beanshuttle.com/,"Europe/Prague",en,"info@beanshuttle.com",http://www.beanshuttle.com/en/booking/

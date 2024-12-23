@@ -1,0 +1,1000 @@
+table_name,field_name,language,translation,record_id
+stops,stop_name,fr,Abbaye,5409
+stops,stop_name,fr,Abbaye,5466
+stops,stop_name,nl,Abdij,5409
+stops,stop_name,nl,Abdij,5466
+stops,stop_name,fr,Acacias,6009
+stops,stop_name,fr,Acacias,6008
+stops,stop_name,nl,Acacia,6009
+stops,stop_name,nl,Acacia,6008
+stops,stop_name,fr,ADEPS,3522
+stops,stop_name,nl,ADEPS,3522
+stops,stop_name,fr,Aérodrome,3199
+stops,stop_name,nl,Vliegveld,3199
+stops,stop_name,fr,Albert,0712F
+stops,stop_name,fr,Albert,0711F
+stops,stop_name,fr,Albert,0722
+stops,stop_name,fr,Albert,67
+stops,stop_name,fr,Albert,2934A
+stops,stop_name,fr,Albert,2957A
+stops,stop_name,fr,Albert,1221
+stops,stop_name,fr,Albert,1220
+stops,stop_name,fr,Albert,0706
+stops,stop_name,nl,Albert,0712F
+stops,stop_name,nl,Albert,0711F
+stops,stop_name,nl,Albert,0722
+stops,stop_name,nl,Albert,67
+stops,stop_name,nl,Albert,2934A
+stops,stop_name,nl,Albert,2957A
+stops,stop_name,nl,Albert,1221
+stops,stop_name,nl,Albert,1220
+stops,stop_name,nl,Albert,0706
+stops,stop_name,fr,Albert I,2217
+stops,stop_name,fr,Albert I,2260F
+stops,stop_name,fr,Albert I,2217F
+stops,stop_name,fr,Albert I,2260
+stops,stop_name,nl,Albert I,2217
+stops,stop_name,nl,Albert I,2260F
+stops,stop_name,nl,Albert I,2217F
+stops,stop_name,nl,Albert I,2260
+stops,stop_name,fr,Albert II,3244
+stops,stop_name,nl,Albert II,3244
+stops,stop_name,fr,Alcyons,4058F
+stops,stop_name,fr,Alcyons,4003G
+stops,stop_name,nl,Alcyons,4058F
+stops,stop_name,nl,Alcyons,4003G
+stops,stop_name,fr,Alma,23
+stops,stop_name,fr,Alma,1586
+stops,stop_name,fr,Alma,1639
+stops,stop_name,fr,Alma,8141
+stops,stop_name,fr,Alma,8142
+stops,stop_name,nl,Alma,23
+stops,stop_name,nl,Alma,1586
+stops,stop_name,nl,Alma,1639
+stops,stop_name,nl,Alma,8141
+stops,stop_name,nl,Alma,8142
+stops,stop_name,fr,Alphonse XIII,5053B
+stops,stop_name,fr,Alphonse XIII,5032B
+stops,stop_name,nl,Alphonse XIII,5053B
+stops,stop_name,nl,Alphonse XIII,5032B
+stops,stop_name,fr,Altitude Cent,2457
+stops,stop_name,fr,Altitude Cent,5836F
+stops,stop_name,fr,Altitude Cent,2410
+stops,stop_name,fr,Altitude Cent,5837F
+stops,stop_name,nl,Hoogte Honderd,2457
+stops,stop_name,nl,Hoogte Honderd,5836F
+stops,stop_name,nl,Hoogte Honderd,2410
+stops,stop_name,nl,Hoogte Honderd,5837F
+stops,stop_name,fr,Ambiorix,1425
+stops,stop_name,fr,Ambiorix,2920
+stops,stop_name,fr,Ambiorix,1273
+stops,stop_name,nl,Ambiorix,1425
+stops,stop_name,nl,Ambiorix,2920
+stops,stop_name,nl,Ambiorix,1273
+stops,stop_name,fr,Amélie Gomand,3085
+stops,stop_name,fr,Amélie Gomand,3084
+stops,stop_name,nl,Amélie Gomand,3085
+stops,stop_name,nl,Amélie Gomand,3084
+stops,stop_name,fr,Améthyste,4268
+stops,stop_name,fr,Améthyste,4228
+stops,stop_name,nl,Amethist,4268
+stops,stop_name,nl,Amethist,4228
+stops,stop_name,fr,Amitié,5530
+stops,stop_name,fr,Amitié,5529
+stops,stop_name,nl,Vriendschap,5530
+stops,stop_name,nl,Vriendschap,5529
+stops,stop_name,fr,Anatole France,3181
+stops,stop_name,fr,Anatole France,3098
+stops,stop_name,nl,Anatole France,3181
+stops,stop_name,nl,Anatole France,3098
+stops,stop_name,fr,Ancienne Barrière,1680F
+stops,stop_name,fr,Ancienne Barrière,1368
+stops,stop_name,fr,Ancienne Barrière,1681F
+stops,stop_name,fr,Ancienne Barrière,1103
+stops,stop_name,nl,Oude Afspanning,1680F
+stops,stop_name,nl,Oude Afspanning,1368
+stops,stop_name,nl,Oude Afspanning,1681F
+stops,stop_name,nl,Oude Afspanning,1103
+stops,stop_name,fr,Ancre,5782F
+stops,stop_name,fr,Ancre,5781F
+stops,stop_name,nl,Anker,5782F
+stops,stop_name,nl,Anker,5781F
+stops,stop_name,fr,Andrée De Jongh,3082
+stops,stop_name,fr,Andrée De Jongh,3083
+stops,stop_name,nl,Andrée De Jongh,3082
+stops,stop_name,nl,Andrée De Jongh,3083
+stops,stop_name,fr,Andromède,2431
+stops,stop_name,fr,Andromède,2430
+stops,stop_name,fr,Andromède,3962
+stops,stop_name,fr,Andromède,3920
+stops,stop_name,nl,Andromeda,2431
+stops,stop_name,nl,Andromeda,2430
+stops,stop_name,nl,Andromeda,3962
+stops,stop_name,nl,Andromeda,3920
+stops,stop_name,fr,Annecy,2025B
+stops,stop_name,fr,Annecy,2071B
+stops,stop_name,nl,Annecy,2025B
+stops,stop_name,nl,Annecy,2071B
+stops,stop_name,fr,Anneessens,0611
+stops,stop_name,fr,Anneessens,2733
+stops,stop_name,fr,Anneessens,2578
+stops,stop_name,fr,Anneessens,2581
+stops,stop_name,fr,Anneessens,0616
+stops,stop_name,fr,Anneessens,63
+stops,stop_name,nl,Anneessens,0611
+stops,stop_name,nl,Anneessens,2733
+stops,stop_name,nl,Anneessens,2578
+stops,stop_name,nl,Anneessens,2581
+stops,stop_name,nl,Anneessens,0616
+stops,stop_name,nl,Anneessens,63
+stops,stop_name,fr,Aquiris,5905
+stops,stop_name,fr,Aquiris,5968
+stops,stop_name,nl,Aquiris,5905
+stops,stop_name,nl,Aquiris,5968
+stops,stop_name,fr,Araucaria,5704F
+stops,stop_name,fr,Araucaria,5773
+stops,stop_name,nl,Araucaria,5704F
+stops,stop_name,nl,Araucaria,5773
+stops,stop_name,fr,Arbre Ballon,1334
+stops,stop_name,fr,Arbre Ballon,1686F
+stops,stop_name,fr,Arbre Ballon,1687F
+stops,stop_name,fr,Arbre Ballon,1328
+stops,stop_name,nl,Dikke Beuk,1334
+stops,stop_name,nl,Dikke Beuk,1686F
+stops,stop_name,nl,Dikke Beuk,1687F
+stops,stop_name,nl,Dikke Beuk,1328
+stops,stop_name,fr,Arbre Unique,3765
+stops,stop_name,fr,Arbre Unique,3702
+stops,stop_name,nl,Eenboom,3765
+stops,stop_name,nl,Eenboom,3702
+stops,stop_name,fr,Arcades,4309
+stops,stop_name,fr,Arcades,4359
+stops,stop_name,nl,Arcaden,4309
+stops,stop_name,nl,Arcaden,4359
+stops,stop_name,fr,Archiducs,4454
+stops,stop_name,fr,Archiducs,4403
+stops,stop_name,nl,Aartshertogen,4454
+stops,stop_name,nl,Aartshertogen,4403
+stops,stop_name,fr,Arenberg,2301
+stops,stop_name,fr,Arenberg,2296
+stops,stop_name,nl,Arenberg,2301
+stops,stop_name,nl,Arenberg,2296
+stops,stop_name,fr,Ariane,1321
+stops,stop_name,fr,Ariane,1320
+stops,stop_name,nl,Ariane,1321
+stops,stop_name,nl,Ariane,1320
+stops,stop_name,fr,Aristide Briand,2225
+stops,stop_name,fr,Aristide Briand,2252
+stops,stop_name,nl,Aristide Briand,2225
+stops,stop_name,nl,Aristide Briand,2252
+stops,stop_name,fr,Arsenal,5267
+stops,stop_name,fr,Arsenal,5311
+stops,stop_name,fr,Arsenal,4369
+stops,stop_name,fr,Arsenal,1715
+stops,stop_name,fr,Arsenal,1779
+stops,stop_name,nl,Arsenaal,5267
+stops,stop_name,nl,Arsenaal,5311
+stops,stop_name,nl,Arsenaal,4369
+stops,stop_name,nl,Arsenaal,1715
+stops,stop_name,nl,Arsenaal,1779
+stops,stop_name,fr,Artémis,3210B
+stops,stop_name,fr,Artémis,3273
+stops,stop_name,nl,Artémis,3210B
+stops,stop_name,nl,Artémis,3273
+stops,stop_name,fr,Artistes,2810
+stops,stop_name,fr,Artistes,2860
+stops,stop_name,nl,Kunstenaars,2810
+stops,stop_name,nl,Kunstenaars,2860
+stops,stop_name,fr,Arts et Métiers,6608G
+stops,stop_name,fr,Arts et Métiers,6650G
+stops,stop_name,nl,Arts et Métiers,6608G
+stops,stop_name,nl,Arts et Métiers,6650G
+stops,stop_name,fr,Arts-Loi,8402
+stops,stop_name,fr,Arts-Loi,8401
+stops,stop_name,fr,Arts-Loi,8
+stops,stop_name,fr,Arts-Loi,8042
+stops,stop_name,fr,Arts-Loi,8041
+stops,stop_name,nl,Kunst-Wet,8402
+stops,stop_name,nl,Kunst-Wet,8401
+stops,stop_name,nl,Kunst-Wet,8
+stops,stop_name,nl,Kunst-Wet,8042
+stops,stop_name,nl,Kunst-Wet,8041
+stops,stop_name,fr,Auderghem-Forêt,7980
+stops,stop_name,fr,Auderghem-Forêt,1223
+stops,stop_name,nl,Oudergem-Woud,7980
+stops,stop_name,nl,Oudergem-Woud,1223
+stops,stop_name,fr,Auderghem-Shopping,1731
+stops,stop_name,fr,Auderghem-Shopping,5269F
+stops,stop_name,fr,Auderghem-Shopping,1751
+stops,stop_name,fr,Auderghem-Shopping,5284F
+stops,stop_name,nl,Oudergem-Shopping,1731
+stops,stop_name,nl,Oudergem-Shopping,5269F
+stops,stop_name,nl,Oudergem-Shopping,1751
+stops,stop_name,nl,Oudergem-Shopping,5284F
+stops,stop_name,fr,Auditoires-UCL,2038
+stops,stop_name,fr,Auditoires-UCL,2042
+stops,stop_name,nl,Auditoires-UCL,2038
+stops,stop_name,nl,Auditoires-UCL,2042
+stops,stop_name,fr,Audrey Hepburn,2850
+stops,stop_name,fr,Audrey Hepburn,2849
+stops,stop_name,nl,Audrey Hepburn,2850
+stops,stop_name,nl,Audrey Hepburn,2849
+stops,stop_name,fr,Aulne,2415
+stops,stop_name,nl,Elzeboom,2415
+stops,stop_name,fr,Aumale,8711
+stops,stop_name,fr,Aumale,28
+stops,stop_name,fr,Aumale,8712
+stops,stop_name,nl,Aumale,8711
+stops,stop_name,nl,Aumale,28
+stops,stop_name,nl,Aumale,8712
+stops,stop_name,fr,Autrique,1115
+stops,stop_name,fr,Autrique,1179
+stops,stop_name,nl,Autrique,1115
+stops,stop_name,nl,Autrique,1179
+stops,stop_name,fr,Avant-Port,3008
+stops,stop_name,nl,Voorhaven,3008
+stops,stop_name,fr,Avenue du Roi,2670F
+stops,stop_name,fr,Avenue du Roi,6175
+stops,stop_name,fr,Avenue du Roi,2777
+stops,stop_name,fr,Avenue du Roi,6099
+stops,stop_name,fr,Avenue du Roi,2544
+stops,stop_name,fr,Avenue du Roi,2775
+stops,stop_name,fr,Avenue du Roi,2544F
+stops,stop_name,fr,Avenue du Roi,2670
+stops,stop_name,nl,Koningslaan,2670F
+stops,stop_name,nl,Koningslaan,6175
+stops,stop_name,nl,Koningslaan,2777
+stops,stop_name,nl,Koningslaan,6099
+stops,stop_name,nl,Koningslaan,2544
+stops,stop_name,nl,Koningslaan,2775
+stops,stop_name,nl,Koningslaan,2544F
+stops,stop_name,nl,Koningslaan,2670
+stops,stop_name,fr,Aviation,5553
+stops,stop_name,fr,Aviation,5510
+stops,stop_name,nl,Luchtvaart,5553
+stops,stop_name,nl,Luchtvaart,5510
+stops,stop_name,fr,Azalées,3414
+stops,stop_name,fr,Azalées,3451
+stops,stop_name,nl,Azalea,3414
+stops,stop_name,nl,Azalea,3451
+stops,stop_name,fr,Azur,5174
+stops,stop_name,fr,Azur,5102
+stops,stop_name,fr,Azur,5102F
+stops,stop_name,fr,Azur,5174F
+stops,stop_name,nl,Azuur,5174
+stops,stop_name,nl,Azuur,5102
+stops,stop_name,nl,Azuur,5102F
+stops,stop_name,nl,Azuur,5174F
+stops,stop_name,fr,Bailli,2972
+stops,stop_name,fr,Bailli,5475
+stops,stop_name,fr,Bailli,2971
+stops,stop_name,fr,Bailli,5404
+stops,stop_name,fr,Bailli,2971F
+stops,stop_name,fr,Bailli,2972F
+stops,stop_name,nl,Baljuw,2972
+stops,stop_name,nl,Baljuw,5475
+stops,stop_name,nl,Baljuw,2971
+stops,stop_name,nl,Baljuw,5404
+stops,stop_name,nl,Baljuw,2971F
+stops,stop_name,nl,Baljuw,2972F
+stops,stop_name,fr,Ban-Eik,5528F
+stops,stop_name,fr,Ban-Eik,5520F
+stops,stop_name,nl,Ban-Eik,5528F
+stops,stop_name,nl,Ban-Eik,5520F
+stops,stop_name,fr,Bara,6705F
+stops,stop_name,fr,Bara,6068
+stops,stop_name,nl,Bara,6705F
+stops,stop_name,nl,Bara,6068
+stops,stop_name,fr,Baron de Castro,1810
+stops,stop_name,fr,Baron de Castro,1865
+stops,stop_name,nl,Baron de Castro,1810
+stops,stop_name,nl,Baron de Castro,1865
+stops,stop_name,fr,Barrière,2333
+stops,stop_name,fr,Barrière,2334B
+stops,stop_name,fr,Barrière,2336G
+stops,stop_name,fr,Barrière,2334F
+stops,stop_name,fr,Barrière,2333F
+stops,stop_name,fr,Barrière,2331F
+stops,stop_name,nl,Bareel,2333
+stops,stop_name,nl,Bareel,2334B
+stops,stop_name,nl,Bareel,2336G
+stops,stop_name,nl,Bareel,2334F
+stops,stop_name,nl,Bareel,2333F
+stops,stop_name,nl,Bareel,2331F
+stops,stop_name,fr,Bascule,1975
+stops,stop_name,fr,Bascule,5210
+stops,stop_name,fr,Bascule,5256
+stops,stop_name,fr,Bascule,5256F
+stops,stop_name,fr,Bascule,1915
+stops,stop_name,nl,Bascule,1975
+stops,stop_name,nl,Bascule,5210
+stops,stop_name,nl,Bascule,5256
+stops,stop_name,nl,Bascule,5256F
+stops,stop_name,nl,Bascule,1915
+stops,stop_name,fr,Basilix,4162
+stops,stop_name,fr,Basilix,4101
+stops,stop_name,fr,Basilix,2176
+stops,stop_name,nl,Basilix,4162
+stops,stop_name,nl,Basilix,4101
+stops,stop_name,nl,Basilix,2176
+stops,stop_name,fr,Bastogne,2569
+stops,stop_name,fr,Bastogne,3486
+stops,stop_name,fr,Bastogne,1197
+stops,stop_name,fr,Bastogne,1097
+stops,stop_name,nl,Bastenaken,2569
+stops,stop_name,nl,Bastenaken,3486
+stops,stop_name,nl,Bastenaken,1197
+stops,stop_name,nl,Bastenaken,1097
+stops,stop_name,fr,Beaulieu,8242
+stops,stop_name,fr,Beaulieu,35
+stops,stop_name,fr,Beaulieu,4297
+stops,stop_name,fr,Beaulieu,3521
+stops,stop_name,fr,Beaulieu,8241
+stops,stop_name,nl,Beaulieu,8242
+stops,stop_name,nl,Beaulieu,35
+stops,stop_name,nl,Beaulieu,4297
+stops,stop_name,nl,Beaulieu,3521
+stops,stop_name,nl,Beaulieu,8241
+stops,stop_name,fr,Beauté,2533B
+stops,stop_name,fr,Beauté,2560
+stops,stop_name,nl,Schoonheid,2533B
+stops,stop_name,nl,Schoonheid,2560
+stops,stop_name,fr,Beeckmans,4156
+stops,stop_name,fr,Beeckmans,4107
+stops,stop_name,nl,Beeckmans,4156
+stops,stop_name,nl,Beeckmans,4107
+stops,stop_name,fr,Beekkant,8743
+stops,stop_name,fr,Beekkant,15
+stops,stop_name,fr,Beekkant,8744
+stops,stop_name,fr,Beekkant,8741
+stops,stop_name,fr,Beekkant,4014
+stops,stop_name,fr,Beekkant,8742
+stops,stop_name,nl,Beekkant,8743
+stops,stop_name,nl,Beekkant,15
+stops,stop_name,nl,Beekkant,8744
+stops,stop_name,nl,Beekkant,8741
+stops,stop_name,nl,Beekkant,4014
+stops,stop_name,nl,Beekkant,8742
+stops,stop_name,fr,Beersellaan,3535
+stops,stop_name,nl,Beersellaan,3535
+stops,stop_name,fr,Bel-Air,5524
+stops,stop_name,fr,Bel-Air,5516
+stops,stop_name,nl,Schone Lucht,5524
+stops,stop_name,nl,Schone Lucht,5516
+stops,stop_name,fr,Belgica,8773
+stops,stop_name,fr,Belgica,5009G
+stops,stop_name,fr,Belgica,8774
+stops,stop_name,fr,Belgica,5076B
+stops,stop_name,fr,Belgica,5076G
+stops,stop_name,fr,Belgica,5009B
+stops,stop_name,fr,Belgica,54
+stops,stop_name,nl,Belgica,8773
+stops,stop_name,nl,Belgica,5009G
+stops,stop_name,nl,Belgica,8774
+stops,stop_name,nl,Belgica,5076B
+stops,stop_name,nl,Belgica,5076G
+stops,stop_name,nl,Belgica,5009B
+stops,stop_name,nl,Belgica,54
+stops,stop_name,fr,Bempt,3604
+stops,stop_name,fr,Bempt,3581
+stops,stop_name,nl,Bempt,3604
+stops,stop_name,nl,Bempt,3581
+stops,stop_name,fr,Bénès,1198
+stops,stop_name,fr,Bénès,1096
+stops,stop_name,nl,Bénès,1198
+stops,stop_name,nl,Bénès,1096
+stops,stop_name,fr,Bens,3192
+stops,stop_name,fr,Bens,5831F
+stops,stop_name,fr,Bens,3190
+stops,stop_name,fr,Bens,5830F
+stops,stop_name,nl,Bens,3192
+stops,stop_name,nl,Bens,5831F
+stops,stop_name,nl,Bens,3190
+stops,stop_name,nl,Bens,5830F
+stops,stop_name,fr,Berchem-Shopping,4059F
+stops,stop_name,fr,Berchem-Shopping,4002B
+stops,stop_name,fr,Berchem-Shopping,4059
+stops,stop_name,fr,Berchem-Shopping,4002G
+stops,stop_name,nl,Berchem-Shopping,4059F
+stops,stop_name,nl,Berchem-Shopping,4002B
+stops,stop_name,nl,Berchem-Shopping,4059
+stops,stop_name,nl,Berchem-Shopping,4002G
+stops,stop_name,fr,Berensheide,4296
+stops,stop_name,nl,Berensheide,4296
+stops,stop_name,fr,Bergdal,2749
+stops,stop_name,fr,Bergdal,2747
+stops,stop_name,nl,Bergdal,2749
+stops,stop_name,nl,Bergdal,2747
+stops,stop_name,fr,Bergoje,2753
+stops,stop_name,fr,Bergoje,2725
+stops,stop_name,nl,Bergoje,2753
+stops,stop_name,nl,Bergoje,2725
+stops,stop_name,fr,Berkendael,6253
+stops,stop_name,fr,Berkendael,6209
+stops,stop_name,nl,Berkendaal,6253
+stops,stop_name,nl,Berkendaal,6209
+stops,stop_name,fr,Berthelot,5111B
+stops,stop_name,fr,Berthelot,5158
+stops,stop_name,fr,Berthelot,5116
+stops,stop_name,fr,Berthelot,5107B
+stops,stop_name,nl,Berthelot,5111B
+stops,stop_name,nl,Berthelot,5158
+stops,stop_name,nl,Berthelot,5116
+stops,stop_name,nl,Berthelot,5107B
+stops,stop_name,fr,Bervoets,1015
+stops,stop_name,fr,Bervoets,1085
+stops,stop_name,fr,Bervoets,2396B
+stops,stop_name,nl,Bervoets,1015
+stops,stop_name,nl,Bervoets,1085
+stops,stop_name,nl,Bervoets,2396B
+stops,stop_name,fr,Besme,1314
+stops,stop_name,fr,Besme,5165
+stops,stop_name,fr,Besme,5109
+stops,stop_name,nl,Besme,1314
+stops,stop_name,nl,Besme,5165
+stops,stop_name,nl,Besme,5109
+stops,stop_name,fr,Bethléem,6166
+stops,stop_name,fr,Bethléem,6106
+stops,stop_name,nl,Bethlehem,6166
+stops,stop_name,nl,Bethlehem,6106
+stops,stop_name,fr,Beyseghem,2853
+stops,stop_name,fr,Beyseghem,2817
+stops,stop_name,nl,Beizegem,2853
+stops,stop_name,nl,Beizegem,2817
+stops,stop_name,fr,Biarritz,1986
+stops,stop_name,fr,Biarritz,1903
+stops,stop_name,nl,Biarritz,1986
+stops,stop_name,nl,Biarritz,1903
+stops,stop_name,fr,Bichon,2990
+stops,stop_name,fr,Bichon,2926
+stops,stop_name,nl,Bichon,2990
+stops,stop_name,nl,Bichon,2926
+stops,stop_name,fr,Bicoque,9755
+stops,stop_name,fr,Bicoque,9777
+stops,stop_name,nl,Bicoque,9755
+stops,stop_name,nl,Bicoque,9777
+stops,stop_name,fr,Biebuyck,3007
+stops,stop_name,fr,Biebuyck,3059
+stops,stop_name,nl,Biebuyck,3007
+stops,stop_name,nl,Biebuyck,3059
+stops,stop_name,fr,Bien-Faire,2107
+stops,stop_name,fr,Bien-Faire,2115
+stops,stop_name,nl,Bien-Faire,2107
+stops,stop_name,nl,Bien-Faire,2115
+stops,stop_name,fr,Bienfaiteurs,6210
+stops,stop_name,fr,Bienfaiteurs,3299
+stops,stop_name,fr,Bienfaiteurs,3308F
+stops,stop_name,fr,Bienfaiteurs,3360F
+stops,stop_name,nl,Weldoeners,6210
+stops,stop_name,nl,Weldoeners,3299
+stops,stop_name,nl,Weldoeners,3308F
+stops,stop_name,nl,Weldoeners,3360F
+stops,stop_name,fr,Bigarreaux,1931
+stops,stop_name,fr,Bigarreaux,1959
+stops,stop_name,nl,Vleeskersen,1931
+stops,stop_name,nl,Vleeskersen,1959
+stops,stop_name,fr,Biplan,2908B
+stops,stop_name,fr,Biplan,1283B
+stops,stop_name,nl,Tweedekker,2908B
+stops,stop_name,nl,Tweedekker,1283B
+stops,stop_name,fr,Bizet,8682
+stops,stop_name,fr,Bizet,5297B
+stops,stop_name,fr,Bizet,5296B
+stops,stop_name,fr,Bizet,8681
+stops,stop_name,fr,Bizet,30
+stops,stop_name,nl,Bizet,8682
+stops,stop_name,nl,Bizet,5297B
+stops,stop_name,nl,Bizet,5296B
+stops,stop_name,nl,Bizet,8681
+stops,stop_name,nl,Bizet,30
+stops,stop_name,fr,Blokken,9753
+stops,stop_name,fr,Blokken,1121
+stops,stop_name,nl,Blokken,9753
+stops,stop_name,nl,Blokken,1121
+stops,stop_name,fr,Blyckaerts,1884
+stops,stop_name,fr,Blyckaerts,1909
+stops,stop_name,fr,Blyckaerts,1981
+stops,stop_name,fr,Blyckaerts,1881
+stops,stop_name,nl,Blyckaerts,1884
+stops,stop_name,nl,Blyckaerts,1909
+stops,stop_name,nl,Blyckaerts,1981
+stops,stop_name,nl,Blyckaerts,1881
+stops,stop_name,fr,Bockstael,8794
+stops,stop_name,fr,Bockstael,2547
+stops,stop_name,fr,Bockstael,2558
+stops,stop_name,fr,Bockstael,4118F
+stops,stop_name,fr,Bockstael,56
+stops,stop_name,fr,Bockstael,4119F
+stops,stop_name,fr,Bockstael,8793
+stops,stop_name,fr,Bockstael,2554
+stops,stop_name,fr,Bockstael,4123
+stops,stop_name,fr,Bockstael,4124
+stops,stop_name,fr,Bockstael,4125
+stops,stop_name,fr,Bockstael,4127
+stops,stop_name,nl,Bockstael,8794
+stops,stop_name,nl,Bockstael,2547
+stops,stop_name,nl,Bockstael,2558
+stops,stop_name,nl,Bockstael,4118F
+stops,stop_name,nl,Bockstael,56
+stops,stop_name,nl,Bockstael,4119F
+stops,stop_name,nl,Bockstael,8793
+stops,stop_name,nl,Bockstael,2554
+stops,stop_name,nl,Bockstael,4123
+stops,stop_name,nl,Bockstael,4124
+stops,stop_name,nl,Bockstael,4125
+stops,stop_name,nl,Bockstael,4127
+stops,stop_name,fr,Boetendael,5025
+stops,stop_name,fr,Boetendael,5059
+stops,stop_name,nl,Boetendael,5025
+stops,stop_name,nl,Boetendael,5059
+stops,stop_name,fr,Boileau,1866
+stops,stop_name,fr,Boileau,1809
+stops,stop_name,fr,Boileau,0906
+stops,stop_name,fr,Boileau,70
+stops,stop_name,fr,Boileau,0901
+stops,stop_name,nl,Boileau,1866
+stops,stop_name,nl,Boileau,1809
+stops,stop_name,nl,Boileau,0906
+stops,stop_name,nl,Boileau,70
+stops,stop_name,nl,Boileau,0901
+stops,stop_name,fr,Bois des Îles,4062
+stops,stop_name,fr,Bois des Îles,4165
+stops,stop_name,nl,Eilandenhout,4062
+stops,stop_name,nl,Eilandenhout,4165
+stops,stop_name,fr,Boitsfort Gare,1610
+stops,stop_name,fr,Boitsfort Gare,7493B
+stops,stop_name,fr,Boitsfort Gare,5420F
+stops,stop_name,fr,Boitsfort Gare,5454F
+stops,stop_name,nl,Bosvoorde Station,1610
+stops,stop_name,nl,Bosvoorde Station,7493B
+stops,stop_name,nl,Bosvoorde Station,5420F
+stops,stop_name,nl,Bosvoorde Station,5454F
+stops,stop_name,fr,Bollinckx,3851
+stops,stop_name,fr,Bollinckx,3810
+stops,stop_name,nl,Bollinckx,3851
+stops,stop_name,nl,Bollinckx,3810
+stops,stop_name,fr,Bon Air,1018
+stops,stop_name,fr,Bon Air,1486B
+stops,stop_name,nl,Goede Lucht,1018
+stops,stop_name,nl,Goede Lucht,1486B
+stops,stop_name,fr,Bonaventure,1711
+stops,stop_name,fr,Bonaventure,1755
+stops,stop_name,fr,Bonaventure,1746
+stops,stop_name,fr,Bonaventure,1768
+stops,stop_name,nl,Bonaventure,1711
+stops,stop_name,nl,Bonaventure,1755
+stops,stop_name,nl,Bonaventure,1746
+stops,stop_name,nl,Bonaventure,1768
+stops,stop_name,fr,Boondael Gare,5416F
+stops,stop_name,fr,Boondael Gare,5451
+stops,stop_name,fr,Boondael Gare,5451F
+stops,stop_name,fr,Boondael Gare,5416
+stops,stop_name,nl,Boondaal Station,5416F
+stops,stop_name,nl,Boondaal Station,5451
+stops,stop_name,nl,Boondaal Station,5451F
+stops,stop_name,nl,Boondaal Station,5416
+stops,stop_name,fr,Bordet Station,5361
+stops,stop_name,fr,Bordet Station,5362
+stops,stop_name,fr,Bordet Station,5298
+stops,stop_name,fr,Bordet Station,3214
+stops,stop_name,fr,Bordet Station,5299
+stops,stop_name,fr,Bordet Station,1893
+stops,stop_name,fr,Bordet Station,5298F
+stops,stop_name,fr,Bordet Station,5299F
+stops,stop_name,fr,Bordet Station,5362F
+stops,stop_name,fr,Bordet Station,5361F
+stops,stop_name,nl,Bordet Station,5361
+stops,stop_name,nl,Bordet Station,5362
+stops,stop_name,nl,Bordet Station,5298
+stops,stop_name,nl,Bordet Station,3214
+stops,stop_name,nl,Bordet Station,5299
+stops,stop_name,nl,Bordet Station,1893
+stops,stop_name,nl,Bordet Station,5298F
+stops,stop_name,nl,Bordet Station,5299F
+stops,stop_name,nl,Bordet Station,5362F
+stops,stop_name,nl,Bordet Station,5361F
+stops,stop_name,fr,Borne,3009
+stops,stop_name,fr,Borne,6754
+stops,stop_name,fr,Borne,6702
+stops,stop_name,nl,Paal,3009
+stops,stop_name,nl,Paal,6754
+stops,stop_name,nl,Paal,6702
+stops,stop_name,fr,Bossaert-Basilique,1313
+stops,stop_name,fr,Bossaert-Basilique,5166
+stops,stop_name,fr,Bossaert-Basilique,2509
+stops,stop_name,fr,Bossaert-Basilique,2570
+stops,stop_name,fr,Bossaert-Basilique,5108
+stops,stop_name,nl,Bossaert-Basiliek,1313
+stops,stop_name,nl,Bossaert-Basiliek,5166
+stops,stop_name,nl,Bossaert-Basiliek,2509
+stops,stop_name,nl,Bossaert-Basiliek,2570
+stops,stop_name,nl,Bossaert-Basiliek,5108
+stops,stop_name,fr,Bossuet,3114
+stops,stop_name,fr,Bossuet,6061
+stops,stop_name,nl,Bossuet,3114
+stops,stop_name,nl,Bossuet,6061
+stops,stop_name,fr,Botanique,8421
+stops,stop_name,fr,Botanique,6437F
+stops,stop_name,fr,Botanique,6434F
+stops,stop_name,fr,Botanique,8422
+stops,stop_name,fr,Botanique,6436
+stops,stop_name,fr,Botanique,6435
+stops,stop_name,fr,Botanique,6438
+stops,stop_name,fr,Botanique,42
+stops,stop_name,nl,Kruidtuin,8421
+stops,stop_name,nl,Kruidtuin,6437F
+stops,stop_name,nl,Kruidtuin,6434F
+stops,stop_name,nl,Kruidtuin,8422
+stops,stop_name,nl,Kruidtuin,6436
+stops,stop_name,nl,Kruidtuin,6435
+stops,stop_name,nl,Kruidtuin,6438
+stops,stop_name,nl,Kruidtuin,42
+stops,stop_name,fr,Boule et Bill,2164
+stops,stop_name,fr,Boule et Bill,2163
+stops,stop_name,nl,Bollie en Billie,2164
+stops,stop_name,nl,Bollie en Billie,2163
+stops,stop_name,fr,Bouleaux,1840
+stops,stop_name,fr,Bouleaux,1835
+stops,stop_name,nl,Berken,1840
+stops,stop_name,nl,Berken,1835
+stops,stop_name,fr,Bourdon,1965
+stops,stop_name,fr,Bourdon,5860
+stops,stop_name,fr,Bourdon,1937
+stops,stop_name,fr,Bourdon,5826
+stops,stop_name,nl,Horzel,1965
+stops,stop_name,nl,Horzel,5860
+stops,stop_name,nl,Horzel,1937
+stops,stop_name,nl,Horzel,5826
+stops,stop_name,fr,Bourget,3018
+stops,stop_name,fr,Bourget,3017
+stops,stop_name,fr,Bourget,3337F
+stops,stop_name,fr,Bourget,3338F
+stops,stop_name,nl,Bourget,3018
+stops,stop_name,nl,Bourget,3017
+stops,stop_name,nl,Bourget,3337F
+stops,stop_name,nl,Bourget,3338F
+stops,stop_name,fr,Bourse,0601
+stops,stop_name,fr,Bourse,3320B
+stops,stop_name,fr,Bourse,1895
+stops,stop_name,fr,Bourse,1894
+stops,stop_name,fr,Bourse,2212
+stops,stop_name,fr,Bourse,1461
+stops,stop_name,fr,Bourse,0606
+stops,stop_name,fr,Bourse,62
+stops,stop_name,fr,Bourse,2392
+stops,stop_name,nl,Beurs,0601
+stops,stop_name,nl,Beurs,3320B
+stops,stop_name,nl,Beurs,1895
+stops,stop_name,nl,Beurs,1894
+stops,stop_name,nl,Beurs,2212
+stops,stop_name,nl,Beurs,1461
+stops,stop_name,nl,Beurs,0606
+stops,stop_name,nl,Beurs,62
+stops,stop_name,nl,Beurs,2392
+stops,stop_name,fr,Bozar,3502
+stops,stop_name,nl,Bozar,3502
+stops,stop_name,fr,Brabançonne,2919
+stops,stop_name,fr,Brabançonne,6191
+stops,stop_name,fr,Brabançonne,6190
+stops,stop_name,nl,Brabançonne,2919
+stops,stop_name,nl,Brabançonne,6191
+stops,stop_name,nl,Brabançonne,6190
+stops,stop_name,fr,Braemt,3118
+stops,stop_name,nl,Braemt,3118
+stops,stop_name,fr,Braves,1935
+stops,stop_name,fr,Braves,1955
+stops,stop_name,nl,Dapperen,1935
+stops,stop_name,nl,Dapperen,1955
+stops,stop_name,fr,Bremer,2106
+stops,stop_name,fr,Bremer,2105
+stops,stop_name,nl,Bremer,2106
+stops,stop_name,nl,Bremer,2105
+stops,stop_name,fr,Brésil,5415F
+stops,stop_name,fr,Brésil,5459F
+stops,stop_name,fr,Brésil,5415
+stops,stop_name,fr,Brésil,5459
+stops,stop_name,nl,Brazilië,5415F
+stops,stop_name,nl,Brazilië,5459F
+stops,stop_name,nl,Brazilië,5415
+stops,stop_name,nl,Brazilië,5459
+stops,stop_name,fr,Breydel,1417B
+stops,stop_name,nl,Breydel,1417B
+stops,stop_name,fr,Brillant,4293
+stops,stop_name,fr,Brillant,4299
+stops,stop_name,nl,Briljant,4293
+stops,stop_name,nl,Briljant,4299
+stops,stop_name,fr,Broek,4661B
+stops,stop_name,fr,Broek,4598
+stops,stop_name,nl,Broek,4661B
+stops,stop_name,nl,Broek,4598
+stops,stop_name,fr,Broeren,2534B
+stops,stop_name,nl,Broeren,2534B
+stops,stop_name,fr,Broustin,6805
+stops,stop_name,nl,Broustin,6805
+stops,stop_name,fr,Brunard,2124
+stops,stop_name,fr,Brunard,2132
+stops,stop_name,nl,Brunard,2124
+stops,stop_name,nl,Brunard,2132
+stops,stop_name,fr,Brussels Airport,9600B
+stops,stop_name,nl,Brussels Airport,9600B
+stops,stop_name,fr,Brusselsesteenweg,7224
+stops,stop_name,fr,Brusselsesteenweg,7303
+stops,stop_name,nl,Brusselsesteenweg,7224
+stops,stop_name,nl,Brusselsesteenweg,7303
+stops,stop_name,fr,Bruxellois,1675F
+stops,stop_name,fr,Bruxellois,1674F
+stops,stop_name,nl,Brusselaars,1675F
+stops,stop_name,nl,Brusselaars,1674F
+stops,stop_name,fr,Buanderie,2213
+stops,stop_name,fr,Buanderie,2264
+stops,stop_name,nl,Washuis,2213
+stops,stop_name,nl,Washuis,2264
+stops,stop_name,fr,Buda,2379
+stops,stop_name,fr,Buda,2378
+stops,stop_name,nl,Buda,2379
+stops,stop_name,nl,Buda,2378
+stops,stop_name,fr,Buedts,1762
+stops,stop_name,fr,Buedts,1714
+stops,stop_name,nl,Buedts,1762
+stops,stop_name,nl,Buedts,1714
+stops,stop_name,fr,Buissonnets,5772
+stops,stop_name,fr,Buissonnets,5705
+stops,stop_name,nl,Braambosjes,5772
+stops,stop_name,nl,Braambosjes,5705
+stops,stop_name,fr,Buyl,2351F
+stops,stop_name,fr,Buyl,2397
+stops,stop_name,fr,Buyl,2351
+stops,stop_name,fr,Buyl,3481
+stops,stop_name,fr,Buyl,3480
+stops,stop_name,fr,Buyl,2397F
+stops,stop_name,nl,Buyl,2351F
+stops,stop_name,nl,Buyl,2397
+stops,stop_name,nl,Buyl,2351
+stops,stop_name,nl,Buyl,3481
+stops,stop_name,nl,Buyl,3480
+stops,stop_name,nl,Buyl,2397F
+stops,stop_name,fr,Cabris,1953
+stops,stop_name,nl,Geitjes,1953
+stops,stop_name,fr,Calypso 2000,1455
+stops,stop_name,fr,Calypso 2000,1453
+stops,stop_name,nl,Calypso 2000,1455
+stops,stop_name,nl,Calypso 2000,1453
+stops,stop_name,fr,Cambre-Étoile,5258
+stops,stop_name,fr,Cambre-Étoile,5208
+stops,stop_name,nl,Ter Kameren-Ster,5258
+stops,stop_name,nl,Ter Kameren-Ster,5208
+stops,stop_name,fr,Campus CERIA,1478
+stops,stop_name,fr,Campus CERIA,1541B
+stops,stop_name,nl,Campus COOVI,1478
+stops,stop_name,nl,Campus COOVI,1541B
+stops,stop_name,fr,Candries,2513
+stops,stop_name,fr,Candries,2566B
+stops,stop_name,fr,Candries,3235
+stops,stop_name,fr,Candries,4659
+stops,stop_name,nl,Candries,2513
+stops,stop_name,nl,Candries,2566B
+stops,stop_name,nl,Candries,3235
+stops,stop_name,nl,Candries,4659
+stops,stop_name,fr,Capricorne,3902
+stops,stop_name,fr,Capricorne,3959
+stops,stop_name,nl,Steenbok,3902
+stops,stop_name,nl,Steenbok,3959
+stops,stop_name,fr,Carène,3957
+stops,stop_name,fr,Carène,3904
+stops,stop_name,nl,Carina,3957
+stops,stop_name,nl,Carina,3904
+stops,stop_name,fr,Carli,3103
+stops,stop_name,fr,Carli,3173
+stops,stop_name,nl,Carli,3103
+stops,stop_name,nl,Carli,3173
+stops,stop_name,fr,Carrefour Stalle,5921G
+stops,stop_name,fr,Carrefour Stalle,5920H
+stops,stop_name,fr,Carrefour Stalle,5920C
+stops,stop_name,fr,Carrefour Stalle,1452
+stops,stop_name,fr,Carrefour Stalle,5921B
+stops,stop_name,nl,Kruispunt Stalle,5921G
+stops,stop_name,nl,Kruispunt Stalle,5920H
+stops,stop_name,nl,Kruispunt Stalle,5920C
+stops,stop_name,nl,Kruispunt Stalle,1452
+stops,stop_name,nl,Kruispunt Stalle,5921B
+stops,stop_name,fr,Cavell,5253
+stops,stop_name,fr,Cavell,2123
+stops,stop_name,fr,Cavell,5213
+stops,stop_name,fr,Cavell,2133
+stops,stop_name,nl,Cavell,5253
+stops,stop_name,nl,Cavell,2123
+stops,stop_name,nl,Cavell,5213
+stops,stop_name,nl,Cavell,2133
+stops,stop_name,fr,Ceres,5908
+stops,stop_name,fr,Ceres,5961
+stops,stop_name,nl,Ceres,5908
+stops,stop_name,nl,Ceres,5961
+stops,stop_name,fr,CERIA,8662
+stops,stop_name,fr,CERIA,8661
+stops,stop_name,fr,CERIA,1477B
+stops,stop_name,fr,CERIA,3078
+stops,stop_name,fr,CERIA,2384
+stops,stop_name,fr,CERIA,2383
+stops,stop_name,fr,CERIA,2382
+stops,stop_name,fr,CERIA,32
+stops,stop_name,nl,COOVI,8662
+stops,stop_name,nl,COOVI,8661
+stops,stop_name,nl,COOVI,1477B
+stops,stop_name,nl,COOVI,3078
+stops,stop_name,nl,COOVI,2384
+stops,stop_name,nl,COOVI,2383
+stops,stop_name,nl,COOVI,2382
+stops,stop_name,nl,COOVI,32
+stops,stop_name,fr,Cerisaie,4344
+stops,stop_name,fr,Cerisaie,4314
+stops,stop_name,nl,Kerseboomgaard,4344
+stops,stop_name,nl,Kerseboomgaard,4314
+stops,stop_name,fr,César De Paepe,1063
+stops,stop_name,nl,César De Paepe,1063
+stops,stop_name,fr,Chant d'Oiseau,1862
+stops,stop_name,fr,Chant d'Oiseau,1813
+stops,stop_name,nl,Vogelzang,1862
+stops,stop_name,nl,Vogelzang,1813
+stops,stop_name,fr,Chapelle,1127
+stops,stop_name,fr,Chapelle,1167
+stops,stop_name,fr,Chapelle,1441
+stops,stop_name,nl,Kapellekerk,1127
+stops,stop_name,nl,Kapellekerk,1167
+stops,stop_name,nl,Kapellekerk,1441
+stops,stop_name,fr,Charmille,1540
+stops,stop_name,fr,Charmille,1550
+stops,stop_name,nl,Haagbeuken,1540
+stops,stop_name,nl,Haagbeuken,1550
+stops,stop_name,fr,Charroi,2524
+stops,stop_name,fr,Charroi,2555
+stops,stop_name,fr,Charroi,2551
+stops,stop_name,nl,Gerij,2524
+stops,stop_name,nl,Gerij,2555
+stops,stop_name,nl,Gerij,2551
+stops,stop_name,fr,Chasseurs Ardennais,6021
+stops,stop_name,fr,Chasseurs Ardennais,6056
+stops,stop_name,nl,Ardense Jagers,6021
+stops,stop_name,nl,Ardense Jagers,6056
+stops,stop_name,fr,Châtaignes,5155
+stops,stop_name,fr,Châtaignes,1232
+stops,stop_name,fr,Châtaignes,1231
+stops,stop_name,fr,Châtaignes,5119
+stops,stop_name,nl,Kastanjes,5155
+stops,stop_name,nl,Kastanjes,1232
+stops,stop_name,nl,Kastanjes,1231
+stops,stop_name,nl,Kastanjes,5119
+stops,stop_name,fr,Chaumontel,3104
+stops,stop_name,fr,Chaumontel,3172
+stops,stop_name,nl,Chaumontel,3104
+stops,stop_name,nl,Chaumontel,3172
+stops,stop_name,fr,Chazal,5307H
+stops,stop_name,fr,Chazal,5355F
+stops,stop_name,fr,Chazal,3186
+stops,stop_name,fr,Chazal,3185
+stops,stop_name,nl,Chazal,5307H
+stops,stop_name,nl,Chazal,5355F
+stops,stop_name,nl,Chazal,3186
+stops,stop_name,nl,Chazal,3185
+stops,stop_name,fr,Chemin de Fer,5959
+stops,stop_name,fr,Chemin de Fer,5910
+stops,stop_name,nl,Spoorweg,5959
+stops,stop_name,nl,Spoorweg,5910
+stops,stop_name,fr,Chemin Vert,5788F
+stops,stop_name,fr,Chemin Vert,5787F
+stops,stop_name,nl,Groenweg,5788F
+stops,stop_name,nl,Groenweg,5787F
+stops,stop_name,fr,Chênaie,2705
+stops,stop_name,fr,Chênaie,2769
+stops,stop_name,nl,Eikenbos,2705
+stops,stop_name,nl,Eikenbos,2769
+stops,stop_name,fr,Chevalerie,6053
+stops,stop_name,fr,Chevalerie,6024
+stops,stop_name,nl,Ridderschap,6053
+stops,stop_name,nl,Ridderschap,6024
+stops,stop_name,fr,Chien Vert,1546
+stops,stop_name,fr,Chien Vert,1816
+stops,stop_name,fr,Chien Vert,1859
+stops,stop_name,fr,Chien Vert,5504
+stops,stop_name,fr,Chien Vert,5559
+stops,stop_name,nl,Groene Hond,1546
+stops,stop_name,nl,Groene Hond,1816
+stops,stop_name,nl,Groene Hond,1859
+stops,stop_name,nl,Groene Hond,5504
+stops,stop_name,nl,Groene Hond,5559
+stops,stop_name,fr,CHIREC,1598B
+stops,stop_name,fr,CHIREC,1597B
+stops,stop_name,nl,CHIREC,1598B
+stops,stop_name,nl,CHIREC,1597B
+stops,stop_name,fr,Chopin,4169
+stops,stop_name,fr,Chopin,4109
+stops,stop_name,nl,Chopin,4169
+stops,stop_name,nl,Chopin,4109
+stops,stop_name,fr,Churchill,5219F
+stops,stop_name,fr,Churchill,9963F
+stops,stop_name,fr,Churchill,9986F
+stops,stop_name,fr,Churchill,5221F
+stops,stop_name,fr,Churchill,5220F
+stops,stop_name,fr,Churchill,5222F
+stops,stop_name,fr,Churchill,9969F
+stops,stop_name,fr,Churchill,9959F
+stops,stop_name,nl,Churchill,5219F
+stops,stop_name,nl,Churchill,9963F
+stops,stop_name,nl,Churchill,9986F
+stops,stop_name,nl,Churchill,5221F
+stops,stop_name,nl,Churchill,5220F
+stops,stop_name,nl,Churchill,5222F
+stops,stop_name,nl,Churchill,9969F
+stops,stop_name,nl,Churchill,9959F
+stops,stop_name,fr,Cicéron,1534
+stops,stop_name,fr,Cicéron,3462
+stops,stop_name,nl,Cicero,1534
+stops,stop_name,nl,Cicero,3462
+stops,stop_name,fr,Cimetière d'Ixelles,3514
+stops,stop_name,fr,Cimetière d'Ixelles,3558
+stops,stop_name,nl,Begraafplaats van Elsene,3514
+stops,stop_name,nl,Begraafplaats van Elsene,3558
+stops,stop_name,fr,Cimetière de Bruxelles,3401
+stops,stop_name,fr,Cimetière de Bruxelles,3661
+stops,stop_name,fr,Cimetière de Bruxelles,3274
+stops,stop_name,nl,Begraafplaats van Brussel,3401
+stops,stop_name,nl,Begraafplaats van Brussel,3661
+stops,stop_name,nl,Begraafplaats van Brussel,3274
+stops,stop_name,fr,Cimetière de Jette,5090F
+stops,stop_name,fr,Cimetière de Jette,3484
+stops,stop_name,fr,Cimetière de Jette,5088F
+stops,stop_name,fr,Cimetière de Jette,3482
+stops,stop_name,nl,Kerkhof van Jette,5090F
+stops,stop_name,nl,Kerkhof van Jette,3484
+stops,stop_name,nl,Kerkhof van Jette,5088F
+stops,stop_name,nl,Kerkhof van Jette,3482
+stops,stop_name,fr,Cimetière de Molenbeek,2568
+stops,stop_name,fr,Cimetière de Molenbeek,2511
+stops,stop_name,fr,Cimetière de Molenbeek,4007G
+stops,stop_name,fr,Cimetière de Molenbeek,4054G
+stops,stop_name,nl,Begraafplaats van Molenbeek,2568
+stops,stop_name,nl,Begraafplaats van Molenbeek,2511
+stops,stop_name,nl,Begraafplaats van Molenbeek,4007G
+stops,stop_name,nl,Begraafplaats van Molenbeek,4054G
+stops,stop_name,fr,Cimetières,4600
+stops,stop_name,fr,Cimetières,4656
+stops,stop_name,nl,Begraafplaatsen,4600
+stops,stop_name,nl,Begraafplaatsen,4656
+stops,stop_name,fr,Clays,6020
+stops,stop_name,fr,Clays,6058
+stops,stop_name,nl,Clays,6020
+stops,stop_name,nl,Clays,6058
+stops,stop_name,fr,Clémence Everard,3046
+stops,stop_name,fr,Clémence Everard,3074
+stops,stop_name,nl,Clémence Everard,3046
+stops,stop_name,nl,Clémence Everard,3074
+stops,stop_name,fr,Clemenceau,2216
+stops,stop_name,fr,Clemenceau,3047
+stops,stop_name,fr,Clemenceau,50
+stops,stop_name,fr,Clemenceau,2261
+stops,stop_name,fr,Clemenceau,8361
+stops,stop_name,fr,Clemenceau,8362
+stops,stop_name,nl,Clemenceau,2216
+stops,stop_name,nl,Clemenceau,3047
+stops,stop_name,nl,Clemenceau,50
+stops,stop_name,nl,Clemenceau,2261
+stops,stop_name,nl,Clemenceau,8361
+stops,stop_name,nl,Clemenceau,8362
+stops,stop_name,fr,Clesse,3553
+stops,stop_name,fr,Clesse,3551
+stops,stop_name,nl,Clesse,3553
+stops,stop_name,nl,Clesse,3551
+stops,stop_name,fr,Cliniques-UCL,2037
+stops,stop_name,fr,Cliniques-UCL,2043
+stops,stop_name,nl,Cliniques-UCL,2037
+stops,stop_name,nl,Cliniques-UCL,2043
+stops,stop_name,fr,Clovis,1568
+stops,stop_name,fr,Clovis,2680
+stops,stop_name,nl,Clovis,1568
+stops,stop_name,nl,Clovis,2680
+stops,stop_name,fr,Coccinelles,1300
+stops,stop_name,fr,Coccinelles,5419
+stops,stop_name,nl,Lieveheersbeestjes,1300
+stops,stop_name,nl,Lieveheersbeestjes,5419
+stops,stop_name,fr,Coghen,5835F
+stops,stop_name,fr,Coghen,5834F
+stops,stop_name,fr,Coghen,1648

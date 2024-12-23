@@ -69,3 +69,6 @@ flixbus.egg-info/*
 downloads/
 *.egg-info/
 *.egg-info
+
+!app/schedule_explorer/backend/tests/test_data/downloads/
+!app/schedule_explorer/backend/tests/prepare_test_data.py

@@ -1,0 +1,1000 @@
+stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,zone_id,stop_url,location_type
+Baegd741,,"GEROMPONT Avenue des Déportés 74",,  50.651957,   4.890238,6427,,0
+Baegd742,,"GEROMPONT Avenue des Déportés 74",,  50.651979,   4.890100,6427,,0
+Baegegl1,,"AUTRE-EGLISE Eglise",,  50.663006,   4.923742,6438,,0
+Baegegl2,,"AUTRE-EGLISE Eglise",,  50.663072,   4.923668,6438,,0
+Baeggar1,,"AUTRE-EGLISE Gare",,  50.663871,   4.918392,6438,,0
+Baeggar2,,"AUTRE-EGLISE Gare",,  50.663952,   4.918374,6438,,0
+Baegm501,,"AUTRE-EGLISE Rue de la Mêlée 50",,  50.659472,   4.909393,6427,,0
+Baegm502,,"AUTRE-EGLISE Rue de la Mêlée 50",,  50.659817,   4.909815,6427,,0
+Baegpon1,,"AUTRE-EGLISE Pont (Rue de la Gare)",,  50.655287,   4.898794,6427,,0
+Baegpon2,,"AUTRE-EGLISE Pont (Rue de la Gare)",,  50.655417,   4.899320,6427,,0
+Baegpon3,,"AUTRE-EGLISE Pont (Ch. Rowart)",,  50.654906,   4.897708,6427,,0
+Baegpon4,,"AUTRE-EGLISE Pont (Ch. Rowart)",,  50.654849,   4.897877,6427,,0
+Baisbar1,,"AISCHE-EN-REFAIL Baraque",,  50.598664,   4.823755,4519,,0
+Balsbeg1,,"ALSEMBERG Begraafplaats van Vorst",,  50.755765,   4.332129,6261,,0
+Balsbeg2,,"ALSEMBERG Begraafplaats van Vorst",,  50.756340,   4.331835,6261,,0
+Balsnay1,,"ALSEMBERG Genstberg",,  50.746639,   4.332376,6261,,0
+Balsnay2,,"ALSEMBERG Genstberg",,  50.746507,   4.332114,6261,,0
+Balsnie1,,"ALSEMBERG Grootevelde",,  50.749510,   4.333963,6261,,0
+Balsnie2,,"ALSEMBERG Grootevelde",,  50.749572,   4.333816,6261,,0
+Balssvi1,,"ALSEMBERG Sint-Victor",,  50.741780,   4.334454,6261,,0
+Balssvi2,,"ALSEMBERG Sint-Victor",,  50.741700,   4.334437,6261,,0
+Balswin2,,"ALSEMBERG Winderickxplein",,  50.739697,   4.337933,6222,,0
+Balswin3,,"ALSEMBERG Winderickxplein",,  50.739739,   4.338127,6222,,0
+Balswsa1,,"ALSEMBERG Rondenbos",,  50.751617,   4.333343,6261,,0
+Balswsa2,,"ALSEMBERG Rondenbos",,  50.751610,   4.333215,6261,,0
+Barcast1,,"ARCHENNES Ancienne Station",,  50.747806,   4.691680,6456,,0
+Barcast2,,"ARCHENNES Ancienne Station",,  50.747729,   4.691642,6456,,0
+Barcbav1,,"ARCHENNES Bavay",,  50.749926,   4.686037,6456,,0
+Barcbav2,,"ARCHENNES Bavay",,  50.749856,   4.685973,6456,,0
+Barchez1,,"ARCHENNES Hézidelle",,  50.753358,   4.666983,6456,,0
+Barchez2,,"ARCHENNES Hézidelle",,  50.753238,   4.667087,6456,,0
+Barchoc1,,"ARCHENNES Hocaille",,  50.751482,   4.672244,6456,,0
+Barchoc2,,"ARCHENNES Hocaille",,  50.751400,   4.672246,6456,,0
+Barcpre1,,"ARCHENNES Préval",,  50.751069,   4.680098,6456,,0
+Barcpre2,,"ARCHENNES Préval",,  50.750923,   4.680298,6456,,0
+Barcsta1,,"ARCHENNES Station",,  50.754408,   4.662788,6456,,0
+Barcsta2,,"ARCHENNES Station",,  50.754332,   4.662745,6456,,0
+Barqbar1,,"ARQUENNES Bois d'Arpes",,  50.578466,   4.295791,6150,,0
+Barqbar2,,"ARQUENNES Bois d'Arpes",,  50.578529,   4.296069,6150,,0
+Barqbco1,,"ARQUENNES Bon Conseil",,  50.571325,   4.283131,6150,,0
+Barqbco2,,"ARQUENNES Bon Conseil",,  50.571563,   4.284425,6150,,0
+Barqhpe1,,"ARQUENNES Hameau Petit",,  50.572695,   4.289281,6150,,0
+Barqhpe2,,"ARQUENNES Hameau Petit",,  50.572598,   4.289478,6150,,0
+Barqhro1,,"ARQUENNES Hameau Roland",,  50.560840,   4.278228,6150,,0
+Barqhro2,,"ARQUENNES Hameau Roland",,  50.561444,   4.278900,6150,,0
+Barqhro4,,"ARQUENNES Hameau Roland",,  50.561425,   4.277202,6150,,0
+Barqpla1,,"ARQUENNES Place",,  50.567303,   4.274677,6150,,0
+Barqpla2,,"ARQUENNES Place",,  50.567263,   4.274804,6150,,0
+Barqpwa1,,"ARQUENNES Pont de Warchais",,  50.566122,   4.282080,6150,,0
+Barqpwa2,,"ARQUENNES Pont de Warchais",,  50.565715,   4.282026,6150,,0
+Barqres1,,"ARQUENNES Résidence",,  50.569703,   4.285872,6150,,0
+Barqres2,,"ARQUENNES Résidence",,  50.569619,   4.286054,6150,,0
+Bauddel1,,"AUDERGHEM Métro Delta",,  50.818178,   4.404453,6322,,0
+Bauddel2,,"AUDERGHEM Métro Delta",,  50.817460,   4.405233,6322,,0
+Baudhan1,,"AUDERGHEM Hankar",,  50.821893,   4.405377,6322,,0
+Baudhan2,,"AUDERGHEM Hankar",,  50.821820,   4.405319,6322,,0
+Baudhde1,,"AUDERGHEM Herrmann-Debroux",,  50.812510,   4.428119,6322,,0
+Baudhde2,,"AUDERGHEM Herrmann-Debroux",,  50.812303,   4.429069,6322,,0
+Baudsju1,,"AUDERGHEM Eglise Saint-Julien",,  50.821073,   4.408217,6322,,0
+Baudsju2,,"AUDERGHEM Eglise Saint-Julien",,  50.820602,   4.409496,6322,,0
+Baudsta2,,"AUDERGHEM Rouge-Cloitre",,  50.811473,   4.439553,6322,,0
+Baudstr1,,"AUDERGHEM Stratégie",,  50.824007,   4.400848,6322,,0
+Baudstr2,,"AUDERGHEM Stratégie",,  50.824113,   4.400498,6322,,0
+Baudtri1,,"AUDERGHEM Triomphe",,  50.817129,   4.400229,6322,,0
+Baudtri2,,"AUDERGHEM Triomphe",,  50.817041,   4.400554,6322,,0
+Baudulb1,,"AUDERGHEM ULB Jardin Massart",,  50.813449,   4.433408,6322,,0
+Baudulb2,,"AUDERGHEM ULB Jardin Massart",,  50.813128,   4.434163,6322,,0
+Baudvdr1,,"AUDERGHEM Van Drommen",,  50.819164,   4.414803,6322,,0
+Baudvdr2,,"AUDERGHEM Van Drommen",,  50.818837,   4.415619,6322,,0
+Baudvdu1,,"AUDERGHEM Val Duc",,  50.817554,   4.420973,6322,,0
+Baudvdu2,,"AUDERGHEM Val Duc",,  50.817685,   4.419910,6322,,0
+Baudwav1,,"AUDERGHEM Shopping",,  50.816827,   4.424764,6322,,0
+Baudwav2,,"AUDERGHEM Shopping",,  50.815302,   4.425735,6322,,0
+Bbaualz1,,"BAULERS Alzémont",,  50.607839,   4.360512,6170,,0
+Bbaualz2,,"BAULERS Alzémont",,  50.607748,   4.360631,6170,,0
+Bbaubru1,,"BAULERS Chaussée de Bruxelles",,  50.610317,   4.336724,6110,,0
+Bbaubru2,,"BAULERS Chaussée de Bruxelles",,  50.610169,   4.336421,6110,,0
+Bbaucai1,,"BAULERS Rue aux Cailloux",,  50.612027,   4.359574,6170,,0
+Bbaucai2,,"BAULERS Rue aux Cailloux",,  50.611994,   4.360134,6170,,0
+Bbaucba1,,"BAULERS Cité Baulers",,  50.606223,   4.347829,6170,,0
+Bbaucba2,,"BAULERS Cité Baulers",,  50.606277,   4.348570,6170,,0
+Bbaueco1,,"BAULERS Ecole",,  50.614752,   4.351307,6170,,0
+Bbauegl1,,"BAULERS Eglise",,  50.613340,   4.353054,6170,,0
+Bbauegl2,,"BAULERS Eglise",,  50.613413,   4.352913,6170,,0
+Bbauham1,,"BAULERS Hameau",,  50.610051,   4.364594,6170,,0
+Bbauham2,,"BAULERS Hameau",,  50.609967,   4.364717,6170,,0
+Bbaulil1,,"BAULERS Avenue des Lilas",,  50.605922,   4.345583,6170,,0
+Bbaulil2,,"BAULERS Avenue des Lilas",,  50.605786,   4.345674,6170,,0
+Bbaulos2,,"BAULERS Rue Lossignol",,  50.615259,   4.340255,6170,,0
+Bbautri1,,"BAULERS Trigodet",,  50.606792,   4.352834,6170,,0
+Bbautri2,,"BAULERS Trigodet",,  50.606705,   4.352977,6170,,0
+Bbbksth1,,"BIERBEEK Sint-Theresiakapel",,  50.800537,   4.708744,6417,,0
+Bbbksth2,,"BIERBEEK Sint-Theresiakapel",,  50.801182,   4.708793,6417,,0
+Bbch4br1,,"BRAINE-LE-CHATEAU Quatre Bras (Rue Libération)",,  50.682965,   4.272234,6131,,0
+Bbch4br2,,"BRAINE-LE-CHATEAU Quatre Bras (Rue Libération)",,  50.682892,   4.272288,6131,,0
+Bbch4br3,,"BRAINE-LE-CHATEAU Quatre Bras (Rue de Hal)",,  50.684470,   4.272198,6131,,0
+Bbch4br4,,"BRAINE-LE-CHATEAU Quatre Bras (Rue de Hal)",,  50.683524,   4.272562,6131,,0
+Bbch4br5,,"BRAINE-LE-CHATEAU Quatre Bras (Rue de Nivelles)",,  50.682966,   4.272958,6131,,0
+Bbch4br6,,"BRAINE-LE-CHATEAU Quatre Bras (Rue de Nivelles)",,  50.682214,   4.273032,6131,,0
+Bbchboi1,,"BRAINE-LE-CHATEAU Les Boignées",,  50.678244,   4.300565,6131,,0
+Bbchcab1,,"BRAINE-LE-CHATEAU Rue Cabiau",,  50.677973,   4.274209,6131,,0
+Bbchcab2,,"BRAINE-LE-CHATEAU Rue Cabiau",,  50.679301,   4.273974,6131,,0
+Bbchcbl1,,"BRAINE-LE-CHATEAU Cheval Blanc",,  50.691920,   4.269112,6131,,0
+Bbchcbl2,,"BRAINE-LE-CHATEAU Cheval Blanc",,  50.690646,   4.269444,6131,,0
+Bbchdev1,,"BRAINE-LE-CHATEAU Rue des Dévoués",,  50.674915,   4.275220,6131,,0
+Bbchdev2,,"BRAINE-LE-CHATEAU Rue des Dévoués",,  50.675013,   4.275317,6131,,0
+Bbchdra1,,"BRAINE-LE-CHATEAU Le Drabbe",,  50.683320,   4.283891,6131,,0
+Bbchdra2,,"BRAINE-LE-CHATEAU Le Drabbe",,  50.683088,   4.284821,6131,,0
+Bbchgod1,,"BRAINE-LE-CHATEAU Godeaux",,  50.681171,   4.251858,6131,,0
+Bbchgod2,,"BRAINE-LE-CHATEAU Godeaux",,  50.681159,   4.252243,6131,,0
+Bbchm381,,"BRAINE-LE-CHATEAU Maison 38",,  50.694949,   4.268010,6131,,0
+Bbchm382,,"BRAINE-LE-CHATEAU Maison 38",,  50.694473,   4.268039,6131,,0
+Bbchmai1,,"BRAINE-LE-CHATEAU La Maisonnée",,  50.666201,   4.283557,6131,,0
+Bbchmai2,,"BRAINE-LE-CHATEAU La Maisonnée",,  50.666113,   4.284124,6131,,0
+Bbchmin1,,"BRAINE-LE-CHATEAU Les Minous",,  50.670059,   4.276836,6131,,0
+Bbchmin2,,"BRAINE-LE-CHATEAU Les Minous",,  50.669595,   4.277096,6131,,0
+Bbchndb1,,"BRAINE-LE-CHATEAU Rue Notre Dame au Bois",,  50.680465,   4.261122,6131,,0
+Bbchndb2,,"BRAINE-LE-CHATEAU Rue Notre Dame au Bois",,  50.680312,   4.260572,6131,,0
+Bbchpil1,,"BRAINE-LE-CHATEAU Pilori",,  50.682152,   4.266517,6131,,0
+Bbchpil2,,"BRAINE-LE-CHATEAU Pilori",,  50.681923,   4.266173,6131,,0
+Bbchrra2,,"BRAINE-LE-CHATEAU Rue des Radoux",,  50.683968,   4.276473,6131,,0
+Bbchrra3,,"BRAINE-LE-CHATEAU Rue des Radoux",,  50.683987,   4.276088,6131,,0
+Bbchsac1,,"BRAINE-LE-CHATEAU Rue du Sacrement",,  50.669359,   4.304180,6131,,0
+Bbchtry1,,"WAUTHIER-BRAINE Rue du Try",,  50.681788,   4.297605,6131,,0
+Bbchume1,,"BRAINE-LE-CHATEAU Usines Meurice",,  50.680320,   4.245841,6131,,0
+Bbchume2,,"BRAINE-LE-CHATEAU Usines Meurice",,  50.680285,   4.246541,6131,,0
+Bbcoben1,,"BRAINE-LE-COMTE Barrière d'Enghien",,  50.617575,   4.139017,3253,,0
+Bbcoben2,,"BRAINE-LE-COMTE Barrière d'Enghien",,  50.617941,   4.138981,3253,,0
+Bbcocou1,,"BRAINE-LE-COMTE Coulette",,  50.611895,   4.140700,3253,,0
+Bbcocou2,,"BRAINE-LE-COMTE Coulette",,  50.612116,   4.140588,3253,,0
+Bbcocvb1,,"BRAINE-LE-COMTE Clos du Vert Bois",,  50.605266,   4.178024,6116,,0
+Bbcocvb2,,"BRAINE-LE-COMTE Clos du Vert Bois",,  50.604876,   4.178474,6116,,0
+Bbcodam3,,"BRAINE-LE-COMTE Chemin des Dames",,  50.608078,   4.155369,3253,,0
+Bbcodam4,,"BRAINE-LE-COMTE Chemin des Dames",,  50.607842,   4.154614,3253,,0
+Bbcoeca1,,"BRAINE-LE-COMTE Route d'Ecaussinnes",,  50.603462,   4.131957,3253,,0
+Bbcoeco1,,"BRAINE-LE-COMTE Ecoles",,  50.607444,   4.133316,3253,,0
+Bbcoeco2,,"BRAINE-LE-COMTE Ecoles",,  50.607502,   4.133172,3253,,0
+Bbcogar1,,"BRAINE-LE-COMTE Gare - Quai 1",,  50.605539,   4.137376,3253,,0
+Bbcogar2,,"BRAINE-LE-COMTE Gare - Quai 2",,  50.605614,   4.137556,3253,,0
+Bbcogpl1,,"BRAINE-LE-COMTE Place",,  50.610999,   4.135791,3253,,0
+Bbcogpl2,,"BRAINE-LE-COMTE Place",,  50.610249,   4.135231,3253,,0
+Bbcohou3,,"BRAINE-LE-COMTE Houssière",,  50.609703,   4.165383,6116,,0
+Bbcohou4,,"BRAINE-LE-COMTE Houssière",,  50.609576,   4.165807,6116,,0
+Bbcolno1,,"BRAINE-LE-COMTE Lion Noir",,  50.614614,   4.136759,3253,,0
+Bbcolno2,,"BRAINE-LE-COMTE Lion Noir",,  50.614331,   4.136470,3253,,0
+Bbcomar1,,"BRAINE-LE-COMTE Marouset",,  50.609398,   4.171579,6116,,0
+Bbcomar2,,"BRAINE-LE-COMTE Marouset",,  50.609272,   4.171574,6116,,0
+Bbcopre1,,"BRAINE-LE-COMTE Prestremont",,  50.622651,   4.142477,3253,,0
+Bbcopre2,,"BRAINE-LE-COMTE Prestremont",,  50.622658,   4.142132,3253,,0
+Bbcoroy1,,"BRAINE-LE-COMTE Chemin Royal",,  50.626699,   4.145205,3253,,0
+Bbcoroy2,,"BRAINE-LE-COMTE Chemin Royal",,  50.626688,   4.144916,3253,,0
+Bbcoser1,,"BRAINE-LE-COMTE Rue de Serbie",,  50.605605,   4.132982,3253,,0
+Bbcoubo2,,"BRAINE-LE-COMTE Bourleau",,  50.606943,   4.143349,3253,,0
+Bbcoubo3,,"BRAINE-LE-COMTE Bourleau",,  50.607142,   4.143393,3253,,0
+Bbea3he1,,"BEAUVECHAIN Rue des 3 Héros",,  50.761460,   4.817582,6414,,0
+Bbea3he2,,"BEAUVECHAIN Rue des 3 Héros",,  50.761135,   4.816996,6414,,0
+Bbeaap11,,"BEAUVECHAIN Aérodrome P1",,  50.753748,   4.783771,6414,,0
+Bbeaap12,,"BEAUVECHAIN Aérodrome P1",,  50.753989,   4.783660,6414,,0
+Bbeaap51,,"BEAUVECHAIN Aérodrome P5",,  50.772151,   4.780950,6414,,0
+Bbeaap52,,"BEAUVECHAIN Aérodrome P5",,  50.772626,   4.780650,6414,,0
+Bbeabme1,,"LA BRUYÈRE Rue de Mélin",,  50.761791,   4.784516,6414,,0
+Bbeabme2,,"LA BRUYÈRE Rue de Mélin",,  50.761847,   4.784693,6414,,0
+Bbeacha1,,"BEAUVECHAIN Chapelle",,  50.775141,   4.778459,6414,,0
+Bbeacha2,,"BEAUVECHAIN Chapelle",,  50.775185,   4.778569,6414,,0
+Bbeaech1,,"L'ECLUSE Chapelle",,  50.776869,   4.825436,6414,,0
+Bbeaech2,,"L'ECLUSE Chapelle",,  50.776982,   4.825406,6414,,0
+Bbeaegl1,,"LA BRUYÈRE Eglise",,  50.763752,   4.787179,6414,,0
+Bbeaegl2,,"LA BRUYÈRE Eglise",,  50.763891,   4.787439,6414,,0
+Bbeagae1,,"L'ECLUSE Rue de Gaet",,  50.772814,   4.831258,6414,,0
+Bbeagae2,,"L'ECLUSE Rue de Gaet",,  50.772826,   4.831386,6414,,0
+Bbealbu3,,"BEAUVECHAIN Les Burettes",,  50.776416,   4.792629,6414,,0
+Bbealbu4,,"BEAUVECHAIN Les Burettes",,  50.776523,   4.792525,6414,,0
+Bbealon3,,"BEAUVECHAIN Rue Longue",,  50.770401,   4.802758,6414,,0
+Bbealon4,,"BEAUVECHAIN Rue Longue",,  50.770401,   4.803064,6414,,0
+Bbealou1,,"BEAUVECHAIN Rue de Louvain",,  50.780666,   4.791890,6414,,0
+Bbealou2,,"BEAUVECHAIN Rue de Louvain",,  50.780843,   4.791639,6414,,0
+Bbeamon1,,"BEAUVECHAIN Monument",,  50.780617,   4.775675,6414,,0
+Bbeamon2,,"BEAUVECHAIN Monument",,  50.780697,   4.775665,6414,,0
+Bbeaneu3,,"BEAUVECHAIN Rue Neuve",,  50.758659,   4.782393,6414,,0
+Bbeaneu4,,"BEAUVECHAIN Rue Neuve",,  50.758466,   4.782333,6414,,0
+Bbeapim1,,"BEAUVECHAIN Rue de Pymont",,  50.779171,   4.781222,6414,,0
+Bbeapim2,,"BEAUVECHAIN Rue de Pymont",,  50.779234,   4.781117,6414,,0
+Bbeardu1,,"BEAUVECHAIN Rue Duchêne",,  50.768666,   4.796185,6414,,0
+Bbeardu2,,"BEAUVECHAIN Rue Duchêne",,  50.768589,   4.796230,6414,,0
+Bbearwa1,,"BEAUVECHAIN Rue de Wahenge",,  50.767073,   4.791569,6414,,0
+Bbearwa2,,"BEAUVECHAIN Rue de Wahenge",,  50.766940,   4.791520,6414,,0
+Bbeascl1,,"BEAUVECHAIN Sclimpré",,  50.763974,   4.812637,6414,,0
+Bbeascl2,,"BEAUVECHAIN Sclimpré",,  50.763893,   4.812638,6414,,0
+Bbeasta1,,"BEAUVECHAIN Rue de la Station",,  50.779017,   4.771107,6414,,0
+Bbeasta2,,"BEAUVECHAIN Rue de la Station",,  50.779180,   4.771220,6414,,0
+Bbgeegl1,,"BIERGES Eglise",,  50.711360,   4.589933,6250,,0
+Bbgeegl2,,"BIERGES Eglise",,  50.711251,   4.588862,6250,,0
+Bbgelre1,,"BIERGES ""La Réserve""",,  50.702011,   4.615563,6250,,0
+Bbgelre2,,"BIERGES ""La Réserve""",,  50.702275,   4.615420,6250,,0
+Bbgepau1,,"BIERGES Pont Autoroute",,  50.712767,   4.600178,6250,,0
+Bbgepau2,,"BIERGES Pont Autoroute",,  50.712559,   4.599786,6250,,0
+Bbgerlr1,,"BIERGES Rue de La Roche",,  50.713581,   4.580811,6250,,0
+Bbgerlr2,,"BIERGES Rue de La Roche",,  50.713455,   4.581027,6250,,0
+Bbgever1,,"BIERGES Verseau",,  50.722411,   4.581608,6250,,0
+Bbgever2,,"BIERGES Verseau",,  50.722188,   4.581716,6250,,0
+Bbgevil1,,"BIERGES Village",,  50.708820,   4.594978,6250,,0
+Bbgevil2,,"BIERGES Village",,  50.708260,   4.593832,6250,,0
+Bbgewal1,,"BIERGES Walibi",,  50.704871,   4.587390,6250,,0
+Bbgewal2,,"BIERGES Walibi",,  50.704934,   4.587309,6250,,0
+Bbghcar1,,"BIERGHES Carrière",,  50.691544,   4.102506,6123,,0
+Bbghcar2,,"BIERGHES Carrière",,  50.691687,   4.102505,6123,,0
+Bbghepi1,,"BIERGHES Epine",,  50.700420,   4.137935,6123,,0
+Bbghepi2,,"BIERGHES Epine",,  50.700697,   4.138547,6123,,0
+Bbghgli1,,"BIERGHES Garage Limbourg",,  50.694022,   4.114382,6123,,0
+Bbghgli2,,"BIERGHES Garage Limbourg",,  50.694121,   4.114315,6123,,0
+Bbghpln1,,"BIERGHES Place Léopold Nuttinck",,  50.696770,   4.120070,6123,,0
+Bbghsar1,,"BIERGHES Rue du Sartiau",,  50.697937,   4.128748,6123,,0
+Bbghsar2,,"BIERGHES Rue du Sartiau",,  50.698036,   4.128678,6123,,0
+Bbghsta1,,"BIERGHES Rue de la Station (Ch d'Enghien)",,  50.695701,   4.120553,6123,,0
+Bbghsta2,,"BIERGHES Rue de la Station (Ch. d'Enghien)",,  50.695749,   4.120292,6123,,0
+Bbghsta3,,"BIERGHES Rue de la Station (Route de Quenast)",,  50.694451,   4.120683,6123,,0
+Bbghsta4,,"BIERGHES Rue de la Station (Route de Quenast)",,  50.694643,   4.120594,6123,,0
+Bbiecim1,,"BIEZ Cimetière",,  50.729928,   4.707708,6457,,0
+Bbiecim2,,"BIEZ Cimetière",,  50.729524,   4.708263,6457,,0
+Bbiecoc1,,"BIEZ Cocrou",,  50.737504,   4.717947,6457,,0
+Bbiecoc2,,"BIEZ Cocrou",,  50.737594,   4.718587,6457,,0
+Bbiefon1,,"BIEZ Rue du Fond",,  50.738936,   4.723778,6457,,0
+Bbiefon2,,"BIEZ Rue du Fond",,  50.738745,   4.723812,6457,,0
+Bbiehec1,,"HEZE Ecoles",,  50.719429,   4.720672,6457,,0
+Bbiehec2,,"HEZE Ecoles",,  50.719389,   4.720560,6457,,0
+Bbiehev1,,"HEZE Entrée Village",,  50.723204,   4.713553,6457,,0
+Bbiehev2,,"HEZE Entrée Village",,  50.723270,   4.713331,6457,,0
+Bbiehpo1,,"HEZE Les Pommiers",,  50.718274,   4.724447,6457,,0
+Bbiehpo2,,"HEZE Les Pommiers",,  50.718138,   4.724633,6457,,0
+Bbiehss1,,"HEZE Chapelle du Saint-Sang",,  50.718758,   4.729260,6457,,0
+Bbiehss2,,"HEZE Chapelle du Saint-Sang",,  50.718677,   4.729264,6457,,0
+Bbiemor1,,"BIEZ Route de Morsaint",,  50.732565,   4.703231,6457,,0
+Bbiemor2,,"BIEZ Route de Morsaint",,  50.732606,   4.703121,6457,,0
+Bbiemse1,,"BIEZ Morsaint St-Eloy",,  50.722996,   4.693185,6462,,0
+Bbiemse2,,"BIEZ Morsaint St-Eloy",,  50.722914,   4.693198,6462,,0
+Bbiepon1,,"BIEZ Pont",,  50.723419,   4.697398,6462,,0
+Bbiepon2,,"BIEZ Pont",,  50.723352,   4.697652,6462,,0
+Bbiepre1,,"BIEZ Préventorium",,  50.726613,   4.710538,6457,,0
+Bbiepre2,,"BIEZ Préventorium",,  50.726586,   4.710418,6457,,0
+Bbiesbi1,,"BIEZ Sart-Biez",,  50.732330,   4.731826,6457,,0
+Bbiesbi2,,"BIEZ Sart-Biez",,  50.732270,   4.731738,6457,,0
+Bblaaca1,,"BRAINE-L'ALLEUD Académie",,  50.682238,   4.366170,6233,,0
+Bblaadm1,,"BRAINE-L'ALLEUD Administration Communale",,  50.668924,   4.385314,6233,,0
+Bblaadm2,,"BRAINE-L'ALLEUD Administration Communale",,  50.668875,   4.385214,6233,,0
+Bblaall1,,"BRAINE-L'ALLEUD Rue des Alliés",,  50.681044,   4.377217,6233,,0
+Bblaall2,,"BRAINE-L'ALLEUD Rue des Alliés",,  50.680956,   4.377472,6233,,0
+Bblaang1,,"BRAINE-L'ALLEUD Bd d'Angleterre",,  50.664996,   4.379037,6233,,0
+Bblaang2,,"BRAINE-L'ALLEUD Bd d'Angleterre",,  50.665130,   4.378853,6233,,0
+Bblaast1,,"BRAINE-L'ALLEUD Ancienne Station",,  50.684978,   4.376608,6233,,0
+Bblaast2,,"BRAINE-L'ALLEUD Ancienne Station",,  50.684977,   4.376735,6233,,0
+Bblabar1,,"BRAINE-L'ALLEUD Barrière",,  50.669666,   4.386898,6233,,0
+Bblabfo1,,"BRAINE-L'ALLEUD Bonne Fosse",,  50.682702,   4.393925,6233,,0
+Bblabfo2,,"BRAINE-L'ALLEUD Bonne Fosse",,  50.682383,   4.394104,6233,,0
+Bblabos1,,"BRAINE-L'ALLEUD Bosquet",,  50.695968,   4.343096,6233,,0
+Bblabos2,,"BRAINE-L'ALLEUD Bosquet",,  50.695888,   4.343120,6233,,0
+Bblacar1,,"BRAINE-L'ALLEUD Carron",,  50.694990,   4.337731,6233,,0
+Bblacar2,,"BRAINE-L'ALLEUD Carron",,  50.694991,   4.338122,6233,,0
+Bblaccm1,,"BRAINE-L'ALLEUD Collège - Gare AB",,  50.687155,   4.386835,6233,,0
+Bblacco1,,"BRAINE-L'ALLEUD Côté du Collège",,  50.686340,   4.394267,6233,,0
+Bblacco2,,"BRAINE-L'ALLEUD Côté du Collège",,  50.686177,   4.392664,6233,,0
+Bblacea1,,"BRAINE-L'ALLEUD Château d'Eau",,  50.711327,   4.354132,6224,,0
+Bblacea2,,"BRAINE-L'ALLEUD Château d'Eau",,  50.711085,   4.354122,6224,,0
+Bblacha1,,"BRAINE-L'ALLEUD La Chapelle",,  50.697038,   4.365267,6233,,0
+Bblacha2,,"BRAINE-L'ALLEUD La Chapelle",,  50.696845,   4.365578,6233,,0
+Bblacim2,,"BRAINE-L'ALLEUD Cimetière",,  50.687169,   4.373242,6233,,0
+Bblaece1,,"ERMITE Centre",,  50.714308,   4.352086,6224,,0
+Bblaece2,,"ERMITE Centre",,  50.714268,   4.351974,6224,,0
+Bblaegl1,,"ERMITE Eglise",,  50.707408,   4.356892,6224,,0
+Bblaegl2,,"ERMITE Eglise",,  50.707479,   4.356630,6224,,0
+Bblaelo1,,"BRAINE-L'ALLEUD Rue Jean Volders",,  50.689468,   4.368604,6233,,0
+Bblaeur1,,"BRAINE-L'ALLEUD Boulevard de l'Europe",,  50.682803,   4.384090,6233,,0
+Bblafab1,,"BRAINE-L'ALLEUD Fabrique",,  50.675706,   4.362536,6233,,0
+Bblafab2,,"BRAINE-L'ALLEUD Fabrique",,  50.675650,   4.362627,6233,,0
+Bblafos1,,"BRAINE-L'ALLEUD Rue des Fossés",,  50.683510,   4.371107,6233,,0
+Bblafra1,,"BRAINE-L'ALLEUD Rue de la Fraternité (Av. Allard)",,  50.673897,   4.383746,6233,,0
+Bblafra2,,"BRAINE-L'ALLEUD Rue de la Fraternité (Av. Allard)",,  50.673079,   4.384559,6233,,0
+Bblafra3,,"BRAINE-L'ALLEUD Rue de la Fraternité (Desnouettes)",,  50.673569,   4.384433,6233,,0
+Bblafrn1,,"BRAINE-L'ALLEUD Bd de France",,  50.666981,   4.378084,6233,,0
+Bblafrn2,,"BRAINE-L'ALLEUD Bd de France",,  50.667052,   4.378360,6233,,0
+Bblager1,,"BRAINE-L'ALLEUD Avenue Germinal",,  50.672372,   4.390308,6233,,0
+Bblagr01,,"BRAINE-L'ALLEUD Gare - Quai 1",,  50.684482,   4.375474,6233,,0
+Bblagr02,,"BRAINE-L'ALLEUD Gare - Quai 2",,  50.684256,   4.375430,6233,,0
+Bblagr03,,"BRAINE-L'ALLEUD Gare - Quai 3",,  50.684092,   4.375399,6233,,0
+Bblagr04,,"BRAINE-L'ALLEUD Gare - Quai 4",,  50.683862,   4.375368,6233,,0
+Bblagr05,,"BRAINE-L'ALLEUD Gare - Quai 5",,  50.683644,   4.375350,6233,,0
+Bblagr06,,"BRAINE-L'ALLEUD Gare - Quai 6",,  50.683194,   4.375267,6233,,0
+Bblagr07,,"BRAINE-L'ALLEUD Gare - Quai 7",,  50.682995,   4.375224,6233,,0
+Bblagr08,,"BRAINE-L'ALLEUD Gare - Quai 8",,  50.682718,   4.375174,6233,,0
+Bblagr09,,"BRAINE-L'ALLEUD Gare - Quai 9",,  50.682511,   4.375931,6233,,0
+Bblagr10,,"BRAINE-L'ALLEUD Gare - Quai 10",,  50.683099,   4.376050,6233,,0
+Bblague1,,"BRAINE-L'ALLEUD Rue au Gué",,  50.679785,   4.370020,6233,,0
+Bblague2,,"BRAINE-L'ALLEUD Rue au Gué",,  50.680152,   4.370136,6233,,0
+Bblahop1,,"BRAINE-L'ALLEUD Hôpital",,  50.683261,   4.367437,6233,,0
+Bblajap1,,"BRAINE-L'ALLEUD Av. du Japon",,  50.667991,   4.384519,6233,,0
+Bblaljo1,,"BRAINE-L'ALLEUD Avenue L. Jourez",,  50.685213,   4.370608,6233,,0
+Bblamer1,,"BRAINE-L'ALLEUD Merbraine",,  50.683362,   4.389447,6233,,0
+Bblamer2,,"BRAINE-L'ALLEUD Merbraine",,  50.683307,   4.389119,6233,,0
+Bblamp5,,"BRAINE-L'ALLEUD Mont-Saint-Pont (Ch. Bara)",,  50.700162,   4.363845,6233,,0
+Bblamsj1,,"BRAINE-L'ALLEUD Route de Mont-Saint-Jean",,  50.686373,   4.385877,6233,,0
+Bblamsj2,,"BRAINE-L'ALLEUD Route de Mont-Saint-Jean",,  50.685861,   4.383147,6233,,0
+Bblamsj3,,"BRAINE-L'ALLEUD Route de Mont-St-Jean (Rte Lion)",,  50.685282,   4.386365,6233,,0
+Bblamsp1,,"BRAINE-L'ALLEUD Mont-Saint-Pont (Ch. de Tubize)",,  50.699225,   4.360751,6233,,0
+Bblamsp2,,"BRAINE-L'ALLEUD Mont-Saint-Pont (Ch. d'Alsemberg)",,  50.698929,   4.362450,6233,,0
+Bblamsp3,,"BRAINE-L'ALLEUD Mont-Saint-Pont (Ch. d'Alsemberg)",,  50.698564,   4.362993,6233,,0
+Bblamsp4,,"BRAINE-L'ALLEUD Mont-Saint-Pont (Ch. Bara)",,  50.700090,   4.363903,6233,,0
+Bblaniv1,,"BRAINE-L'ALLEUD Route de Nivelles",,  50.682012,   4.399732,6233,,0
+Bblaniv2,,"BRAINE-L'ALLEUD Route de Nivelles",,  50.681931,   4.399917,6233,,0
+Bblapar1,,"BRAINE-L'ALLEUD Paradis",,  50.671005,   4.369004,6233,,0
+Bblapet1,,"BRAINE-L'ALLEUD Avenue des Pétunias",,  50.672931,   4.387295,6233,,0
+Bblaphi1,,"BRAINE-L'ALLEUD Philippe",,  50.698262,   4.356723,6233,,0
+Bblaphi2,,"BRAINE-L'ALLEUD Philippe",,  50.697799,   4.354958,6233,,0
+Bblapin1,,"BRAINE-L'ALLEUD Drève des Pins",,  50.729005,   4.342152,6222,,0
+Bblapin2,,"BRAINE-L'ALLEUD Drève des Pins",,  50.728805,   4.342072,6222,,0
+Bblapje1,,"BRAINE-L'ALLEUD Rue de Petit Jean",,  50.681751,   4.370916,6233,,0
+Bblapje2,,"BRAINE-L'ALLEUD Rue de Petit Jean",,  50.681751,   4.372395,6233,,0
+Bblapra1,,"BRAINE-L'ALLEUD Chemin de la Praye",,  50.693130,   4.330183,6132,,0
+Bblapra2,,"BRAINE-L'ALLEUD Chemin de la Praye",,  50.693058,   4.330241,6132,,0
+Bblapri1,,"BRAINE-L'ALLEUD Avenue du Prieuré",,  50.717663,   4.349804,6224,,0
+Bblapri2,,"BRAINE-L'ALLEUD Avenue du Prieuré",,  50.717102,   4.349987,6224,,0
+Bblapss1,,"BRAINE-L'ALLEUD Place Saint Sébastien",,  50.679358,   4.384691,6233,,0
+Bblaqsj1,,"BRAINE-L'ALLEUD Quartier Saint Jacques",,  50.678998,   4.366313,6233,,0
+Bblaqsj2,,"BRAINE-L'ALLEUD Quartier Saint Jacques",,  50.679142,   4.366552,6233,,0
+Bblarbe1,,"BRAINE-L'ALLEUD RIVA BELLA",,  50.684099,   4.380472,6233,,0
+Bblarbe2,,"BRAINE-L'ALLEUD RIVA BELLA",,  50.684068,   4.380589,6233,,0
+Bblasmo1,,"BRAINE-L'ALLEUD Sart-Moulin",,  50.696974,   4.348883,6233,,0
+Bblasmo2,,"BRAINE-L'ALLEUD Sart-Moulin",,  50.696975,   4.349166,6233,,0
+Bblasol1,,"BRAINE-L'ALLEUD Rue de la Solidarité",,  50.670924,   4.385734,6233,,0
+Bblasse1,,"BRAINE-L'ALLEUD Rue Saint Sébastien",,  50.678384,   4.379602,6233,,0
+Bblasse2,,"BRAINE-L'ALLEUD Rue Saint Sébastien",,  50.677964,   4.380132,6233,,0
+Bblasta1,,"BRAINE-L'ALLEUD Stade",,  50.677929,   4.386035,6233,,0
+Bblatet1,,"BRAINE-L'ALLEUD Timpe et Tard",,  50.672549,   4.356960,6233,,0
+Bblatet2,,"BRAINE-L'ALLEUD Timpe et Tard",,  50.672485,   4.357039,6233,,0
+Bblavba1,,"BRAINE-L'ALLEUD Vallée Bailly",,  50.685650,   4.378166,6233,,0
+Bblavba2,,"BRAINE-L'ALLEUD Vallée Bailly",,  50.685569,   4.378183,6233,,0
+Bblavhu2,,"BRAINE-L'ALLEUD Avenue Victor Hugo",,  50.686458,   4.398807,6223,,0
+Bblavol2,,"BRAINE-L'ALLEUD Rue Jean Volders",,  50.690976,   4.370196,6233,,0
+Bbldass1,,"BLANDEN Assemblée",,  50.820736,   4.703004,6417,,0
+Bbldass2,,"BLANDEN Assemblée",,  50.820752,   4.703230,6417,,0
+Bbldgar1,,"BLANDEN Oud Station",,  50.827234,   4.701108,6418,,0
+Bbldgar2,,"BLANDEN Oud Station",,  50.827247,   4.701336,6418,,0
+Bbldmun1,,"BLANDEN Munitiedepot",,  50.815880,   4.704366,6417,,0
+Bbldmun2,,"BLANDEN Munitiedepot",,  50.815896,   4.704591,6417,,0
+Bbldvaa1,,"BLANDEN Vaalbeek",,  50.831505,   4.699895,6418,,0
+Bbldvaa2,,"BLANDEN Vaalbeek",,  50.831508,   4.699969,6418,,0
+Bblmcel1,,"BLANMONT Cabine Electrique",,  50.620977,   4.639212,6269,,0
+Bblmcel2,,"BLANMONT Cabine Electrique",,  50.620906,   4.639151,6269,,0
+Bblmpch1,,"BLANMONT Pré à la Chambre",,  50.622856,   4.647913,6269,,0
+Bblmpch2,,"BLANMONT Pré à la Chambre",,  50.622638,   4.647144,6269,,0
+Bblmpro1,,"BLANMONT Route Provinciale",,  50.618465,   4.645698,6269,,0
+Bblmpro2,,"BLANMONT Route Provinciale",,  50.618602,   4.645669,6269,,0
+Bblmwma1,,"BLANMONT Av. Werner Marchand",,  50.614584,   4.647512,6269,,0
+Bblmwma2,,"BLANMONT Av. Werner Marchand",,  50.614526,   4.647418,6269,,0
+Bbonbcr1,,"BONLEZ Chemin Bernard Croix",,  50.705391,   4.690523,6352,,0
+Bbonbcr2,,"BONLEZ Chemin Bernard Croix",,  50.705346,   4.690629,6352,,0
+Bboncfv1,,"BONLEZ Chemin du Fort des Voiles",,  50.711148,   4.698683,6352,,0
+Bboncgs1,,"BIEZ Chemin du Grand Sart",,  50.716637,   4.699476,6352,,0
+Bboncha1,,"BONLEZ Château",,  50.709037,   4.691903,6352,,0
+Bboncha2,,"BONLEZ Château",,  50.709574,   4.692145,6352,,0
+Bbonegl1,,"BONLEZ Eglise",,  50.701690,   4.689441,6352,,0
+Bbonegl2,,"BONLEZ Eglise",,  50.701690,   4.689568,6352,,0
+Bboneta1,,"BONLEZ Etangs",,  50.716975,   4.694103,6352,,0
+Bboneta2,,"BONLEZ Etangs",,  50.717148,   4.694225,6352,,0
+Bborbif1,,"BORNIVAL Bifurcation",,  50.609018,   4.276840,6113,,0
+Bborbif2,,"BORNIVAL Bifurcation",,  50.608825,   4.277079,6113,,0
+Bborche1,,"BORNIVAL Le Chêne",,  50.608281,   4.281000,6113,,0
+Bborche2,,"BORNIVAL Le Chêne",,  50.608189,   4.281311,6113,,0
+Bborcro1,,"BORNIVAL Croiseau",,  50.613552,   4.258148,6113,,0
+Bborcro2,,"BORNIVAL Croiseau",,  50.613599,   4.259114,6113,,0
+Bborppa1,,"BORNIVAL Petit Paradis",,  50.612158,   4.266683,6113,,0
+Bborppa2,,"BORNIVAL Petit Paradis",,  50.612199,   4.266046,6113,,0
+Bbosdra1,,"BOST Dragonder",,  50.796738,   4.936710,6435,,0
+Bbosdra2,,"BOST Dragonder",,  50.796746,   4.936581,6435,,0
+Bboseco1,,"BOST School",,  50.788979,   4.942731,6435,,0
+Bboseco2,,"BOST School",,  50.788300,   4.943155,6435,,0
+Bbosgar1,,"BOST Station",,  50.791608,   4.940557,6435,,0
+Bbosgar2,,"BOST Station",,  50.791648,   4.940386,6435,,0
+Bboueta1,,"BOUSVAL Etang",,  50.619259,   4.518621,6138,,0
+Bboueta2,,"BOUSVAL Etang",,  50.619150,   4.518554,6138,,0
+Bboufsm1,,"BOUSVAL Ferme Saint-Martin",,  50.614874,   4.502947,6138,,0
+Bboufsm2,,"BOUSVAL Ferme Saint-Martin",,  50.614791,   4.503979,6138,,0
+Bbougar1,,"BOUSVAL Gare",,  50.616851,   4.511147,6138,,0
+Bbougar2,,"BOUSVAL Gare",,  50.616823,   4.511336,6138,,0
+Bbougbl1,,"BOUSVAL Gare Basse Laloux",,  50.622107,   4.525624,6138,,0
+Bbougbl2,,"BOUSVAL Gare Basse Laloux",,  50.622049,   4.525712,6138,,0
+Bbounci1,,"NOIRHAT Cité",,  50.626962,   4.530072,6138,,0
+Bbounci2,,"NOIRHAT Cité",,  50.627763,   4.531129,6138,,0
+Bboupde1,,"BOUSVAL Papeteries Debroux",,  50.631616,   4.535608,6138,,0
+Bboupde2,,"BOUSVAL Papeteries Debroux",,  50.631225,   4.535575,6138,,0
+Bbourel1,,"BOUSVAL Au Relais",,  50.614579,   4.491771,6138,,0
+Bbourel2,,"BOUSVAL Au Relais",,  50.614498,   4.491776,6138,,0
+Bboutry1,,"BOUSVAL Chemin de Thy",,  50.614438,   4.486405,6138,,0
+Bboutry2,,"BOUSVAL Chemin de Thy",,  50.614371,   4.486969,6138,,0
+Bbrlmez1,,"BEERSEL Mezenhof",,  50.768292,   4.328376,6261,,0
+Bbrlmez2,,"BEERSEL Mezenhof",,  50.768318,   4.328238,6261,,0
+Bbrlpar1,,"BEERSEL Schaveys",,  50.761881,   4.330268,6261,,0
+Bbrlpar2,,"BEERSEL Schaveys",,  50.761871,   4.330140,6261,,0
+Bbrlrph1,,"BEERSEL Rode Poorthoeve",,  50.758404,   4.331341,6261,,0
+Bbrlrph2,,"BEERSEL Rode Poorthoeve",,  50.758483,   4.331188,6261,,0
+Bbrlvil1,,"BEERSEL Linkebeekstraat",,  50.764914,   4.329354,6261,,0
+Bbrlvil2,,"BEERSEL Linkebeekstraat",,  50.764587,   4.329320,6261,,0
+Bbrycar1,,"BRYE Carrefour",,  50.521708,   4.562136,7162,,0
+Bbrycar2,,"BRYE Carrefour",,  50.521866,   4.562120,7162,,0
+Bbryvil1,,"BRYE Village",,  50.523549,   4.558596,7162,,0
+Bbryvil2,,"BRYE Village",,  50.523626,   4.558720,7162,,0
+Bbsgbos1,,"BOSSUT-GOTTECHAIN Bossut (Ch. de Wavre)",,  50.757908,   4.700771,6456,,0
+Bbsgbos2,,"BOSSUT-GOTTECHAIN Bossut (Rue Collette)",,  50.757809,   4.700501,6456,,0
+Bbsgbos3,,"BOSSUT-GOTTECHAIN Bossut (Ch. de Wavre)",,  50.757541,   4.700679,6456,,0
+Bbsgfva1,,"BOSSUT-GOTTECHAIN Ferme Vandenberg",,  50.753755,   4.696621,6456,,0
+Bbsgfva2,,"BOSSUT-GOTTECHAIN Ferme Vandenberg",,  50.753778,   4.696744,6456,,0
+Bbsggot1,,"BOSSUT-GOTTECHAIN Gottechain",,  50.761743,   4.703680,6456,,0
+Bbsggot2,,"BOSSUT-GOTTECHAIN Gottechain",,  50.761729,   4.703934,6456,,0
+Bbsgrve1,,"BOSSUT-GOTTECHAIN rue Verbanis",,  50.759703,   4.695378,6456,,0
+Bbsgrve2,,"BOSSUT-GOTTECHAIN rue Verbanis",,  50.759919,   4.695696,6456,,0
+Bbsiabb1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Abbaye",,  50.644940,   4.324006,6112,,0
+Bbsiabb2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Abbaye",,  50.645280,   4.324701,6112,,0
+Bbsibou1,,"OPHAIN Bouvrée",,  50.668761,   4.351913,6112,,0
+Bbsibou2,,"OPHAIN Bouvrée",,  50.668489,   4.351728,6112,,0
+Bbsicas1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Rue du Castor",,  50.652119,   4.331580,6112,,0
+Bbsicas2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Rue du Castor",,  50.652385,   4.332082,6112,,0
+Bbsicea1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Château d'eau",,  50.673706,   4.342023,6112,,0
+Bbsicea2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Château d'eau",,  50.673664,   4.341588,6112,,0
+Bbsicen1,,"BOIS-SEIGNEUR-ISAAC Centre",,  50.642893,   4.317721,6112,,0
+Bbsicen2,,"BOIS-SEIGNEUR-ISAAC Centre",,  50.642967,   4.317649,6112,,0
+Bbsicul1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Les Culots",,  50.656183,   4.336545,6112,,0
+Bbsicul2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Les Culots",,  50.656256,   4.336846,6112,,0
+Bbsifml1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Ferme du Moulin",,  50.634855,   4.324181,6112,,0
+Bbsifml2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Ferme du Moulin",,  50.632992,   4.324345,6112,,0
+Bbsigaz1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Les Gazons",,  50.661745,   4.343530,6112,,0
+Bbsigaz2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Les Gazons",,  50.661631,   4.343604,6112,,0
+Bbsihau1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Hautmont",,  50.671347,   4.335942,6112,,0
+Bbsihau2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Hautmont",,  50.671340,   4.335722,6112,,0
+Bbsimpl1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Maison Plasman",,  50.639786,   4.321025,6112,,0
+Bbsimpl2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Maison Plasman",,  50.640025,   4.321065,6112,,0
+Bbsipos1,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Poste",,  50.645044,   4.316958,6112,,0
+Bbsipos2,,"OPHAIN - BOIS-SEIGNEUR-ISAAC Poste",,  50.645080,   4.317152,6112,,0
+Bbsivi11,,"OPHAIN Village n°1",,  50.674462,   4.345191,6112,,0
+Bbsivil1,,"OPHAIN Village (Rue Combattants)",,  50.665383,   4.347282,6112,,0
+Bbsivil2,,"OPHAIN Village (Rue Combattants)",,  50.665525,   4.347555,6112,,0
+Bbsivil3,,"OPHAIN Village (Rue de Lillois)",,  50.665950,   4.348135,6112,,0
+Bbst4br1,,"BAISY-THY Quatre Bras (Ch. de Namur)",,  50.570959,   4.454344,6143,,0
+Bbst4br2,,"BAISY-THY Quatre Bras (Ch. de Namur)",,  50.571011,   4.454405,6143,,0
+Bbst4br3,,"BAISY-THY Quatre Bras (Rue de Houtain)",,  50.571827,   4.452387,6143,,0
+Bbst4br4,,"BAISY-THY Quatre Bras (Rue de Houtain)",,  50.571623,   4.452576,6143,,0
+Bbstasa1,,"BAISY-THY Arbre Sainte-Anne",,  50.590464,   4.460130,6137,,0
+Bbstasa2,,"BAISY-THY Arbre Sainte-Anne",,  50.590566,   4.460055,6137,,0
+Bbstbou1,,"BAISY-THY Chemin de Bousval",,  50.604614,   4.513155,6264,,0
+Bbstbou2,,"BAISY-THY Chemin de Bousval",,  50.604718,   4.513100,6264,,0
+Bbstbpi1,,"BAISY-THY Baty du Pirou",,  50.597853,   4.472906,6137,,0
+Bbstbpi2,,"BAISY-THY Baty du Pirou",,  50.597940,   4.472878,6137,,0
+Bbstbxl1,,"BAISY-THY Route de Bruxelles",,  50.604547,   4.457307,6137,,0
+Bbstbxl2,,"BAISY-THY Route de Bruxelles",,  50.604689,   4.457277,6137,,0
+Bbstcha1,,"BAISY-THY Chemin Sainte-Anne",,  50.589976,   4.455729,6264,,0
+Bbstcha2,,"BAISY-THY Chemin Sainte-Anne",,  50.590484,   4.456033,6264,,0
+Bbstchn1,,"BAISY-THY Cheniat",,  50.596650,   4.484433,6137,,0
+Bbstchn2,,"BAISY-THY Cheniat",,  50.596637,   4.484021,6137,,0
+Bbstcoi1,,"BAISY-THY Chant des Oiseaux",,  50.600643,   4.500293,6264,,0
+Bbstcoi2,,"BAISY-THY Chant des Oiseaux",,  50.600648,   4.499941,6264,,0
+Bbstcro1,,"BAISY-THY Rue Croisette",,  50.593504,   4.481733,6137,,0
+Bbstcro2,,"BAISY-THY Rue Croisette",,  50.593652,   4.481707,6137,,0
+Bbstdpa1,,"BAISY-THY Dernier Patard",,  50.586989,   4.455274,6264,,0
+Bbstdpa2,,"BAISY-THY Dernier Patard",,  50.586502,   4.455373,6264,,0
+Bbstegl1,,"BAISY-THY Eglise",,  50.593118,   4.465501,6137,,0
+Bbstegl2,,"BAISY-THY Eglise",,  50.593218,   4.465436,6137,,0
+Bbstfch1,,"BAISY-THY Fond Chabau",,  50.603531,   4.508179,6264,,0
+Bbstfch2,,"BAISY-THY Fond Chabau",,  50.603623,   4.508092,6264,,0
+Bbsthpl1,,"BAISY-THY Hattain Place",,  50.598520,   4.490982,6264,,0
+Bbsthpl2,,"BAISY-THY Hattain Place",,  50.598597,   4.490822,6264,,0
+Bbstlab1,,"BAISY-THY Labigniat",,  50.595481,   4.479666,6137,,0
+Bbstlab2,,"BAISY-THY Labigniat",,  50.595580,   4.479507,6137,,0
+Bbstlon1,,"BAISY-THY Longchamps",,  50.600930,   4.464210,6137,,0
+Bbstlon2,,"BAISY-THY Longchamps",,  50.600983,   4.464308,6137,,0
+Bbstmco1,,"BAISY-THY Maison Communale",,  50.595816,   4.472781,6137,,0
+Bbstmco2,,"BAISY-THY Maison Communale",,  50.596177,   4.473192,6137,,0
+Bbstpan1,,"BAISY-THY Le Panier",,  50.597139,   4.457554,6137,,0
+Bbstpan2,,"BAISY-THY Le Panier",,  50.597135,   4.457934,6137,,0
+Bbstpon1,,"BAISY-THY Chemin du Pontail",,  50.575118,   4.453616,6143,,0
+Bbstpon2,,"BAISY-THY Chemin du Pontail",,  50.575127,   4.453938,6143,,0
+Bbstrpo1,,"BAISY-THY Rond Point",,  50.596747,   4.474565,6137,,0
+Bbstrpo2,,"BAISY-THY Rond Point",,  50.596831,   4.474541,6137,,0
+Bbstryh1,,"BAISY-THY Ry d'Hez",,  50.591183,   4.496532,6137,,0
+Bbstryh2,,"BAISY-THY Ry d'Hez",,  50.591349,   4.496540,6137,,0
+Bbststa1,,"BAISY-THY Stock Américain",,  50.582713,   4.454690,6264,,0
+Bbststa2,,"BAISY-THY Stock Américain",,  50.583062,   4.454886,6264,,0
+Bbststr1,,"BAISY-THY Rue Saint-Roch",,  50.592187,   4.489304,6137,,0
+Bbststr2,,"BAISY-THY Rue Saint-Roch",,  50.592225,   4.489631,6137,,0
+Bbsttab1,,"BAISY-THY Tabaral",,  50.597519,   4.487533,6264,,0
+Bbsttab2,,"BAISY-THY Tabaral",,  50.597617,   4.487459,6264,,0
+Bbuzcom1,,"BUZET Commune",,  50.556789,   4.365711,7161,,0
+Bbuzcom2,,"BUZET Commune",,  50.556949,   4.365736,7161,,0
+Bbuzeta1,,"BUZET Etang",,  50.553795,   4.368206,7161,,0
+Bbuzeta2,,"BUZET Etang",,  50.553864,   4.368371,7161,,0
+Bbuztai1,,"BUZET Taille Voie",,  50.561582,   4.358857,7161,,0
+Bbuztai2,,"BUZET Taille Voie",,  50.561790,   4.358756,7161,,0
+Bbwacol1,,"BASSE-WAVRE Collège",,  50.722732,   4.623359,6250,,0
+Bbwacol2,,"BASSE-WAVRE Collège",,  50.722994,   4.623055,6250,,0
+Bbxlfro1,,"BRUXELLES Froissart",,  50.840218,   4.382658,6220,,0
+Bbxlmid1,,"BRUXELLES Midi",,  50.836373,   4.338615,6220,,0
+Bbxlmid4,,"BRUXELLES Midi",,  50.836543,   4.338660,6220,,0
+Bbxlner1,,"BRUXELLES Nerviens",,  50.838888,   4.385889,6220,,0
+Bbxlner2,,"BRUXELLES Nerviens",,  50.838875,   4.385688,6220,,0
+Bbxlple2,,"BRUXELLES Parc Léopold",,  50.840069,   4.379893,6220,,0
+Bbxltou1,,"BRUXELLES Toulouse",,  50.842788,   4.377642,6220,,0
+Bbxltrv1,,"BRUXELLES Rue de Trêves",,  50.842153,   4.374759,6220,,0
+Bbxltrv2,,"BRUXELLES Rue de Trêves",,  50.840832,   4.374249,6220,,0
+Bcbqa361,,"CLABECQ Avenue des Alouettes 36",,  50.688945,   4.236712,6121,,0
+Bcbqa362,,"CLABECQ Avenue des Alouettes 36",,  50.689011,   4.236625,6121,,0
+Bcbqcha1,,"CLABECQ Chapelle",,  50.690576,   4.233814,6121,,0
+Bcbqcha2,,"CLABECQ Chapelle",,  50.690399,   4.234160,6121,,0
+Bcbqcht1,,"CLABECQ Rue du Château",,  50.685142,   4.224210,6121,,0
+Bcbqcht2,,"CLABECQ Rue du Château",,  50.685220,   4.224176,6121,,0
+Bcbqcim1,,"CLABECQ Cimetière",,  50.690829,   4.226756,6121,,0
+Bcbqcim2,,"CLABECQ Cimetière",,  50.690738,   4.227167,6121,,0
+Bcbqcoi1,,"CLABECQ Avenue Champ des Oiseaux",,  50.688068,   4.232530,6121,,0
+Bcbqcoi2,,"CLABECQ Avenue Champ des Oiseaux",,  50.688078,   4.232402,6121,,0
+Bcbqegl1,,"CLABECQ Eglise",,  50.689778,   4.221646,6121,,0
+Bcbqegl2,,"CLABECQ Eglise",,  50.689463,   4.221392,6121,,0
+Bcbqgar1,,"CLABECQ Gare",,  50.689165,   4.215336,6121,,0
+Bcbqgar2,,"CLABECQ Gare",,  50.689385,   4.214461,6121,,0
+Bcbqh451,,"CLABECQ Hameau 45",,  50.683521,   4.225711,6121,,0
+Bcbqh452,,"CLABECQ Hameau 45",,  50.683419,   4.226021,6121,,0
+Bcbqhai1,,"CLABECQ Rue du Hain",,  50.681084,   4.228576,6121,,0
+Bcbqhai2,,"CLABECQ Rue du Hain",,  50.681642,   4.228435,6121,,0
+Bcbqp251,,"CLABECQ Rue du Parc 25",,  50.685970,   4.228163,6121,,0
+Bcbqp252,,"CLABECQ Rue du Parc 25",,  50.686111,   4.228243,6121,,0
+Bcbqpon1,,"CLABECQ Pont",,  50.687988,   4.221167,6121,,0
+Bcbqpon2,,"CLABECQ Pont",,  50.687613,   4.221171,6121,,0
+Bcbqrog1,,"CLABECQ Rogissart",,  50.680226,   4.232654,6131,,0
+Bcbqrog2,,"CLABECQ Rogissart",,  50.680062,   4.232881,6131,,0
+Bcbqtub1,,"CLABECQ Rue de Tubize 157",,  50.678661,   4.240262,6131,,0
+Bcbqtub2,,"CLABECQ Rue de Tubize 157",,  50.678739,   4.239612,6131,,0
+Bcer4br1,,"CEROUX Quatre Bras (Ch. de Bruxelles)",,  50.662392,   4.527481,6241,,0
+Bcer4br2,,"CEROUX Quatre Bras (Ch. de Bruxelles)",,  50.660712,   4.527382,6241,,0
+Bcer4br3,,"CEROUX Quatre Bras (Grand'Rue)",,  50.661391,   4.528220,6241,,0
+Bcer4br5,,"CEROUX Quatre Bras (Grand'Rue)",,  50.661477,   4.528215,6241,,0
+Bcercsa1,,"CEROUX Chapelle aux Sabots",,  50.650140,   4.544710,6241,,0
+Bcercsa2,,"CEROUX Chapelle aux Sabots",,  50.650351,   4.546545,6241,,0
+Bcerldo1,,"LIMAUGE Domaine",,  50.652250,   4.536979,6241,,0
+Bcerldo2,,"LIMAUGE Domaine",,  50.651394,   4.537554,6241,,0
+Bchacen1,,"CHASTRE Centre",,  50.609273,   4.638457,6269,,0
+Bchacen2,,"CHASTRE Centre",,  50.609196,   4.638576,6269,,0
+Bchadpt1,,"CHASTRE Dépôt",,  50.607721,   4.649604,6269,,0
+Bchadpt4,,"CHASTRE Dépôt",,  50.607276,   4.649307,6269,,0
+Bchamco1,,"CHASTRE Maison Communale",,  50.610307,   4.643952,6269,,0
+Bchamco2,,"CHASTRE Maison Communale",,  50.610078,   4.644373,6269,,0
+Bchapir1,,"CHASTRE Rue du Piroy",,  50.606005,   4.632714,6269,,0
+Bchapir2,,"CHASTRE Rue du Piroy",,  50.606241,   4.633366,6269,,0
+Bcharce1,,"CHASTRE Rue du Centre",,  50.605024,   4.628931,6269,,0
+Bcharce2,,"CHASTRE Rue du Centre",,  50.605176,   4.630122,6269,,0
+Bchgbel1,,"CHAUMONT-GISTOUX Belvédère",,  50.678440,   4.706168,6352,,0
+Bchgbel2,,"CHAUMONT-GISTOUX Belvédère",,  50.678430,   4.704992,6352,,0
+Bchgbru1,,"CHAUMONT-GISTOUX La Brûle",,  50.674404,   4.717099,6353,,0
+Bchgbru2,,"CHAUMONT-GISTOUX La Brûle",,  50.674509,   4.716406,6353,,0
+Bchgcha1,,"CHAUMONT-GISTOUX Champtaine",,  50.669866,   4.729350,6353,,0
+Bchgcha2,,"CHAUMONT-GISTOUX Champtaine",,  50.669788,   4.729194,6353,,0
+Bchgegl1,,"CHAUMONT-GISTOUX Eglise",,  50.684980,   4.693924,6352,,0
+Bchgegl2,,"CHAUMONT-GISTOUX Eglise",,  50.684925,   4.693746,6352,,0
+Bchgflo3,,"CHAUMONT-GISTOUX Rue Florémond",,  50.676858,   4.733821,6353,,0
+Bchgflo4,,"CHAUMONT-GISTOUX Rue Florémond",,  50.676820,   4.733895,6353,,0
+Bchgpap1,,"CHAUMONT-GISTOUX Rue des Papeteries",,  50.681514,   4.697131,6352,,0
+Bchgpap2,,"CHAUMONT-GISTOUX Rue des Papeteries",,  50.681322,   4.697100,6352,,0
+Bchgqve1,,"CHAUMONT-GISTOUX Queue de Veau (Ch. de Huy)",,  50.672643,   4.724022,6353,,0
+Bchgqve2,,"CHAUMONT-GISTOUX Queue de Veau (Ch. de Huy)",,  50.672394,   4.724960,6353,,0
+Bchgqve3,,"CHAUMONT-GISTOUX Queue de Veau (Rue Croisette)",,  50.672457,   4.725629,6353,,0
+Bchgqve4,,"CHAUMONT-GISTOUX Queue de Veau (Rue Croisette)",,  50.672399,   4.725718,6353,,0
+Bchgrco1,,"CHAUMONT-GISTOUX  Rue de Corroy",,  50.682452,   4.693915,6352,,0
+Bchgrco2,,"CHAUMONT-GISTOUX  Rue de Corroy",,  50.682838,   4.694406,6352,,0
+Bchgvil1,,"CHAUMONT-GISTOUX Village",,  50.687342,   4.690641,6352,,0
+Bchgvil2,,"CHAUMONT-GISTOUX Village",,  50.687287,   4.690451,6352,,0
+Bclgapi1,,"DION-LE-MONT Avenue del Pirère",,  50.690266,   4.643913,6270,,0
+Bclgapi2,,"DION-LE-MONT Avenue del Pirère",,  50.690278,   4.644105,6270,,0
+Bclgavi1,,"CORROY-LE-GRAND Almez Vicinal",,  50.664841,   4.666688,6271,,0
+Bclgavi2,,"CORROY-LE-GRAND Almez Vicinal",,  50.664944,   4.666637,6271,,0
+Bclgbvi1,,"DION-LE-MONT Avenue de la Seigneurie",,  50.686533,   4.642607,6270,,0
+Bclgbvi2,,"DION-LE-MONT Avenue de la Seigneurie",,  50.686682,   4.643314,6270,,0
+Bclgeco1,,"CORROY-LE-GRAND Ecole",,  50.662637,   4.675051,6271,,0
+Bclgeco2,,"CORROY-LE-GRAND Ecole",,  50.662190,   4.674844,6271,,0
+Bclgegl1,,"CORROY-LE-GRAND Eglise",,  50.660996,   4.674046,6271,,0
+Bclgegl2,,"CORROY-LE-GRAND Eglise",,  50.660861,   4.674096,6271,,0
+Bclgfva1,,"CORROY-LE-GRAND Ferme Vanderschrik",,  50.665417,   4.670143,6271,,0
+Bclgfva2,,"CORROY-LE-GRAND Ferme Vanderschrik",,  50.665373,   4.670477,6271,,0
+Bclglbu1,,"CORROY-LE-GRAND Laid Burniaux",,  50.667858,   4.652092,6270,,0
+Bclglbu2,,"CORROY-LE-GRAND Laid Burniaux",,  50.667962,   4.652145,6270,,0
+Bclgmev1,,"VIEUSART  Rue de Mèves",,  50.677584,   4.640495,6270,,0
+Bclgmev2,,"VIEUSART Rue de Mèves",,  50.677688,   4.640445,6270,,0
+Bclgpch1,,"VIEUSART Petit Champ",,  50.673898,   4.633672,6270,,0
+Bclgpch2,,"VIEUSART Petit Champ",,  50.673901,   4.633492,6270,,0
+Bclgpla1,,"VIEUSART Place",,  50.679575,   4.647327,6270,,0
+Bclgpla2,,"VIEUSART Place",,  50.679890,   4.647034,6270,,0
+Bclgvmo1,,"CORROY-LE-GRAND Vieux Moulin",,  50.653129,   4.665723,6271,,0
+Bclgvmo2,,"CORROY-LE-GRAND Vieux Moulin",,  50.652918,   4.665599,6271,,0
+Bclgvse1,,"VIEUSART Eglise",,  50.674338,   4.648365,6270,,0
+Bclgvse2,,"VIEUSART Eglise",,  50.674643,   4.648336,6270,,0
+Bcrbast1,,"CORBAIS Ancienne Station",,  50.649430,   4.659989,6271,,0
+Bcrbast2,,"CORBAIS Ancienne Station",,  50.649328,   4.660050,6271,,0
+Bcrbbou1,,"CORBAIS Bousman",,  50.646114,   4.650164,6271,,0
+Bcrbbou2,,"CORBAIS Bousman",,  50.646153,   4.650484,6271,,0
+Bcrbcel1,,"CORBAIS Cabine Electrique",,  50.647642,   4.654117,6271,,0
+Bcrbcel2,,"CORBAIS Cabine Electrique",,  50.647539,   4.654170,6271,,0
+Bcrbgro1,,"CORBAIS Grand Route",,  50.639142,   4.649117,6271,,0
+Bcrbgro2,,"CORBAIS Grand Route",,  50.639198,   4.649326,6271,,0
+Bcrbhir1,,"CORBAIS Rue des Hirondelles",,  50.646088,   4.654977,6271,,0
+Bcrbmsg1,,"CORBAIS Route de Mont-Saint-Guibert (Rue Haute)",,  50.644829,   4.646276,6271,,0
+Bcrbmsg2,,"CORBAIS Route de Mont-Saint-Guibert (Rue Haute)",,  50.644996,   4.647201,6271,,0
+Bcrbmsg3,,"CORBAIS Route de Mont-Saint-Guibert (Grand'Route)",,  50.644023,   4.645951,6271,,0
+Bcrbmsg4,,"CORBAIS Route de Mont-Saint-Guibert (Grand'Route)",,  50.643763,   4.646384,6271,,0
+Bcrbros1,,"CORBAIS Rue de la Rose",,  50.643471,   4.651459,6271,,0
+Bcrbrpb1,,"CORBAIS Chemin de Petit Baty",,  50.643868,   4.644453,6271,,0
+Bcrbrpb2,,"CORBAIS Chemin de Petit Baty",,  50.643728,   4.644449,6271,,0
+Bcrbtho1,,"CORBAIS Rue Thomas",,  50.641562,   4.647613,6271,,0
+Bcrbtho2,,"CORBAIS Rue Thomas",,  50.641720,   4.647757,6271,,0
+Bcrncce1,,"CORSAL Centre",,  50.569482,   4.625967,6268,,0
+Bcrncce2,,"CORSAL Centre",,  50.569423,   4.625832,6268,,0
+Bcrncen1,,"CORTIL Rue du Centre",,  50.582655,   4.639205,6268,,0
+Bcrncen2,,"CORTIL Rue du Centre",,  50.582636,   4.639039,6268,,0
+Bcrncjo1,,"CORTIL Champ de la Joncquière",,  50.569610,   4.656608,6268,,0
+Bcrncjo2,,"CORTIL Champ de la Joncquière",,  50.569508,   4.656552,6268,,0
+Bcrncor1,,"CORTIL-NOIRMONT Rue de Corsal",,  50.572925,   4.630962,6268,,0
+Bcrncor2,,"CORTIL-NOIRMONT Rue de Corsal",,  50.572840,   4.631066,6268,,0
+Bcrnegl1,,"CORTIL Eglise",,  50.587359,   4.640215,6268,,0
+Bcrnegl2,,"CORTIL Eglise",,  50.587327,   4.640048,6268,,0
+Bcrngat1,,"CORTIL-NOIRMONT Rue de la Gatte",,  50.575873,   4.636693,6268,,0
+Bcrngat2,,"CORTIL-NOIRMONT Rue de la Gatte",,  50.575790,   4.636800,6268,,0
+Bcrnnca1,,"NOIRMONT Cantonnier",,  50.602013,   4.646501,6269,,0
+Bcrnnca2,,"NOIRMONT Cantonnier",,  50.602257,   4.646494,6269,,0
+Bcrnncb1,,"NOIRMONT Ch. Brasserie",,  50.593790,   4.641542,6268,,0
+Bcrnncb2,,"NOIRMONT Ch. Brasserie",,  50.593791,   4.641372,6268,,0
+Bcrnnpl1,,"NOIRMONT Place",,  50.590448,   4.641561,6268,,0
+Bcrnnpl2,,"NOIRMONT Place",,  50.590290,   4.641397,6268,,0
+Bcrnnra1,,"NOIRMONT Rue Rauwez",,  50.597067,   4.642918,6268,,0
+Bcrnnra2,,"NOIRMONT Rue Rauwez",,  50.596562,   4.642822,6268,,0
+Bcrnpla1,,"CORTIL Place (Rue Lotin)",,  50.580008,   4.642933,6268,,0
+Bcrnpla2,,"CORTIL Place (Rue Lotin)",,  50.579933,   4.642809,6268,,0
+Bcrnpla3,,"CORTIL Place (Rue de Corsal)",,  50.579604,   4.642651,6268,,0
+Bcrnpla4,,"CORTIL Place (Rue de Corsal)",,  50.579527,   4.642771,6268,,0
+Bcrnrpc1,,"CORTIL Rond Point Colonie",,  50.574650,   4.648339,6268,,0
+Bcrnrpc2,,"CORTIL Rond Point Colonie",,  50.574549,   4.648285,6268,,0
+Bcrntru1,,"CORTIL Try des Rudes",,  50.571977,   4.651482,6268,,0
+Bcrntru2,,"CORTIL Try des Rudes",,  50.571892,   4.651377,6268,,0
+Bcrnvic1,,"CORTIL Rue aux Vichaux",,  50.577406,   4.645817,6268,,0
+Bcrnvic2,,"CORTIL Rue aux Vichaux",,  50.577228,   4.645859,6268,,0
+Bcseaba1,,"COURT-SAINT-ETIENNE Abattoir",,  50.643290,   4.578307,6139,,0
+Bcseaba2,,"COURT-SAINT-ETIENNE Abattoir",,  50.643184,   4.578333,6139,,0
+Bcsebde1,,"COURT-SAINT-ETIENNE Brasserie Demolder",,  50.644990,   4.560768,6139,,0
+Bcsebde2,,"COURT-SAINT-ETIENNE Brasserie Demolder",,  50.644984,   4.561011,6139,,0
+Bcsebea1,,"COURT-SAINT-ETIENNE Beaurieux",,  50.642595,   4.593980,6139,,0
+Bcsebea2,,"COURT-SAINT-ETIENNE Beaurieux",,  50.642392,   4.593552,6139,,0
+Bcsebea3,,"COURT-SAINT-ETIENNE Beaurieux",,  50.641150,   4.589671,6139,,0
+Bcsebea4,,"COURT-SAINT-ETIENNE Beaurieux",,  50.641154,   4.587446,6139,,0
+Bcsecar1,,"COURT-SAINT-ETIENNE Carrefour",,  50.652879,   4.562002,6140,,0
+Bcsecar2,,"COURT-SAINT-ETIENNE Carrefour",,  50.652778,   4.562573,6140,,0
+Bcseche1,,"COURT-SAINT-ETIENNE Rue du Chenoy",,  50.641618,   4.571922,6139,,0
+Bcseche2,,"COURT-SAINT-ETIENNE Rue du Chenoy",,  50.641619,   4.571780,6139,,0
+Bcseeco1,,"COURT-SAINT-ETIENNE Ecole Provinciale",,  50.649334,   4.563321,6140,,0
+Bcseeco2,,"COURT-SAINT-ETIENNE Ecole Provinciale",,  50.649442,   4.563571,6140,,0
+Bcseeco3,,"COURT-SAINT-ETIENNE Ecole Provinciale (Parc)",,  50.649501,   4.563231,6140,,0
+Bcsegal1,,"COURT-ST-ETIENNE Clos Gala",,  50.637989,   4.543648,6139,,0
+Bcsegal2,,"COURT-ST-ETIENNE Clos Gala",,  50.638195,   4.544666,6139,,0
+Bcsegar1,,"COURT-SAINT-ETIENNE Gare",,  50.646146,   4.566146,6140,,0
+Bcsegar2,,"COURT-SAINT-ETIENNE Gare",,  50.646132,   4.565924,6140,,0
+Bcsemar1,,"COURT-SAINT-ETIENNE Maroquinerie",,  50.634425,   4.538327,6139,,0
+Bcsemar2,,"COURT-SAINT-ETIENNE Maroquinerie",,  50.635230,   4.539639,6139,,0
+Bcsemon1,,"COURT-SAINT-ETIENNE Monument",,  50.643444,   4.567735,6139,,0
+Bcsemon2,,"COURT-SAINT-ETIENNE Monument",,  50.643521,   4.567570,6139,,0
+Bcsempl1,,"MERIVAUX Place",,  50.640593,   4.549990,6139,,0
+Bcsempl2,,"MERIVAUX Place",,  50.640677,   4.550649,6139,,0
+Bcsen251,,"COURT-SAINT-ETIENNE N25",,  50.641224,   4.588419,6139,,0
+Bcsen252,,"COURT-SAINT-ETIENNE N25",,  50.641053,   4.588299,6139,,0
+Bcsepes1,,"COURT-SAINT-ETIENNE Rue Petite Escavée",,  50.652473,   4.555859,6140,,0
+Bcsepes2,,"COURT-SAINT-ETIENNE Rue Petite Escavée",,  50.652416,   4.556381,6140,,0
+Bcsgcou1,,"COUTURE-SAINT-GERMAIN Couture",,  50.675761,   4.473105,6247,,0
+Bcsgcou2,,"COUTURE-SAINT-GERMAIN Couture",,  50.675799,   4.472945,6247,,0
+Bdlmegl1,,"DION-LE-MONT Eglise",,  50.699164,   4.660665,6251,,0
+Bdlmegl2,,"DION-LE-MONT Eglise",,  50.699243,   4.661107,6251,,0
+Bdlmflo1,,"DION-LE-MONT Ferme de Louvrange",,  50.696822,   4.641589,6251,,0
+Bdlmflo2,,"DION-LE-MONT Ferme de Louvrange",,  50.696889,   4.641453,6251,,0
+Bdlmgla1,,"DION-LE-MONT Chemin des Glaneurs (Rue Louvranges)",,  50.694302,   4.639234,6270,,0
+Bdlmgla2,,"DION-LE-MONT Chemin des Glaneurs (Rue Louvranges)",,  50.694251,   4.639005,6270,,0
+Bdlmgla3,,"DION-LE-MONT Chemin des Glaneurs",,  50.693471,   4.639278,6270,,0
+Bdlmgla4,,"DION-LE-MONT Chemin des Glaneurs",,  50.693741,   4.639010,6270,,0
+Bdlvpco1,,"DION-LE-VAL Place Communale",,  50.716586,   4.661709,6251,,0
+Bdlvpco2,,"DION-LE-VAL Place Communale",,  50.716531,   4.661854,6251,,0
+Bdoncar1,,"DONGELBERG Carrières",,  50.696006,   4.817139,6460,,0
+Bdoncar2,,"DONGELBERG Carrières",,  50.695940,   4.817590,6460,,0
+Bdoncen1,,"DONGELBERG Centre",,  50.700694,   4.821021,6460,,0
+Bdoncen2,,"DONGELBERG Centre",,  50.700749,   4.821169,6460,,0
+Bdonlat1,,"DONGELBERG Route de Lathuy",,  50.703780,   4.820960,6460,,0
+Bdonlat2,,"DONGELBERG Route de Lathuy",,  50.703445,   4.820450,6460,,0
+Bdvm4ca1,,"DION-VALMONT Quatre Carrés (Ch. de Huy)",,  50.699687,   4.670588,6251,,0
+Bdvm4ca2,,"DION-VALMONT Quatre Carrés (Ch. de Huy)",,  50.699652,   4.670397,6251,,0
+Bdvmalo1,,"DION-VALMONT Avenue des Alouettes",,  50.698517,   4.649913,6251,,0
+Bdvmalo2,,"DION-VALMONT Avenue des Alouettes",,  50.698317,   4.649527,6251,,0
+Bdvmc031,,"DION-VALMONT Boulevard du Centenaire 3",,  50.712833,   4.658364,6251,,0
+Bdvmc032,,"DION-VALMONT Boulevard du Centenaire 3",,  50.712784,   4.658519,6251,,0
+Bdvmc431,,"DION-VALMONT Boulevard du Centenaire 43",,  50.709251,   4.656200,6251,,0
+Bdvmc432,,"DION-VALMONT Boulevard du Centenaire 43",,  50.709175,   4.656426,6251,,0
+Bdvmcbo1,,"DION-VALMONT Cité de Bonly",,  50.702241,   4.646293,6251,,0
+Bdvmcbo2,,"DION-VALMONT Cité de Bonly",,  50.702286,   4.646186,6251,,0
+Bdvmccu1,,"DION-VALMONT Café Cumps",,  50.704613,   4.650160,6251,,0
+Bdvmccu2,,"DION-VALMONT Café Cumps",,  50.704456,   4.650165,6251,,0
+Bdvmcsa1,,"DION-VALMONT Chapelle Saint-Antoine",,  50.698270,   4.656123,6251,,0
+Bdvmcsa2,,"DION-VALMONT Chapelle Saint-Antoine",,  50.698328,   4.655751,6251,,0
+Bdvminc1,,"DION-VALMONT Route d'Inchebroux",,  50.691590,   4.682293,6352,,0
+Bdvminc2,,"DION-VALMONT Route d'Inchebroux",,  50.691433,   4.682454,6352,,0
+Bdvmsar1,,"DION-VALMONT Sarthe",,  50.704240,   4.658983,6251,,0
+Bdvmsar2,,"DION-VALMONT Sarthe",,  50.704067,   4.658744,6251,,0
+Bdvmtve1,,"DION-VALMONT Tout Vent",,  50.695991,   4.673749,6251,,0
+Bdvmtve2,,"DION-VALMONT Tout Vent",,  50.695870,   4.673693,6251,,0
+Becebju1,,"ECAUSSINNES-D'ENGHIEN La Belle Julie",,  50.557195,   4.132734,3257,,0
+Becebju2,,"ECAUSSINNES-D'ENGHIEN La Belle Julie",,  50.557236,   4.132531,3257,,0
+Becegar1,,"ECAUSSINNES Gare",,  50.562162,   4.157341,3257,,0
+Becepco1,,"ECAUSSINNES-D'ENGHIEN Place Cousin",,  50.562372,   4.152765,3257,,0
+Becepco2,,"ECAUSSINNES-D'ENGHIEN Place Cousin",,  50.562610,   4.152111,3257,,0
+Becepon1,,"ECAUSSINNES-D'ENGHIEN Pont",,  50.560894,   4.157801,3257,,0
+Becepon2,,"ECAUSSINNES-D'ENGHIEN Pont",,  50.560967,   4.157887,3257,,0
+Becepri1,,"ECAUSSINNES-D'ENGHIEN Rue des Primevères",,  50.565042,   4.162291,3257,,0
+Becepri2,,"ECAUSSINNES-D'ENGHIEN Rue des Primevères",,  50.565235,   4.162420,3257,,0
+Becepro1,,"ECAUSSINNES-D'ENGHIEN Rue du Profondrieux",,  50.562739,   4.143978,3257,,0
+Becepro2,,"ECAUSSINNES-D'ENGHIEN Rue du Profondrieux",,  50.562948,   4.144597,3257,,0
+Beceres1,,"ECAUSSINNES-D'ENGHIEN Restaumont",,  50.560716,   4.137736,3257,,0
+Beceres2,,"ECAUSSINNES-D'ENGHIEN Restaumont",,  50.560570,   4.137342,3257,,0
+Beclaub1,,"ECAUSSINNES-LALAING Les Aubéries",,  50.569268,   4.183324,3257,,0
+Beclaub2,,"ECAUSSINNES-LALAING Les Aubéries",,  50.568716,   4.183167,3257,,0
+Beclbar1,,"ECAUSSINNES-LALAING Barouche",,  50.568590,   4.209328,6151,,0
+Beclbar2,,"ECAUSSINNES-LALAING Barouche",,  50.568436,   4.209430,6151,,0
+Beclbse1,,"ECAUSSINNES-LALAING Bd de la Sennette",,  50.565192,   4.170439,3257,,0
+Beclbse2,,"ECAUSSINNES-LALAING Bd de la Sennette",,  50.564981,   4.170207,3257,,0
+Beclesp1,,"ECAUSSINNES-LALAING L'Espinette",,  50.561948,   4.175486,3257,,0
+Beclesp2,,"ECAUSSINNES-LALAING L'Espinette",,  50.561761,   4.175358,3257,,0
+Beclfde1,,"ECAUSSINNES-LALAING Ferme Debrichy",,  50.568205,   4.222749,6151,,0
+Beclfde2,,"ECAUSSINNES-LALAING Ferme Debrichy",,  50.568069,   4.222010,6151,,0
+Beclpla1,,"ECAUSSINNES Place",,  50.569766,   4.174577,3257,,0
+Beclpla2,,"ECAUSSINNES Place",,  50.569197,   4.175556,3257,,0
+Beclpma1,,"ECAUSSINNES-LALAING Petit Maquis",,  50.560664,   4.167970,3257,,0
+Beclpma2,,"ECAUSSINNES-LALAING Petit Maquis",,  50.560934,   4.169953,3257,,0
+Beclron1,,"ECAUSSINNES-LALAING Chemin de Ronquières",,  50.574404,   4.192712,6151,,0
+Beclron2,,"ECAUSSINNES-LALAING Chemin de Ronquières",,  50.574437,   4.193015,6151,,0
+Becltri1,,"ECAUSSINNES-LALAING Triboureau",,  50.571604,   4.202635,6151,,0
+Becltri2,,"ECAUSSINNES-LALAING Triboureau",,  50.571380,   4.202910,6151,,0
+Benggar1,,"ENGHIEN Gare",,  50.697019,   4.046793,3118,,0
+Bengvma1,,"ENGHIEN Vieux Marché",,  50.694833,   4.043591,3118,,0
+Bengvma2,,"ENGHIEN Vieux Marché",,  50.694684,   4.045769,3118,,0
+Benimar1,,"ENINES Route de Marilles (Grand'Route)",,  50.699311,   4.927211,6421,,0
+Benimar2,,"ENINES Route de Marilles (Grand'Route)",,  50.699567,   4.927075,6421,,0
+Benimar4,,"ENINES Route de Marilles (Rue Gramme)",,  50.699376,   4.927953,6421,,0
+Berncim1,,"ERNAGE Cimetière (Ch. de Wavre)",,  50.597038,   4.675593,4583,,0
+Berncim2,,"ERNAGE Cimetière (Ch. de Wavre)",,  50.596565,   4.676217,4583,,0
+Berncim3,,"ERNAGE Cimetière (Rue Europe)",,  50.596264,   4.675587,4583,,0
+Berncim4,,"ERNAGE Cimetière (Rue Europe)",,  50.596063,   4.675278,4583,,0
+Berneco1,,"ERNAGE Ecoles Jules Lejeune",,  50.580499,   4.686054,4583,,0
+Berneco2,,"ERNAGE Ecoles Jules Lejeune",,  50.579949,   4.686641,4583,,0
+Bernegl3,,"ERNAGE Eglise",,  50.594291,   4.674455,4583,,0
+Bernegl4,,"ERNAGE Eglise",,  50.594427,   4.674634,4583,,0
+Berngrt1,,"ERNAGE Grand' Route",,  50.592355,   4.678516,4583,,0
+Berngrt2,,"ERNAGE Grand' Route",,  50.591907,   4.679197,4583,,0
+Bernpla1,,"ERNAGE Place",,  50.592685,   4.668532,4583,,0
+Bernpon1,,"ERNAGE Pont",,  50.587299,   4.671707,4583,,0
+Bernpon2,,"ERNAGE Pont",,  50.587266,   4.671868,4583,,0
+Bernrar1,,"ERNAGE Rue Auguste Romain",,  50.591530,   4.674477,4583,,0
+Bernrar2,,"ERNAGE Rue Auguste Romain",,  50.591508,   4.674601,4583,,0
+Bettars1,,"ETTERBEEK Arsenal",,  50.826498,   4.396704,6220,,0
+Bettars2,,"ETTERBEEK Arsenal",,  50.826439,   4.396616,6220,,0
+Bettbue1,,"ETTERBEEK Buedts",,  50.828473,   4.393468,6220,,0
+Bettbue2,,"ETTERBEEK Buedts",,  50.828214,   4.393652,6220,,0
+Bettcha1,,"ETTERBEEK Avenue de la Chasse (Ch. Wavre)",,  50.829936,   4.391030,6220,,0
+Bettcha2,,"ETTERBEEK Avenue de la Chasse (Av. Auderghem)",,  50.830866,   4.389898,6220,,0
+Bettcha3,,"ETTERBEEK Avenue de la Chasse (Av. Auderghem)",,  50.830906,   4.390086,6220,,0
+Bettgar1,,"ETTERBEEK Gare",,  50.821855,   4.388900,6322,,0
+Bettgle1,,"ETTERBEEK Général Leman",,  50.836643,   4.387050,6220,,0
+Bettgle2,,"ETTERBEEK Général Leman",,  50.836946,   4.386679,6220,,0
+Bettlha1,,"ETTERBEEK Louis Hap",,  50.834146,   4.388376,6220,,0
+Bettlha2,,"ETTERBEEK Louis Hap",,  50.834446,   4.388006,6220,,0
+Bezegar2,,"EZEMAAL Station",,  50.771830,   4.994131,6439,,0
+Bezeksj1,,"EZEMAAL Kapel Sint-Job (Ardevoorstraat)",,  50.766892,   4.995084,6439,,0
+Bezeksj2,,"EZEMAAL Kapel Sint-Job (Rue d'Ardevoor)",,  50.766691,   4.995310,6439,,0
+Bezeksj3,,"EZEMAAL Kapel Sint-Job (Rue de la Station)",,  50.766176,   4.993806,6439,,0
+Bezeksj4,,"EZEMAAL Kapel Sint-Job (Rue de la Station)",,  50.766248,   4.993641,6439,,0
+Bfelada1,,"FELUY Auberge du Dauphin",,  50.556496,   4.275170,6150,,0
+Bfelada2,,"FELUY Auberge du Dauphin",,  50.556881,   4.275694,6150,,0
+Bfelagb1,,"FELUY Av. Gaston Baudoux",,  50.565299,   4.267024,6150,,0
+Bfelbri1,,"FELUY La Bride (Rue Carrières)",,  50.561873,   4.271337,6150,,0
+Bfelbri2,,"FELUY La Bride (Rue Equipée)",,  50.561579,   4.271606,6150,,0
+Bfelbri3,,"FELUY La Bride (Rue Equipée)",,  50.561551,   4.270559,6150,,0
+Bfelcen1,,"FELUY Centenaire",,  50.564945,   4.251822,6150,,0
+Bfelcen2,,"FELUY Centenaire",,  50.565299,   4.252240,6150,,0
+Bfelequ1,,"FELUY Equipée",,  50.562511,   4.259444,6150,,0
+Bfelequ2,,"FELUY Equipée",,  50.562497,   4.259770,6150,,0
+Bfelfde1,,"FELUY Ferme Dehaye",,  50.565836,   4.235457,6150,,0
+Bfelfde2,,"FELUY Ferme Dehaye",,  50.565692,   4.235417,6150,,0
+Bfelgar2,,"FELUY Gare",,  50.564173,   4.270196,6150,,0
+Bfelgar3,,"FELUY Gare",,  50.564335,   4.269931,6150,,0
+Bfelpla1,,"FELUY Place",,  50.563412,   4.250888,6150,,0
+Bfelpla2,,"FELUY Place",,  50.562999,   4.250862,6150,,0
+Bfelpmo1,,"FELUY Petit Moulin",,  50.565879,   4.256645,6150,,0
+Bfelpmo2,,"FELUY Petit Moulin",,  50.565799,   4.256582,6150,,0
+Bfelrav1,,"FELUY La Ravisée",,  50.551042,   4.271057,6150,,0
+Bfelrav2,,"FELUY La Ravisée",,  50.550981,   4.271262,6150,,0
+Bflccav1,,"FOLX-LES-CAVES Les Caves",,  50.664448,   4.940702,6438,,0
+Bflccav2,,"FOLX-LES-CAVES Les Caves",,  50.664171,   4.940470,6438,,0
+Bflcneu1,,"FOLX-LES-CAVES Rue Neuve",,  50.659078,   4.932158,6438,,0
+Bflcneu2,,"FOLX-LES-CAVES Rue Neuve",,  50.659022,   4.931819,6438,,0
+Bflcpco1,,"FOLX-LES-CAVES Place Communale",,  50.660569,   4.936832,6438,,0
+Bflcpco2,,"FOLX-LES-CAVES Place Communale",,  50.660670,   4.936895,6438,,0
+Bflegar5,,"FLEURUS Gare",,  50.482200,   4.544221,7112,,0
+Bflegar6,,"FLEURUS Gare",,  50.482289,   4.544130,7112,,0
+Bgdhbvu1,,"GRAND-HALLET Belle Vue",,  50.694879,   5.053901,5251,,0
+Bgdhbvu2,,"GRAND-HALLET Belle Vue",,  50.695152,   5.053861,5251,,0
+Bgdhcsh1,,"GRAND-HALLET Café Saint-Honoré",,  50.697149,   5.039435,5251,,0
+Bgdhcsh2,,"GRAND-HALLET Café Saint-Honoré",,  50.697278,   5.039493,5251,,0
+Bgdhdet1,,"GRAND-HALLET Detiste",,  50.701154,   5.047829,5251,,0
+Bgdhdet2,,"GRAND-HALLET Detiste",,  50.700937,   5.047809,5251,,0
+Bgdhlai1,,"GRAND-HALLET Laiterie",,  50.694296,   5.039725,5251,,0
+Bgdhlai2,,"GRAND-HALLET Laiterie",,  50.694275,   5.039102,5251,,0
+Bgdhmet1,,"GRAND-HALLET Métalchimex",,  50.698531,   5.043104,5251,,0
+Bgdhmet2,,"GRAND-HALLET Métalchimex",,  50.698895,   5.043662,5251,,0
+Bgdhpco1,,"GRAND-HALLET Place Communale",,  50.693464,   5.033587,5251,,0
+Bgdhpco2,,"GRAND-HALLET Place Communale",,  50.693458,   5.033143,5251,,0
+Bgembsg1,,"GEMBLOUX Buisson Saint-Guibert",,  50.568726,   4.686276,4522,,0
+Bgembsg2,,"GEMBLOUX Buisson Saint-Guibert",,  50.568742,   4.686442,4522,,0
+Bgemcha1,,"GRAND-MANIL Chaussée de Charleroi (Rue Résistants)",,  50.560293,   4.678162,4522,,0
+Bgemcha2,,"GRAND-MANIL Chaussée de Charleroi (Rue Résistants)",,  50.559910,   4.679195,4522,,0
+Bgemcro1,,"GEMBLOUX La Croisée",,  50.573353,   4.698763,4522,,0
+Bgemcro2,,"GEMBLOUX La Croisée",,  50.572850,   4.698461,4522,,0
+Bgemfbo1,,"GEMBLOUX Rue F. Bovesse",,  50.572418,   4.684012,4522,,0
+Bgemfbo2,,"GEMBLOUX Rue F. Bovesse",,  50.572484,   4.684145,4522,,0
+Bgemga07,,"GEMBLOUX Gare - Quai 7",,  50.571017,   4.688973,4522,,0
+Bgemga08,,"GEMBLOUX Gare - Quai 8",,  50.570943,   4.689158,4522,,0
+Bgemga09,,"GEMBLOUX Gare - Quai 9",,  50.570851,   4.689380,4522,,0
+Bgemga10,,"GEMBLOUX Gare - Quai 10",,  50.570747,   4.689636,4522,,0
+Bgemga11,,"GEMBLOUX Gare - Quai 11",,  50.570646,   4.689886,4522,,0
+Bgemga12,,"GEMBLOUX Gare - Quai 12",,  50.570557,   4.690080,4522,,0
+Bgemgcw1,,"GEMBLOUX Gare (Ch. de Wavre)",,  50.569229,   4.693197,4522,,0
+Bgemgjo1,,"GEMBLOUX Garage Jouant",,  50.574060,   4.690956,4522,,0
+Bgemgjo2,,"GEMBLOUX Garage Jouant",,  50.575831,   4.689226,4522,,0
+Bgemibb1,,"GEMBLOUX IBB",,  50.577764,   4.704489,4522,,0
+Bgemibb2,,"GEMBLOUX IBB",,  50.577671,   4.704661,4522,,0
+Bgemkal1,,"GEMBLOUX Kalorik",,  50.579951,   4.707265,4522,,0
+Bgemkal2,,"GEMBLOUX Kalorik",,  50.579275,   4.706697,4522,,0
+Bgemman1,,"GEMBLOUX Manufacturing",,  50.575540,   4.701568,4522,,0
+Bgemman2,,"GEMBLOUX Manufacturing",,  50.575271,   4.701516,4522,,0
+Bgemrom3,,"GEMBLOUX Chaussée Romaine",,  50.575126,   4.680002,4522,,0
+Bgemrom4,,"GEMBLOUX Chaussée Romaine",,  50.575202,   4.680123,4522,,0
+Bgercen1,,"GEROMPONT Centre",,  50.647433,   4.877994,6333,,0
+Bgercen2,,"GEROMPONT Centre",,  50.647399,   4.877569,6333,,0
+Bgerd321,,"GEROMPONT Avenue des Déportés 32",,  50.642989,   4.866857,6333,,0
+Bgerd322,,"GEROMPONT Avenue des Déportés 32",,  50.642928,   4.866367,6333,,0
+Bgermco1,,"GEROMPONT Maison Communale",,  50.644188,   4.870628,6333,,0
+Bgermco2,,"GEROMPONT Maison Communale",,  50.644227,   4.870378,6333,,0
+Bgerprg1,,"PETIT-ROSIERE Gare",,  50.640374,   4.859756,6333,,0
+Bgerprg2,,"PETIT-ROSIERE Gare",,  50.640219,   4.858843,6333,,0
+Bgisber1,,"GISTOUX Sentier du Berger",,  50.675976,   4.685839,6352,,0
+Bgisber2,,"GISTOUX Sentier du Berger",,  50.676098,   4.686106,6352,,0
+Bgisman1,,"GISTOUX Manypré",,  50.671948,   4.683098,6352,,0
+Bgisman2,,"GISTOUX Manypré",,  50.671752,   4.683198,6352,,0
+Bglabra1,,"GLABAIS Brasserie (Rue Haute)",,  50.626257,   4.434420,6135,,0
+Bglache1,,"GLABAIS Chemin de l'Eglise",,  50.629167,   4.454158,6135,,0
+Bglacsr1,,"GLABAIS Chapelle Saint-Roch",,  50.629193,   4.456331,6135,,0
+Bglarha1,,"GLABAIS Rue Haute",,  50.628540,   4.442964,6135,,0
+Bgliaau1,,"GLIMES A l'Ancienne Auberge",,  50.678909,   4.818752,6460,,0
+Bgliaau2,,"GLIMES A l'Ancienne Auberge",,  50.678840,   4.818555,6460,,0
+Bglicsm1,,"GLIMES Carrefour Saint-Michel",,  50.672632,   4.825998,6460,,0
+Bglicsm2,,"GLIMES Carrefour Saint-Michel",,  50.672619,   4.826244,6460,,0
+Bgliegl1,,"GLIMES Eglise",,  50.678626,   4.835827,6459,,0
+Bgliegl2,,"GLIMES Eglise",,  50.678526,   4.835878,6459,,0
+Bgligli1,,"GLIMES Route de Glimes",,  50.682702,   4.834542,6459,,0
+Bgligli2,,"GLIMES Route de Glimes",,  50.682469,   4.834602,6459,,0
+Bgligra1,,"GLIMES La Grange",,  50.667125,   4.819292,6460,,0
+Bgligra2,,"GLIMES La Grange",,  50.667034,   4.819466,6460,,0
+Bgliopp1,,"GLIMES Route d'Opprebais (Ch. de Namur)",,  50.686492,   4.811814,6460,,0
+Bgliopp2,,"GLIMES Route d'Opprebais (Ch. de Namur)",,  50.686405,   4.811564,6460,,0
+Bgliopp3,,"GLIMES Route d'Opprebais (Rue Bruyère)",,  50.685269,   4.811683,6460,,0
+Bgliopp4,,"GLIMES Route d'Opprebais (Rue Bruyère)",,  50.685373,   4.812299,6460,,0
+Bglitro1,,"GLIMES Tombe Romaine",,  50.676335,   4.833360,6459,,0
+Bglitro2,,"GLIMES Tombe Romaine",,  50.676093,   4.833185,6459,,0
+Bgnpchb1,,"GENAPPE Chaussée de Bruxelles",,  50.616798,   4.444820,6137,,0
+Bgnpegl1,,"GENAPPE Eglise (Rue de Ways)",,  50.610751,   4.450829,6137,,0
+Bgnpegl2,,"GENAPPE Eglise (Rue de Ways)",,  50.610672,   4.450853,6137,,0
+Bgnpegl3,,"GENAPPE Eglise (Rue de Bruxelles)",,  50.611636,   4.451205,6137,,0
+Bgnpegl4,,"GENAPPE Eglise (Rue de Bruxelles)",,  50.611560,   4.450923,6137,,0
+Bgnpgar1,,"GENAPPE Gare",,  50.608209,   4.449317,6137,,0
+Bgnpgar2,,"GENAPPE Gare",,  50.608012,   4.450839,6137,,0
+Bgnpjbe1,,"GENAPPE Rue Joseph Berger",,  50.609236,   4.447023,6137,,0
+Bgnpjbe2,,"GENAPPE Rue Joseph Berger",,  50.608774,   4.445665,6137,,0
+Bgnppem1,,"GENAPPE Place de l'Empereur",,  50.613470,   4.450550,6137,,0
+Bgnppem2,,"GENAPPE Place de l'Empereur",,  50.614482,   4.450049,6137,,0
+Bgnppra1,,"GENAPPE La Praie",,  50.618593,   4.448920,6137,,0
+Bgnppsj1,,"GENAPPE Pavé Saint-Joseph",,  50.606692,   4.450605,6137,,0
+Bgnppsj2,,"GENAPPE Pavé Saint-Joseph",,  50.606679,   4.450415,6137,,0
+Bgntalt2,,"GENTINNES Altiau",,  50.573850,   4.604372,6267,,0
+Bgntcha1,,"GENTINNES Rue Charlemont (Rue Mellery)",,  50.581841,   4.604449,6267,,0
+Bgntcha2,,"GENTINNES Rue Charlemont (Rue Mellery)",,  50.581606,   4.604593,6267,,0
+Bgntcha3,,"GENTINNES Rue Charlemont (Rue Bouffioux)",,  50.581118,   4.604992,6267,,0
+Bgntcoo2,,"GENTINNES Coopérative",,  50.578217,   4.604115,6267,,0
+Bgnteco2,,"GENTINNES Ecoles",,  50.577745,   4.606898,6267,,0
+Bgntffo1,,"GENTINNES Ferme Foret",,  50.585123,   4.599310,6267,,0
+Bgntffo2,,"GENTINNES Ferme Foret",,  50.585031,   4.599222,6267,,0
+Bgntpla1,,"GENTINNES Place",,  50.582217,   4.601669,6267,,0
+Bgntpla2,,"GENTINNES Place",,  50.582203,   4.601148,6267,,0
+Bgntpos2,,"GENTINNES Poste (Rue Dauphin)",,  50.578826,   4.608264,6267,,0
+Bgntpos3,,"GENTINNES Poste (Rue Mellery)",,  50.579442,   4.607917,6267,,0
+Bgnvbsi1,,"GENVAL Avenue du Beau Site",,  50.726250,   4.506846,6246,,0
+Bgnvbsi2,,"GENVAL Avenue du Beau Site",,  50.725901,   4.507096,6246,,0
+Bgnvcha1,,"GENVAL Chapelle",,  50.723277,   4.491358,6246,,0
+Bgnvcha2,,"GENVAL Chapelle",,  50.723201,   4.491237,6246,,0
+Bgnvcom1,,"GENVAL Combattants",,  50.721490,   4.508455,6246,,0
+Bgnvcom2,,"GENVAL Petite Rue du Vallon",,  50.719678,   4.504033,6246,,0
+Bgnvdep1,,"GENVAL Déportés",,  50.717221,   4.498054,6246,,0
+Bgnvdep2,,"GENVAL Déportés",,  50.717159,   4.498137,6246,,0
+Bgnvfai1,,"GENVAL Avenue de la Faisanderie",,  50.728929,   4.498850,6246,,0
+Bgnvfai2,,"GENVAL Avenue de la Faisanderie",,  50.728811,   4.498654,6246,,0
+Bgnvga01,,"GENVAL Gare - Quai 1",,  50.725863,   4.514355,6246,,0
+Bgnvga02,,"GENVAL Gare - Quai 2",,  50.726122,   4.513968,6246,,0
+Bgnvga03,,"GENVAL Gare - Quai 3",,  50.726072,   4.513869,6246,,0
+Bgnvga04,,"GENVAL Gare - Quai 4",,  50.725834,   4.514219,6246,,0
+Bgnvgir1,,"GENVAL Gérondal",,  50.712968,   4.487079,6246,,0
+Bgnvgir2,,"GENVAL Gérondal",,  50.712975,   4.487352,6246,,0
+Bgnvoha1,,"GENVAL Route d'Ohain (Rue de la Bruyère)",,  50.717821,   4.492941,6246,,0
+Bgnvoha2,,"GENVAL Route d'Ohain (Rue de la Bruyère)",,  50.717856,   4.492781,6246,,0
+Bgnvoha3,,"GENVAL Route d'Ohain",,  50.716965,   4.492883,6246,,0
+Bgnvoha4,,"GENVAL Route d'Ohain",,  50.716928,   4.493021,6246,,0
+Bgnvoha6,,"GENVAL Route d'Ohain (Rue des Volontaires)",,  50.717521,   4.493736,6246,,0
+Bgnvpap1,,"GENVAL Papeterie",,  50.721456,   4.516435,6246,,0
+Bgnvpap2,,"GENVAL Papeterie",,  50.722324,   4.516034,6246,,0
+Bgnvpco3,,"GENVAL Place Communale",,  50.716408,   4.499649,6246,,0
+Bgnvpos1,,"GENVAL Poste",,  50.723396,   4.511899,6246,,0
+Bgnvpos2,,"GENVAL Poste",,  50.723231,   4.511342,6246,,0
+Bgnvqve1,,"GENVAL Quatre Vents",,  50.724090,   4.502106,6246,,0
+Bgnvtas1,,"GENVAL Rue de la Tasnière",,  50.726012,   4.504144,6246,,0
+Bgnvtil2,,"GENVAL Rue du Tilleul",,  50.721945,   4.500031,6246,,0
+Bgnvval1,,"GENVAL Vallon",,  50.720362,   4.502871,6246,,0
+Bgnvval2,,"GENVAL Vallon",,  50.720101,   4.502628,6246,,0
+Bgnvvol2,,"GENVAL Rue des Volontaires",,  50.719567,   4.496139,6246,,0
+Bgoegma1,,"GOETSENHOVEN Grote Markt",,  50.766846,   4.949658,6434,,0
+Bgoegma2,,"GOETSENHOVEN Grote Markt",,  50.766725,   4.949830,6434,,0
+Bgoekaz1,,"GOETSENHOVEN Kazernen",,  50.783071,   4.947683,6434,,0
+Bgoekaz2,,"GOETSENHOVEN Kazernen",,  50.783037,   4.947567,6434,,0
+Bgoemez1,,"GOETSENHOVEN Meer Ezemaalstraat",,  50.771818,   4.980960,6439,,0
+Bgoemgr1,,"GOETSENHOVEN Meer Grens",,  50.772268,   4.970123,6434,,0
+Bgoemgr2,,"GOETSENHOVEN Meer Grens",,  50.772122,   4.969514,6434,,0
+Bgoemho1,,"GOETSENHOVEN Meer Zoutleeuwstraat",,  50.772914,   4.978380,6434,,0
+Bgoemho2,,"GOETSENHOVEN Meer Zoutleeuwstraat",,  50.772914,   4.978107,6434,,0
+Bgoesch1,,"GOETSENHOVEN Scholen (Hannuitsesteenweg)",,  50.769556,   4.958909,6434,,0
+Bgoesch2,,"GOETSENHOVEN Scholen (Hannuitsesteenweg)",,  50.769501,   4.958731,6434,,0
+Bgoesch3,,"GOETSENHOVEN Scholen (St-Laurentiusstraat)",,  50.769201,   4.958700,6434,,0
+Bgoesch4,,"GOETSENHOVEN Scholen (St-Laurentiusstraat)",,  50.769303,   4.958642,6434,,0
+Bgoestu1,,"GOETSENHOVEN Stukkens",,  50.769301,   4.948515,6434,,0
+Bgoestu2,,"GOETSENHOVEN Stukkens",,  50.769319,   4.948346,6434,,0
+Bgoevli1,,"GOETSENHOVEN Vliegplein",,  50.778309,   4.951705,6434,,0
+Bgoevli2,,"GOETSENHOVEN Vliegplein",,  50.778254,   4.951526,6434,,0
+Bgoewat1,,"GOETSENHOVEN Watervergaarbak",,  50.772798,   4.956256,6434,,0
+Bgoewat2,,"GOETSENHOVEN Watervergaarbak",,  50.772584,   4.956206,6434,,0
+Bgrhcen1,,"GRAND-ROSIERE-HOTTOMONT Centre",,  50.632246,   4.866635,6333,,0
+Bgrhcen2,,"GRAND-ROSIERE-HOTTOMONT Centre",,  50.632246,   4.866307,6333,,0
+Bgrhche1,,"GRAND-ROSIERE-HOTTOMONT Le Chenois",,  50.629337,   4.851774,6333,,0
+Bgrhche2,,"GRAND-ROSIERE-HOTTOMONT Le Chenois",,  50.629354,   4.850901,6333,,0
+Bgrhcro1,,"GRAND-ROSIERE-HOTTOMONT Café des Routiers",,  50.629131,   4.871003,6333,,0
+Bgrhcro2,,"GRAND-ROSIERE-HOTTOMONT Café des Routiers",,  50.629041,   4.870827,6333,,0
+Bgrhhot1,,"GRAND-ROSIERE-HOTTOMONT Hottomont",,  50.625178,   4.875502,6333,,0
+Bgrhhot2,,"GRAND-ROSIERE-HOTTOMONT Hottomont",,  50.624818,   4.875627,6333,,0
+Bgrhpos1,,"GRAND-ROSIERE-HOTTOMONT Poste",,  50.635555,   4.863700,6333,,0
+Bgrhpos2,,"GRAND-ROSIERE-HOTTOMONT Poste",,  50.635358,   4.863647,6333,,0
+Bgrmfga1,,"GRAND-MANIL Ferme de la Gatte",,  50.565626,   4.668773,6268,,0
+Bgrmfga2,,"GRAND-MANIL Ferme de la Gatte",,  50.565593,   4.668612,6268,,0
+Bgrmfon1,,"GRAND-MANIL Fontenelle",,  50.562207,   4.674613,4522,,0
+Bgrmfon2,,"GRAND-MANIL Fontenelle",,  50.562124,   4.674505,4522,,0
+Bgrmpsn1,,"GRAND-MANIL Penteville S.N.C.B",,  50.564232,   4.669616,4522,,0
+Bgrmpsn2,,"GRAND-MANIL Penteville S.N.C.B",,  50.564091,   4.669663,4522,,0
+Bgrmver1,,"GRAND-MANIL Rue Verlaine",,  50.558966,   4.685352,4522,,0
+Bgrmver2,,"GRAND-MANIL Rue Verlaine",,  50.560268,   4.685867,4522,,0
+Bgzdast1,,"GREZ-DOICEAU Ancienne Station",,  50.736828,   4.702362,6456,,0
+Bgzdast2,,"GREZ-DOICEAU Ancienne Station",,  50.736763,   4.702287,6456,,0
+Bgzdcen1,,"GREZ-DOICEAU Centry",,  50.740742,   4.690489,6456,,0
+Bgzdcen2,,"GREZ-DOICEAU Centry",,  50.740591,   4.690437,6456,,0
+Bgzdcwa1,,"GREZ-DOICEAU Chaussée de Wavre",,  50.746501,   4.686666,6456,,0
+Bgzdcwa2,,"GREZ-DOICEAU Chaussée de Wavre",,  50.746431,   4.686729,6456,,0
+Bgzddfh1,,"DOICEAU Ferme Hallaux",,  50.731820,   4.662453,6455,,0
+Bgzddfh2,,"DOICEAU Ferme Hallaux",,  50.731801,   4.662621,6455,,0
+Bgzddge1,,"DOICEAU Rue des Genêts (Ch. de Wavre)",,  50.738758,   4.664540,6455,,0
+Bgzddge2,,"DOICEAU Rue des Genêts (Ch. de Wavre)",,  50.738498,   4.664214,6455,,0
+Bgzddge4,,"DOICEAU Rue des Genêts (Av. Comte d'Ursel)",,  50.737945,   4.663475,6455,,0
+Bgzddmo1,,"DOICEAU Chemin des Monts",,  50.740973,   4.670785,6455,,0
+Bgzddmo2,,"DOICEAU Chemin des Monts",,  50.740864,   4.670883,6455,,0
+Bgzddub1,,"GREZ-DOICEAU Place Dubois",,  50.738666,   4.696054,6456,,0
+Bgzddur1,,"DOICEAU Drève d'Ursel",,  50.734359,   4.664032,6455,,0
+Bgzddur2,,"DOICEAU Drève d'Ursel",,  50.734314,   4.664154,6455,,0
+Bgzdegl3,,"DOICEAU Eglise",,  50.728282,   4.663637,6455,,0
+Bgzdegl4,,"DOICEAU Eglise",,  50.728301,   4.663812,6455,,0
+Bgzdfpo1,,"GREZ-DOICEAU Rue Frère Pouls 46",,  50.721480,   4.662954,6455,,0
+Bgzdfpo2,,"GREZ-DOICEAU Rue Frère Pouls 46",,  50.721694,   4.662977,6455,,0
+Bgzdgli1,,"GREZ-DOICEAU Garage Libouton",,  50.743272,   4.677429,6455,,0
+Bgzdgli2,,"GREZ-DOICEAU Garage Libouton",,  50.743252,   4.678023,6455,,0
+Bgzdgpa1,,"GASTUCHE Papeteries",,  50.731109,   4.645808,6455,,0
+Bgzdgpa2,,"GASTUCHE Papeteries",,  50.731420,   4.646084,6455,,0
+Bgzdgst1,,"GASTUCHE Rue de la Station",,  50.735191,   4.650420,6455,,0
+Bgzdgst2,,"GASTUCHE Rue de la Station",,  50.735082,   4.650517,6455,,0
+Bgzdgth1,,"GASTUCHE La Thermogène",,  50.736265,   4.654593,6455,,0
+Bgzdgth2,,"GASTUCHE La Thermogène",,  50.736259,   4.655100,6455,,0
+Bgzdn251,,"GREZ-DOICEAU N25",,  50.746858,   4.693728,6456,,0
+Bgzdn252,,"GREZ-DOICEAU N25",,  50.746799,   4.693577,6456,,0
+Bgzdpco1,,"GREZ-DOICEAU Place Communale",,  50.738568,   4.696549,6456,,0
