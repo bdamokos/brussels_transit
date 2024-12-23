@@ -418,10 +418,10 @@ async def get_vehicle_positions(line=None, direction=None):
                 "destination": vehicle.vehicle.label,
                 "position": {
                     "lat": float(vehicle.position.latitude),
-                    "lon": float(vehicle.position.longitude),
-                    "bearing": float(vehicle.position.bearing) if vehicle.position.HasField("bearing") else None,
-                    "speed": float(vehicle.position.speed) if vehicle.position.HasField("speed") else 0.0,
+                    "lon": float(vehicle.position.longitude)
                 },
+                "bearing": float(vehicle.position.bearing) if vehicle.position.HasField("bearing") else None,
+                "speed": float(vehicle.position.speed) * 3.6 if vehicle.position.HasField("speed") else None,  # Convert m/s to km/h
                 "timestamp": datetime.fromtimestamp(int(vehicle.timestamp)).isoformat() + "+00:00",
                 "delay": None,  # Delay is not provided in the feed
                 "status": vehicle.current_status,
