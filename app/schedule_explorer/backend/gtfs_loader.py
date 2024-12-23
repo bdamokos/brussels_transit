@@ -239,16 +239,34 @@ class FlixbusFeed:
             route._feed = self
     
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Route]:
-        """Find all routes between two stations in the specified direction"""
+        """Find all routes between two stations in any direction (start_id → end_id or end_id → start_id)"""
         routes = []
         
         for route in self.routes:
-            # Get all stops in this route
-            stops = route.get_stops_between(start_id, end_id)
-            
-            # Check if both stations are in this route and in the correct order
-            if len(stops) >= 2 and stops[0].stop.id == start_id and stops[-1].stop.id == end_id:
+            # Check forward direction (start_id → end_id)
+            stops_forward = route.get_stops_between(start_id, end_id)
+            if len(stops_forward) >= 2 and stops_forward[0].stop.id == start_id and stops_forward[-1].stop.id == end_id:
                 routes.append(route)
+            
+            # Check reverse direction (end_id → start_id)
+            stops_reverse = route.get_stops_between(end_id, start_id)
+            if len(stops_reverse) >= 2 and stops_reverse[0].stop.id == end_id and stops_reverse[-1].stop.id == start_id:
+                routes.append(route)
+            
+            # Check other variants of this route (different direction_id)
+            for other_route in self.routes:
+                if other_route == route:
+                    continue
+                if other_route.route_id == route.route_id and other_route.direction_id != route.direction_id:
+                    # Check forward direction in other variant
+                    stops = other_route.get_stops_between(start_id, end_id)
+                    if len(stops) >= 2 and stops[0].stop.id == start_id and stops[-1].stop.id == end_id:
+                        routes.append(other_route)
+                    
+                    # Check reverse direction in other variant
+                    stops = other_route.get_stops_between(end_id, start_id)
+                    if len(stops) >= 2 and stops[0].stop.id == end_id and stops[-1].stop.id == start_id:
+                        routes.append(other_route)
         
         return routes
         
