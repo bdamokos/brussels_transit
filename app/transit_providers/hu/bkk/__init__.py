@@ -50,7 +50,7 @@ class BKKProvider(TransitProvider):
         endpoints = {
             'config': bkk_config,
             'waiting_times': get_waiting_times,
-            'service_messages': get_service_alerts,
+            'messages': get_service_alerts,
             'vehicles': get_vehicle_positions,
             'static_data': get_static_data,
             'line_info': get_line_info,

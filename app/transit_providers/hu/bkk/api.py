@@ -603,16 +603,52 @@ async def get_waiting_times() -> Dict:
         logger.error(f"Error getting waiting times: {e}")
         return {"stops_data": {}}
 
-async def get_service_alerts() -> List[Dict]:
+async def get_service_alerts() -> Dict:
     """Get current service alerts.
     
     Returns:
-        List[Dict]: List of service alert dictionaries with provider information
+        Dict: Dictionary containing messages in the format matching STIB/De Lijn:
+        {
+            "messages": [{
+                "title": {
+                    "hu": str,
+                    "en": str
+                },
+                "description": {
+                    "hu": str,
+                    "en": str
+                },
+                "start": str,  # ISO format
+                "end": str,    # ISO format
+                "modified": str,  # ISO format
+                "lines": List[str],  # Affected line numbers
+                "stops": List[str],  # Affected stop names
+                "points": List[str],  # Affected stop IDs
+                "url": Optional[str],
+                "html_content": Optional[str],
+                "text_content": Optional[str],
+                "priority": int,
+                "type": str,
+                "is_monitored": bool,
+                "_metadata": {
+                    "language": {
+                        "available": List[str],
+                        "provided": str,
+                        "requested": Optional[str],
+                        "warning": Optional[str]
+                    },
+                    "cause": Optional[str],
+                    "effect": Optional[str],
+                    "effect_type": Optional[str]
+                }
+            }]
+        }
     """
     try:
         # Get latest config
         config = get_provider_config('bkk')
         monitored_lines = config.get('MONITORED_LINES', [])
+        stop_ids = config.get('STOP_IDS', [])
         
         async with httpx.AsyncClient() as client:
             response = await client.get(ALERTS_URL)
@@ -621,36 +657,135 @@ async def get_service_alerts() -> List[Dict]:
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
-            alerts = []
+            messages = []
             for entity in feed.entity:
                 if not entity.HasField('alert'):
                     continue
                     
                 alert = entity.alert
+                
+                # Get affected lines and stops
                 affected_lines = set()
+                affected_stops = set()
                 for informed_entity in alert.informed_entity:
                     if informed_entity.HasField('route_id'):
                         line_id = _get_line_id_from_trip(informed_entity.route_id)
                         if not monitored_lines or line_id in monitored_lines:
                             affected_lines.add(line_id)
+                    if informed_entity.HasField('stop_id'):
+                        affected_stops.add(informed_entity.stop_id)
                 
-                if not affected_lines:
+                # Skip if no monitored lines are affected
+                if monitored_lines and not affected_lines:
                     continue
-                    
-                alerts.append({
-                    'id': entity.id,
-                    'lines': list(affected_lines),
-                    'title': _get_translated_text(alert.header_text),
-                    'description': _get_translated_text(alert.description_text),
+                
+                # Get stop names for affected stops
+                stop_names = []
+                for stop_id in affected_stops:
+                    stop_info = _get_stop_info(stop_id)
+                    if stop_info:
+                        stop_names.append(stop_info['name'])
+                
+                # Check if message affects monitored lines/stops
+                is_monitored = (
+                    (not monitored_lines or bool(affected_lines & set(monitored_lines))) and
+                    (not stop_ids or bool(affected_stops & set(stop_ids)))
+                )
+                
+                # Get translations for header and description
+                header_translations = {}
+                desc_translations = {}
+                available_languages = set()
+                
+                # Process header translations
+                for translation in alert.header_text.translation:
+                    lang = translation.language or 'hu'  # Default to Hungarian
+                    header_translations[lang] = translation.text
+                    available_languages.add(lang)
+                
+                # Process description translations
+                for translation in alert.description_text.translation:
+                    lang = translation.language or 'hu'  # Default to Hungarian
+                    desc_translations[lang] = translation.text
+                    available_languages.add(lang)
+                
+                # Get realcity extension fields if available
+                realcity_alert = None
+                try:
+                    if alert.HasExtension('realcity.alert'):
+                        realcity_alert = alert.Extensions['realcity.alert']
+                except (AttributeError, KeyError):
+                    pass
+                
+                # Get start/end text translations if available
+                start_text = {}
+                end_text = {}
+                if realcity_alert:
+                    if realcity_alert.HasField('startText'):
+                        for translation in realcity_alert.startText.translation:
+                            lang = translation.language or 'hu'
+                            start_text[lang] = translation.text
+                            available_languages.add(lang)
+                    if realcity_alert.HasField('endText'):
+                        for translation in realcity_alert.endText.translation:
+                            lang = translation.language or 'hu'
+                            end_text[lang] = translation.text
+                            available_languages.add(lang)
+                
+                # Get route details if available
+                route_details = []
+                if realcity_alert:
+                    for route in realcity_alert.route:
+                        route_detail = {
+                            'route_id': route.route_id,
+                            'header_text': {},
+                            'cause': route.cause if route.HasField('cause') else None,
+                            'effect': route.effect if route.HasField('effect') else None,
+                            'effect_type': route.effect_type if route.HasField('effect_type') else None
+                        }
+                        if route.HasField('header_text'):
+                            for translation in route.header_text.translation:
+                                lang = translation.language or 'hu'
+                                route_detail['header_text'][lang] = translation.text
+                                available_languages.add(lang)
+                        route_details.append(route_detail)
+                
+                # Format the message
+                message = {
+                    'title': header_translations,
+                    'description': desc_translations,
                     'start': datetime.fromtimestamp(alert.active_period[0].start, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('start') else None,
                     'end': datetime.fromtimestamp(alert.active_period[0].end, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('end') else None,
-                    'provider': 'bkk'
-                })
+                    'modified': datetime.fromtimestamp(realcity_alert.modifiedTime, timezone.utc).isoformat() if realcity_alert and realcity_alert.HasField('modifiedTime') else None,
+                    'lines': sorted(list(affected_lines)),
+                    'stops': stop_names,
+                    'points': sorted(list(affected_stops)),
+                    'url': alert.url.translation[0].text if alert.HasField('url') and alert.url.translation else None,
+                    'html_content': desc_translations.get('hu', ''),  # BKK usually provides HTML in Hungarian
+                    'text_content': ' '.join(desc_translations.values()),  # Plain text version
+                    'priority': 1 if any(route.effect_type == 1 for route in route_details) else 0,  # High priority for NO_SERVICE
+                    'type': 'alert',
+                    'is_monitored': is_monitored,
+                    '_metadata': {
+                        'language': {
+                            'available': sorted(list(available_languages)),
+                            'provided': 'hu',  # BKK's primary language
+                            'requested': None,
+                            'warning': None
+                        },
+                        'route_details': route_details,
+                        'start_text': start_text,
+                        'end_text': end_text
+                    }
+                }
+                
+                messages.append(message)
             
-            return alerts
+            return {'messages': messages}
+            
     except Exception as e:
         logger.error(f"Error getting service alerts: {e}")
-        return []
+        return {'messages': []}
 
 # Helper functions
 def _get_current_gtfs_path() -> Optional[Path]:
