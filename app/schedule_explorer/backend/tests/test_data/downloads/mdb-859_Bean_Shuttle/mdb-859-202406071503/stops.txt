@@ -1,7 +1,0 @@
-stop_id,stop_name,stop_desc,stop_lat,stop_lon,stop_url
-1,Český Krumlov,"Address: Kaplická 26, in front Pension Barbakan",48.810539,14.318616,http://www.beanshuttle.com/en/stops/cesky-krumlov/
-3,Vienna,"City center - Westbahnhof - in front of Hotel Mercure Westbahnhof, address: Felberstrasse 4",48.19817651938666,16.337592601776123,http://www.beanshuttle.com/en/stops/vienna/#westbahnhof
-32,Vienna,"Schwechat airport - official meeting point inside the arrivals hall close to the McDonalds restaurant",48.12080827360653,16.562506556510925,http://www.beanshuttle.com/en/stops/vienna/#airport
-4,Linz,"Linz main trainstation (Linz Hbf.), in front of the main exit, address: Bahnhofplatz 3",48.29063884798685,14.291034936904907,http://www.beanshuttle.com/en/stops/linz/
-5,Salzburg,"Salzburg main train station, in front of Hotel Ramada, address: Südtiroler Platz 13",47.81371289854728,13.044686168432236,http://www.beanshuttle.com/en/stops/salzburg/
-6,Hallstatt,"ATO Lahn-Seestrasse bus stop and ship stop",47.557059853771804,13.647103607654572,http://www.beanshuttle.com/en/stops/hallstatt/

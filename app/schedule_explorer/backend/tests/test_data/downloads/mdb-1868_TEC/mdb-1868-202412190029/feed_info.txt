@@ -1,2 +1,0 @@
-feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version,feed_contact_email,feed_contact_url
-GTFS.be,https://gtfs.be,fr,20241120,20250312,1734552056,info@gtfs.be,https://gtfs.be

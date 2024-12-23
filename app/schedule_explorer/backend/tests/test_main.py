@@ -30,6 +30,7 @@ def get_providers_from_metadata():
     # Second pass: create provider entries for the latest datasets
     for provider_id, dataset_info in latest_datasets.items():
         dataset_dir = Path(dataset_info.get('download_path'))
+        # Use the same provider ID construction as the main application
         sanitized_name = dataset_dir.parent.name.split('_', 1)[1] if '_' in dataset_dir.parent.name else dataset_dir.parent.name
         provider_key = f"{sanitized_name}_{provider_id}"
 

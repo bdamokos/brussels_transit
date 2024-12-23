@@ -1,2 +1,0 @@
-feed_id,feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version,feed_includes_prefixed_ids
-hkir,"KTI Magyar Közlekedéstudományi és Logisztikai Intézet - realCity ITS Kft.,https://www.kti.hu",https://www.kti.hu,hu,20241219,20250319,00824.20241219,true

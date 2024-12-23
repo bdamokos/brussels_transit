@@ -1,2 +1,0 @@
-"feed_publisher_name","feed_publisher_url","feed_lang","feed_start_date","feed_end_date","feed_version","feed_contact_email"
-"De Lijn","https://www.delijn.be","nl","20241221","20250228","20241221_20250228_000000","info@delijn.be"
