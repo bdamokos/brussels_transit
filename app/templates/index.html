@@ -9,14 +9,23 @@
     
     <!-- Configuration from server -->
     <script>
-        // Define variables in a safer way
-        window.map_config = JSON.parse('{{ map_config|tojson|safe }}');
-        window.WALKING_SPEED = Number('{{ walking_speed }}');  // meters per second
-        window.LOCATION_UPDATE_INTERVAL = Number('{{ location_update_interval }}') * 1000;  // Convert to milliseconds
-        window.REFRESH_INTERVAL = Number('{{ refresh_interval }}') * 1000;  // Convert to milliseconds
-        window.lineColors = JSON.parse('{{ route_colors|tojson|safe }}');  // Initialize before loading index.js
+        // Define global namespace for shared variables
+        window.transitApp = {
+            map_config: JSON.parse('{{ map_config|tojson|safe }}'),
+            WALKING_SPEED: Number('{{ walking_speed }}'),  // meters per second
+            LOCATION_UPDATE_INTERVAL: Number('{{ location_update_interval }}') * 1000,  // Convert to milliseconds
+            REFRESH_INTERVAL: Number('{{ refresh_interval }}') * 1000,  // Convert to milliseconds
+            lineColors: JSON.parse('{{ route_colors|tojson|safe }}'),  // Initialize before loading index.js
+            bkkModule: {},  // Initialize BKK module namespace
+            config: {  // Store provider configs
+                bkk: null,
+                delijn: null
+            }
+        };
     </script>
     
+    <!-- Load BKK module before main script -->
+    <script src="js/bkk.js"></script>
     <!-- Load our JavaScript after configuration is set -->
     <script src="js/index.js"></script>
 </head>
@@ -37,6 +46,8 @@
         {% for stop in stops %}
             {% if stop.id in DELIJN_STOP_IDS %}
                 {% set provider = 'delijn' %}
+            {% elif BKK_STOP_IDS is defined and stop.id in BKK_STOP_IDS %}
+                {% set provider = 'bkk' %}
             {% else %}
                 {% set provider = 'stib' %}
             {% endif %}
@@ -50,7 +61,7 @@
                 {% for stop in group.stops %}
                     <div class="physical-stop" 
                          data-stop-id="{{ stop.id }}"
-                         data-provider="{{ 'delijn' if stop.id in DELIJN_STOP_IDS else 'stib' }}">
+                         data-provider="{{ 'delijn' if stop.id in DELIJN_STOP_IDS else 'bkk' if BKK_STOP_IDS is defined and stop.id in BKK_STOP_IDS else 'stib' }}">
                         {% if not loop.first %}
                             <div class="stop-divider"></div>
                         {% endif %}

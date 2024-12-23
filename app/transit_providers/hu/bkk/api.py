@@ -26,7 +26,8 @@ __all__ = [
     'bkk_config',
     'get_line_info',
     'get_route_shapes',
-    'get_route_variants_api'
+    'get_route_variants_api',
+    'get_line_colors'
 ]
 
 # Setup logging
@@ -78,6 +79,219 @@ if GTFS_DIR:
 VEHICLE_POSITIONS_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/VehiclePositions.pb?key={API_KEY}'
 TRIP_UPDATES_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/TripUpdates.pb?key={API_KEY}'
 ALERTS_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb?key={API_KEY}'
+
+# Cache for scheduled stop times
+_stop_times_cache = {}
+_last_cache_update = None
+_CACHE_DURATION = timedelta(hours=3)
+
+# Cache for stop and route information
+_stops_cache = {}
+_routes_cache = {}
+_stops_cache_update = None
+_routes_cache_update = None
+
+def _load_stop_times_cache() -> None:
+    """Load scheduled stop times for monitored routes into cache"""
+    global _stop_times_cache, _last_cache_update
+    
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return
+            
+        # Get monitored routes and stops
+        config = get_provider_config('bkk')
+        monitored_lines = config.get('MONITORED_LINES', [])
+        stop_ids = config.get('STOP_IDS', [])
+        
+        # First get trip IDs for monitored routes
+        trips_file = gtfs_path / 'trips.txt'
+        monitored_trips = set()
+        
+        with open(trips_file, 'r', encoding='utf-8') as f:
+            header = next(f).strip().split(',')
+            trip_id_index = header.index('trip_id')
+            route_id_index = header.index('route_id')
+            
+            for line in f:
+                fields = line.strip().split(',')
+                route_id = fields[route_id_index]
+                if route_id in monitored_lines:
+                    monitored_trips.add(fields[trip_id_index])
+        
+        # Read stop_times.txt for monitored trips
+        stop_times_file = gtfs_path / 'stop_times.txt'
+        new_cache = {}
+        
+        with open(stop_times_file, 'r', encoding='utf-8') as f:
+            header = next(f).strip().split(',')
+            trip_id_index = header.index('trip_id')
+            stop_id_index = header.index('stop_id')
+            stop_sequence_index = header.index('stop_sequence')
+            arrival_time_index = header.index('arrival_time')
+            
+            for line in f:
+                fields = line.strip().split(',')
+                trip_id = fields[trip_id_index]
+                stop_id = fields[stop_id_index]
+                
+                if trip_id in monitored_trips and (not stop_ids or stop_id in stop_ids):
+                    cache_key = (trip_id, stop_id, int(fields[stop_sequence_index]))
+                    time_str = fields[arrival_time_index]
+                    hours, minutes, _ = map(int, time_str.split(':'))
+                    
+                    # Handle times past midnight (hours > 24)
+                    if hours >= 24:
+                        hours = hours % 24
+                    
+                    new_cache[cache_key] = (hours, minutes)
+        
+        _stop_times_cache = new_cache
+        _last_cache_update = datetime.now(timezone.utc)
+        logger.info(f"Updated stop times cache with {len(_stop_times_cache)} entries")
+        
+    except Exception as e:
+        logger.error(f"Error loading stop times cache: {e}")
+
+def _load_stops_cache() -> None:
+    """Load stop information from GTFS data into cache"""
+    global _stops_cache, _stops_cache_update
+    
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return
+            
+        stops_file = gtfs_path / 'stops.txt'
+        if not stops_file.exists():
+            return
+            
+        new_cache = {}
+        with open(stops_file, 'r', encoding='utf-8') as f:
+            import csv
+            reader = csv.DictReader(f)
+            
+            for row in reader:
+                stop_id = row['stop_id'].strip()
+                try:
+                    new_cache[stop_id] = {
+                        'name': row['stop_name'].strip(),
+                        'lat': float(row['stop_lat'].strip()),
+                        'lon': float(row['stop_lon'].strip())
+                    }
+                except (ValueError, KeyError) as e:
+                    logger.error(f"Error parsing stop data for {stop_id}: {e}")
+                    continue
+        
+        _stops_cache = new_cache
+        _stops_cache_update = datetime.now(timezone.utc)
+        logger.info(f"Updated stops cache with {len(_stops_cache)} entries")
+        
+    except Exception as e:
+        logger.error(f"Error loading stops cache: {e}")
+
+def _load_routes_cache() -> None:
+    """Load route information from GTFS data into cache"""
+    global _routes_cache, _routes_cache_update
+    
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return
+            
+        routes_file = gtfs_path / 'routes.txt'
+        if not routes_file.exists():
+            return
+            
+        new_cache = {}
+        with open(routes_file, 'r', encoding='utf-8') as f:
+            header = next(f).strip().split(',')
+            route_id_index = header.index('route_id')
+            route_short_name_index = header.index('route_short_name')
+            route_desc_index = header.index('route_desc') if 'route_desc' in header else -1
+            
+            for line in f:
+                fields = line.strip().split(',')
+                route_id = fields[route_id_index]
+                new_cache[route_id] = {
+                    'route_short_name': fields[route_short_name_index],
+                    'route_desc': fields[route_desc_index] if route_desc_index >= 0 else None
+                }
+        
+        _routes_cache = new_cache
+        _routes_cache_update = datetime.now(timezone.utc)
+        logger.info(f"Updated routes cache with {len(_routes_cache)} entries")
+        
+    except Exception as e:
+        logger.error(f"Error loading routes cache: {e}")
+
+def _get_scheduled_time(trip_id: str, stop_id: str, stop_sequence: int) -> Optional[datetime]:
+    """Get scheduled arrival time from cache or static GTFS data"""
+    global _last_cache_update
+    
+    # Update cache if needed
+    now = datetime.now(timezone.utc)
+    if not _last_cache_update or (now - _last_cache_update) > _CACHE_DURATION:
+        _load_stop_times_cache()
+    
+    try:
+        # Try to get from cache
+        cache_key = (trip_id, stop_id, stop_sequence)
+        if cache_key in _stop_times_cache:
+            hours, minutes = _stop_times_cache[cache_key]
+            
+            # Create datetime in local timezone (Budapest)
+            from zoneinfo import ZoneInfo
+            budapest_tz = ZoneInfo('Europe/Budapest')
+            now_local = datetime.now(budapest_tz)
+            scheduled = now_local.replace(
+                hour=hours,
+                minute=minutes,
+                second=0,
+                microsecond=0
+            )
+            
+            # If the scheduled time is more than 12 hours in the past,
+            # it's probably for tomorrow
+            if (now_local - scheduled).total_seconds() > 12 * 3600:
+                scheduled += timedelta(days=1)
+            
+            # Convert to UTC
+            return scheduled.astimezone(timezone.utc)
+            
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduled time from cache for trip {trip_id}, stop {stop_id}: {e}")
+        return None
+
+def _get_stop_info(stop_id: str) -> Dict[str, Any]:
+    """Get stop information from cache"""
+    global _stops_cache_update
+    
+    # Update cache if needed
+    now = datetime.now(timezone.utc)
+    if not _stops_cache_update or (now - _stops_cache_update) > _CACHE_DURATION:
+        _load_stops_cache()
+    
+    # Return cached info or default with actual stop name from cache
+    if stop_id in _stops_cache:
+        return _stops_cache[stop_id]
+    else:
+        logger.warning(f"Stop {stop_id} not found in GTFS data")
+        return {'name': f"Unknown stop ({stop_id})", 'lat': None, 'lon': None}
+
+def _get_route_info(route_id: str) -> Dict[str, Any]:
+    """Get route information from cache"""
+    global _routes_cache_update
+    
+    # Update cache if needed
+    now = datetime.now(timezone.utc)
+    if not _routes_cache_update or (now - _routes_cache_update) > _CACHE_DURATION:
+        _load_routes_cache()
+    
+    return _routes_cache.get(route_id, {'route_short_name': route_id, 'route_desc': None})
 
 class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
@@ -222,11 +436,7 @@ async def get_vehicle_positions() -> List[Dict]:
         return []
 
 async def get_waiting_times() -> Dict:
-    """Get waiting times for monitored stops.
-    
-    Returns:
-        Dict: Dictionary of stop IDs mapping to their waiting times with provider information
-    """
+    """Get waiting times for monitored stops."""
     try:
         # Get latest config
         config = get_provider_config('bkk')
@@ -240,7 +450,8 @@ async def get_waiting_times() -> Dict:
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             
-            waiting_times = {}
+            formatted_data = {"stops_data": {}}
+            
             for entity in feed.entity:
                 if not entity.HasField('trip_update'):
                     continue
@@ -250,32 +461,101 @@ async def get_waiting_times() -> Dict:
                 if monitored_lines and line_id not in monitored_lines:
                     continue
                 
+                destination = _get_destination_from_trip(trip.trip.trip_id)
+                route_info = _get_route_info(line_id)
+                
                 for stop_time in trip.stop_time_update:
                     stop_id = stop_time.stop_id
                     if stop_ids and stop_id not in stop_ids:
                         continue
                         
-                    if stop_id not in waiting_times:
-                        waiting_times[stop_id] = []
+                    # Get stop info from cache
+                    stop_info = _get_stop_info(stop_id)
+                        
+                    # Initialize stop data if needed
+                    if stop_id not in formatted_data["stops_data"]:
+                        formatted_data["stops_data"][stop_id] = {
+                            "name": stop_info['name'],
+                            "coordinates": {
+                                "lat": stop_info['lat'],
+                                "lon": stop_info['lon']
+                            } if stop_info['lat'] and stop_info['lon'] else None,
+                            "lines": {}
+                        }
+                    
+                    # Initialize line data if needed
+                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                            "_metadata": {
+                                "route_short_name": route_info['route_short_name'],
+                                "route_desc": route_info['route_desc']
+                            }
+                        }
+                    
+                    # Initialize destination data if needed
+                    if destination not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
                         
                     if stop_time.HasField('arrival'):
-                        arrival_time = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
-                        waiting_times[stop_id].append({
-                            'line': line_id,
-                            'destination': _get_destination_from_trip(trip.trip.trip_id),
-                            'minutes_until': _format_minutes_until(arrival_time),
-                            'timestamp': arrival_time.isoformat(),
-                            'provider': 'bkk'
+                        now = datetime.now(timezone.utc)
+                        
+                        # Get actual arrival time in UTC
+                        arrival_time_utc = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
+                        
+                        # Convert to Budapest time for display
+                        from zoneinfo import ZoneInfo
+                        budapest_tz = ZoneInfo('Europe/Budapest')
+                        arrival_time = arrival_time_utc.astimezone(budapest_tz)
+                        
+                        # Calculate minutes for display (in local time)
+                        now_local = now.astimezone(budapest_tz)
+                        realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
+                        
+                        # Get scheduled time from static GTFS data (already in UTC)
+                        scheduled_time_utc = _get_scheduled_time(
+                            trip.trip.trip_id,
+                            stop_id,
+                            stop_time.stop_sequence
+                        )
+                        
+                        if scheduled_time_utc:
+                            # Convert scheduled time to local for display
+                            scheduled_time = scheduled_time_utc.astimezone(budapest_tz)
+                            scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
+                            
+                            # Calculate delay in seconds with full precision
+                            delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
+                        else:
+                            scheduled_time = arrival_time
+                            scheduled_minutes = realtime_minutes
+                            delay_seconds = 0
+                        
+                        # Skip if both scheduled and realtime are in the past
+                        if scheduled_minutes < 0 and realtime_minutes < 0:
+                            continue
+                            
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
+                            "delay": delay_seconds,
+                            "is_realtime": delay_seconds != 0,  # Only realtime if there's an actual delay
+                            "message": None,  # BKK doesn't provide message per arrival
+                            "realtime_minutes": f"{realtime_minutes}'",
+                            "realtime_time": arrival_time.strftime("%H:%M"),
+                            "scheduled_minutes": f"{scheduled_minutes}'",
+                            "scheduled_time": scheduled_time.strftime("%H:%M"),
+                            "provider": "bkk"
                         })
             
-            # Sort waiting times by arrival time
-            for stop_id in waiting_times:
-                waiting_times[stop_id].sort(key=lambda x: datetime.fromisoformat(x['timestamp']))
+            # Sort waiting times by arrival time for each destination
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                for line_id, line_data in stop_data["lines"].items():
+                    for destination, times in line_data.items():
+                        if destination != "_metadata":  # Skip metadata when sorting
+                            times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
             
-            return waiting_times
+            return formatted_data
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
-        return {}
+        return {"stops_data": {}}
 
 async def get_service_alerts() -> List[Dict]:
     """Get current service alerts.
@@ -738,3 +1018,72 @@ def _point_matches_any_point(stop: Stop, points: List[List[float]], threshold: f
         if abs(point[1] - float(stop.lat)) < threshold and abs(point[0] - float(stop.lon)) < threshold:
             return True
     return False
+
+async def get_line_colors(line_number: Optional[str] = None) -> Dict[str, Dict[str, str]]:
+    """Get line colors in De Lijn format.
+    
+    Args:
+        line_number: Optional specific line number to get colors for
+        
+    Returns:
+        Dict with format:
+        {
+            "text": "#RRGGBB",
+            "background": "#RRGGBB",
+            "text_border": "#RRGGBB",
+            "background_border": "#RRGGBB"
+        }
+    """
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return {}
+            
+        routes_file = gtfs_path / 'routes.txt'
+        if not routes_file.exists():
+            return {}
+            
+        with open(routes_file, 'r', encoding='utf-8') as f:
+            header = next(f).strip().split(',')
+            route_id_index = header.index('route_id')
+            route_color_index = header.index('route_color') if 'route_color' in header else -1
+            route_text_color_index = header.index('route_text_color') if 'route_text_color' in header else -1
+            
+            # If looking for a specific line
+            if line_number:
+                for line in f:
+                    fields = line.strip().split(',')
+                    if fields[route_id_index] == line_number:
+                        bg_color = f"#{fields[route_color_index]}" if route_color_index >= 0 and fields[route_color_index] else "#666666"
+                        text_color = f"#{fields[route_text_color_index]}" if route_text_color_index >= 0 and fields[route_text_color_index] else "#FFFFFF"
+                        
+                        return {
+                            "text": text_color,
+                            "background": bg_color,
+                            "text_border": text_color,  # Use same colors for borders
+                            "background_border": bg_color
+                        }
+                return {}
+            
+            # If getting all colors
+            colors = {}
+            for line in f:
+                fields = line.strip().split(',')
+                route_id = fields[route_id_index]
+                
+                if not MONITORED_LINES or route_id in MONITORED_LINES:
+                    bg_color = f"#{fields[route_color_index]}" if route_color_index >= 0 and fields[route_color_index] else "#666666"
+                    text_color = f"#{fields[route_text_color_index]}" if route_text_color_index >= 0 and fields[route_text_color_index] else "#FFFFFF"
+                    
+                    colors[route_id] = {
+                        "text": text_color,
+                        "background": bg_color,
+                        "text_border": text_color,  # Use same colors for borders
+                        "background_border": bg_color
+                    }
+            
+            return colors
+            
+    except Exception as e:
+        logger.error(f"Error getting line colors: {e}")
+        return {}
