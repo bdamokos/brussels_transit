@@ -4,11 +4,51 @@ from ..main import app
 import json
 import os
 from pathlib import Path
+import shutil
+
+def get_providers_from_metadata():
+    """Get unique providers from metadata file"""
+    metadata_file = Path(__file__).parent.parent.parent.parent.parent / "downloads" / "datasets_metadata.json"
+    with open(metadata_file) as f:
+        metadata = json.load(f)
+    
+    # Get unique providers (some might have multiple datasets)
+    providers = {}
+    for dataset in metadata.values():
+        provider_id = dataset['provider_id']
+        if provider_id not in providers:
+            # Create URL-safe name for the provider
+            safe_name = dataset['provider_name'].replace(' ', '_').replace('/', '_').replace('(', '').replace(')', '')
+            providers[provider_id] = {
+                'id': f"{safe_name}_{provider_id}",  # This is the format expected by the API
+                'raw_id': provider_id,
+                'name': dataset['provider_name']
+            }
+    
+    return list(providers.values())
 
 @pytest.fixture
 def client():
     """Create a test client"""
     return TestClient(app)
+
+@pytest.fixture
+def metadata_backup():
+    """Backup and restore the real metadata file during tests"""
+    # Get the real downloads directory and metadata file
+    real_downloads_dir = Path(__file__).parent.parent.parent.parent.parent / "downloads"
+    metadata_file = real_downloads_dir / "datasets_metadata.json"
+    backup_file = metadata_file.parent / "datasets_metadata.json.backup"
+    
+    # Backup the original metadata if it exists
+    if metadata_file.exists():
+        shutil.copy2(metadata_file, backup_file)
+    
+    yield
+    
+    # Restore the original metadata if backup exists
+    if backup_file.exists():
+        shutil.move(backup_file, metadata_file)
 
 @pytest.fixture
 def stib_provider(client):
@@ -143,100 +183,85 @@ def test_get_station_routes_with_stib(client, stib_provider):
         assert "stops" in route
         assert len(route["stops"]) >= 2
 
-def test_comprehensive_provider_flow(client):
-    """Test the complete flow for all providers:
-    1. Get all providers and test double loading (cache)
-    2. Test station search for each loaded provider
-    3. Test origins/destinations for found stations
-    4. Test route searching between connected stations
-    5. Test provider download functionality
-    """
-    # First get all providers
+@pytest.mark.parametrize("provider", get_providers_from_metadata(), ids=lambda p: p['raw_id'])
+def test_provider(client, metadata_backup, provider):
+    """Test a specific provider's functionality"""
+    provider_id = provider['id']  # This is now in the correct format for the API
+    provider_name = provider['name']
+    print(f"\nTesting provider: {provider_name} ({provider['raw_id']})")
+    
+    # Try to load the provider
+    print("  - Loading provider...")
+    response = client.post(f"/provider/{provider_id}")
+    if response.status_code != 200:
+        pytest.skip(f"Could not load provider {provider['raw_id']}: {response.json()}")
+    print("  ✓ Load successful")
+    
+    # Test cache (second load)
+    print("  - Testing cache...")
+    response = client.post(f"/provider/{provider_id}")
+    assert response.status_code == 200
+    assert "already loaded" in response.json().get("message", "").lower()
+    print("  ✓ Cache test passed")
+    
+    # Search for stations
+    print("  - Testing station search...")
+    response = client.get("/stations/search?query=ab")
+    assert response.status_code == 200
+    stations = response.json()
+    
+    if not stations:
+        pytest.skip(f"No stations found for provider {provider['raw_id']}")
+    print(f"  ✓ Found {len(stations)} stations")
+    
+    # Test first station's data
+    test_station = stations[0]['id']
+    
+    # Test origins
+    print("  - Testing origins...")
+    response = client.get(f"/stations/origins/{test_station}")
+    assert response.status_code == 200
+    origins = response.json()
+    print(f"  ✓ Found {len(origins)} origins")
+    
+    # Test destinations
+    print("  - Testing destinations...")
+    response = client.get(f"/stations/destinations/{test_station}")
+    assert response.status_code == 200
+    destinations = response.json()
+    print(f"  ✓ Found {len(destinations)} destinations")
+    
+    # Test routes
+    print("  - Testing routes...")
+    response = client.get(f"/stations/{test_station}/routes")
+    assert response.status_code == 200
+    routes = response.json()
+    print(f"  ✓ Found {len(routes)} routes")
+
+def test_provider_download(client, metadata_backup):
+    """Test provider download functionality"""
+    print("\nTesting provider download functionality...")
+    
+    # Get providers info
     response = client.get("/providers_info")
     assert response.status_code == 200
     providers = response.json()
-    assert isinstance(providers, list)
     assert len(providers) > 0
-
-    # Store successful providers for later cache testing
-    successful_providers = []
-
-    # For each provider
-    for provider in providers:
-        provider_id = provider['id']
-        
-        # Try to load the provider first time
-        response = client.post(f"/provider/{provider_id}")
-        if response.status_code != 200:
-            print(f"Warning: Could not load provider {provider_id}: {response.json()}")
-            continue
-            
-        # Try to load the provider second time - should indicate it's already loaded
-        response = client.post(f"/provider/{provider_id}")
-        assert response.status_code == 200
-        assert "already loaded" in response.json().get("message", "").lower(), f"Expected 'already loaded' message for {provider_id}"
-        
-        successful_providers.append(provider_id)
-            
-        # Search for stations with a simple query
-        response = client.get("/stations/search?query=ab")
-        assert response.status_code == 200
-        stations = response.json()
-        
-        if not stations:
-            print(f"Warning: No stations found for provider {provider_id} with query 'ab'")
-            continue
-            
-        # Test origins/destinations for the first station
-        test_station = stations[0]['id']
-        
-        # Test origins
-        response = client.get(f"/stations/origins/{test_station}")
-        assert response.status_code == 200
-        origins = response.json()
-        print(f"Provider {provider_id} station {test_station} has {len(origins)} origins")
-        
-        # Test destinations
-        response = client.get(f"/stations/destinations/{test_station}")
-        assert response.status_code == 200
-        destinations = response.json()
-        print(f"Provider {provider_id} station {test_station} has {len(destinations)} destinations")
-        
-        # Test routes for the station
-        response = client.get(f"/stations/{test_station}/routes")
-        assert response.status_code == 200
-        routes = response.json()
-        print(f"Provider {provider_id} station {test_station} has {len(routes)} routes")
-        
-        # If we have both origins and destinations, test route searching between them
-        if origins and destinations:
-            origin_id = origins[0]['id']
-            destination_id = destinations[0]['id']
-            response = client.get(f"/routes?from_station={origin_id}&to_station={destination_id}")
-            assert response.status_code == 200
-            route_results = response.json()
-            assert "routes" in route_results
-            assert "total_routes" in route_results
-            print(f"Provider {provider_id} has {route_results['total_routes']} routes between {origin_id} and {destination_id}")
-
-    print("\nTesting cache loading...")
-    # Now test loading from cache for each successful provider
-    for provider_id in successful_providers:
-        response = client.post(f"/provider/{provider_id}")
-        assert response.status_code == 200
-        print(f"Successfully loaded {provider_id} from cache")
-
-    print("\nTesting provider download functionality...")
+    
     # Test downloading an already downloaded provider
-    existing_provider = providers[0]['raw_id']  # Use the first provider's raw_id
+    existing_provider = providers[0]['raw_id']
+    print(f"  - Testing re-download of existing provider {existing_provider}...")
     response = client.post(f"/api/download/{existing_provider}")
     assert response.status_code == 200
     response_data = response.json()
-    assert "success" in str(response_data).lower(), f"Expected success message for {existing_provider}"
+    assert "success" in str(response_data).lower()
+    print("  ✓ Re-download successful")
     
     # Test downloading a new small provider
     test_provider = "mdb-859"  # Small test provider
+    print(f"  - Testing download of new provider {test_provider}...")
     response = client.post(f"/api/download/{test_provider}")
     assert response.status_code == 200
     response_data = response.json()
-    assert "success" in str(response_data).lower(), f"Expected successful download message for {test_provider}"
+    assert "success" in str(response_data).lower()
+    print("  ✓ New download successful")

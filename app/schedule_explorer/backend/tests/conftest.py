@@ -16,7 +16,7 @@ def setup_test_environment():
     original_download_dir = os.environ.get('GTFS_DOWNLOAD_DIR')
     
     # Set test environment variables
-    test_downloads_dir = Path(__file__).parent / "test_data" / "downloads"
+    test_downloads_dir = Path(__file__).parent / "test_data" / "downloads_live"
     os.environ['GTFS_DOWNLOAD_DIR'] = str(test_downloads_dir.absolute())
     
     # Ensure the test data directory exists and is empty
