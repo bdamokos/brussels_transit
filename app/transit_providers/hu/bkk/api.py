@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
 import httpx
 from google.transit import gtfs_realtime_pb2
 from google.protobuf import json_format
+from google.protobuf.internal import decoder, wire_format
 from mobility_db_api import MobilityAPI
 from transit_providers.config import get_provider_config
 from config import get_config
@@ -431,16 +432,16 @@ async def get_vehicle_positions(line=None, direction=None):
                 "provider": "bkk",
             }
             
-            # Store raw vehicle data for debugging
-            vehicle_dict["raw_vehicle"] = json_format.MessageToDict(
-                vehicle.vehicle,
-                preserving_proto_field_name=True,
-                use_integers_for_enums=True
-            )
+            # # Store raw vehicle data for debugging
+            # vehicle_dict["raw_vehicle"] = json_format.MessageToDict(
+            #     vehicle.vehicle,
+            #     preserving_proto_field_name=True,
+            #     use_integers_for_enums=True
+            # )
             
             # Store raw bytes for debugging
             raw_bytes = vehicle.vehicle.SerializeToString()
-            vehicle_dict["raw_bytes"] = raw_bytes
+            # vehicle_dict["raw_bytes"] = raw_bytes
             
             # Parse BKK-specific fields from raw bytes
             try:
@@ -603,47 +604,140 @@ async def get_waiting_times() -> Dict:
         logger.error(f"Error getting waiting times: {e}")
         return {"stops_data": {}}
 
-async def get_service_alerts() -> Dict:
-    """Get current service alerts.
+def parse_translations(translation_bytes: bytes) -> Dict[str, str]:
+    """Parse translation message bytes into a dictionary of language codes to text."""
+    translations = {}
+    pos = 0
+    while pos < len(translation_bytes):
+        # Read field tag
+        tag_wire, new_pos = decoder._DecodeVarint(translation_bytes, pos)
+        field_number, wire_type = wire_format.UnpackTag(tag_wire)
+        
+        if wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
+            length, text_pos = decoder._DecodeVarint(translation_bytes, new_pos)
+            text_bytes = translation_bytes[text_pos:text_pos + length]
+            
+            # Parse translation message
+            trans_pos = 0
+            text = None
+            lang = None
+            while trans_pos < len(text_bytes):
+                trans_tag_wire, trans_new_pos = decoder._DecodeVarint(text_bytes, trans_pos)
+                trans_field_number, trans_wire_type = wire_format.UnpackTag(trans_tag_wire)
+                
+                if trans_wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
+                    trans_length, trans_text_pos = decoder._DecodeVarint(text_bytes, trans_new_pos)
+                    trans_value = text_bytes[trans_text_pos:trans_text_pos + trans_length]
+                    
+                    if trans_field_number == 1:  # text
+                        text = trans_value.decode('utf-8')
+                    elif trans_field_number == 2:  # language
+                        lang = trans_value.decode('utf-8')
+                    
+                    trans_pos = trans_text_pos + trans_length
+                else:
+                    trans_pos = trans_new_pos
+            
+            if text and lang:
+                translations[lang] = text
+            
+            pos = text_pos + length
+        else:
+            pos = new_pos
     
-    Returns:
-        Dict: Dictionary containing messages in the format matching STIB/De Lijn:
-        {
-            "messages": [{
-                "title": {
-                    "hu": str,
-                    "en": str
-                },
-                "description": {
-                    "hu": str,
-                    "en": str
-                },
-                "start": str,  # ISO format
-                "end": str,    # ISO format
-                "modified": str,  # ISO format
-                "lines": List[str],  # Affected line numbers
-                "stops": List[str],  # Affected stop names
-                "points": List[str],  # Affected stop IDs
-                "url": Optional[str],
-                "html_content": Optional[str],
-                "text_content": Optional[str],
-                "priority": int,
-                "type": str,
-                "is_monitored": bool,
-                "_metadata": {
-                    "language": {
-                        "available": List[str],
-                        "provided": str,
-                        "requested": Optional[str],
-                        "warning": Optional[str]
-                    },
-                    "cause": Optional[str],
-                    "effect": Optional[str],
-                    "effect_type": Optional[str]
-                }
-            }]
-        }
-    """
+    return translations
+
+def parse_realcity_extension(alert_bytes: bytes) -> Dict:
+    """Parse realcity extension fields from alert bytes."""
+    realcity_data = {
+        'modified_time': None,
+        'start_text': {},
+        'end_text': {},
+        'route_details': []
+    }
+    
+    # Find realcity extension (field 1006)
+    ext_start = alert_bytes.find(b'\xf2\x3e')  # Tag for field 1006
+    if ext_start >= 0:
+        # Skip the extension tag
+        ext_start += 2
+        
+        # Read the length of the extension message
+        length, pos = decoder._DecodeVarint(alert_bytes[ext_start:], 0)
+        ext_start += pos
+        
+        # Get the extension message data
+        ext_data = alert_bytes[ext_start:ext_start+length]
+        
+        # Parse the extension fields
+        current_pos = 0
+        while current_pos < len(ext_data):
+            # Read field tag
+            tag_bytes = ext_data[current_pos:]
+            field_tag, tag_len = decoder._DecodeVarint(tag_bytes, 0)
+            field_number = wire_format.UnpackTag(field_tag)[0]
+            wire_type = wire_format.UnpackTag(field_tag)[1]
+            current_pos += tag_len
+            
+            # Read field value based on wire type
+            if wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
+                # String or message
+                length_bytes = ext_data[current_pos:]
+                length, length_len = decoder._DecodeVarint(length_bytes, 0)
+                current_pos += length_len
+                value = ext_data[current_pos:current_pos+length]
+                
+                if field_number == 1:  # startText
+                    realcity_data['start_text'] = parse_translations(value)
+                elif field_number == 2:  # endText
+                    realcity_data['end_text'] = parse_translations(value)
+                elif field_number == 4:  # route
+                    # Parse route fields
+                    route_data = {'route_id': None, 'header_text': {}, 'effect': None, 'effect_type': None}
+                    route_pos = 0
+                    while route_pos < len(value):
+                        # Read field tag
+                        field_tag, field_tag_len = decoder._DecodeVarint(value[route_pos:], 0)
+                        field_num = wire_format.UnpackTag(field_tag)[0]
+                        field_type = wire_format.UnpackTag(field_tag)[1]
+                        route_pos += field_tag_len
+                        
+                        # Read field value
+                        if field_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
+                            field_len, field_len_len = decoder._DecodeVarint(value[route_pos:], 0)
+                            route_pos += field_len_len
+                            field_value = value[route_pos:route_pos+field_len]
+                            
+                            if field_num == 1:  # route_id
+                                route_data['route_id'] = field_value.decode('utf-8')
+                            elif field_num == 2:  # header_text
+                                route_data['header_text'] = parse_translations(field_value)
+                            
+                            route_pos += field_len
+                        elif field_type == wire_format.WIRETYPE_VARINT:
+                            value_bytes = value[route_pos:]
+                            field_value, value_len = decoder._DecodeVarint(value_bytes, 0)
+                            if field_num == 3:  # effect
+                                route_data['effect'] = field_value
+                            elif field_num == 4:  # effect_type
+                                route_data['effect_type'] = field_value
+                            route_pos += value_len
+                    
+                    realcity_data['route_details'].append(route_data)
+                
+                current_pos += length
+            elif wire_type == wire_format.WIRETYPE_VARINT:
+                # Integer
+                value_bytes = ext_data[current_pos:]
+                value, value_len = decoder._DecodeVarint(value_bytes, 0)
+                if field_number == 3:  # modifiedTime
+                    realcity_data['modified_time'] = value
+                current_pos += value_len
+    
+    return realcity_data
+
+async def get_service_alerts() -> Dict:
+    """Get current service alerts."""
     try:
         # Get latest config
         config = get_provider_config('bkk')
@@ -709,83 +803,64 @@ async def get_service_alerts() -> Dict:
                     desc_translations[lang] = translation.text
                     available_languages.add(lang)
                 
-                # Get realcity extension fields if available
-                realcity_alert = None
-                try:
-                    if alert.HasExtension('realcity.alert'):
-                        realcity_alert = alert.Extensions['realcity.alert']
-                except (AttributeError, KeyError):
-                    pass
+                # Get URL if available
+                url = None
+                if alert.HasField('url'):
+                    for translation in alert.url.translation:
+                        if translation.language == 'en':
+                            url = translation.text
+                            break
+                    if not url and alert.url.translation:
+                        url = alert.url.translation[0].text
                 
-                # Get start/end text translations if available
-                start_text = {}
-                end_text = {}
-                if realcity_alert:
-                    if realcity_alert.HasField('startText'):
-                        for translation in realcity_alert.startText.translation:
-                            lang = translation.language or 'hu'
-                            start_text[lang] = translation.text
-                            available_languages.add(lang)
-                    if realcity_alert.HasField('endText'):
-                        for translation in realcity_alert.endText.translation:
-                            lang = translation.language or 'hu'
-                            end_text[lang] = translation.text
-                            available_languages.add(lang)
+                # Get active period
+                start_time = None
+                end_time = None
+                if alert.active_period:
+                    period = alert.active_period[0]
+                    if period.HasField('start'):
+                        start_time = datetime.fromtimestamp(period.start, tz=timezone.utc).isoformat()
+                    if period.HasField('end'):
+                        end_time = datetime.fromtimestamp(period.end, tz=timezone.utc).isoformat()
                 
-                # Get route details if available
-                route_details = []
-                if realcity_alert:
-                    for route in realcity_alert.route:
-                        route_detail = {
-                            'route_id': route.route_id,
-                            'header_text': {},
-                            'cause': route.cause if route.HasField('cause') else None,
-                            'effect': route.effect if route.HasField('effect') else None,
-                            'effect_type': route.effect_type if route.HasField('effect_type') else None
-                        }
-                        if route.HasField('header_text'):
-                            for translation in route.header_text.translation:
-                                lang = translation.language or 'hu'
-                                route_detail['header_text'][lang] = translation.text
-                                available_languages.add(lang)
-                        route_details.append(route_detail)
+                # Parse realcity extension
+                realcity_data = parse_realcity_extension(alert.SerializeToString())
                 
                 # Format the message
                 message = {
                     'title': header_translations,
                     'description': desc_translations,
-                    'start': datetime.fromtimestamp(alert.active_period[0].start, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('start') else None,
-                    'end': datetime.fromtimestamp(alert.active_period[0].end, timezone.utc).isoformat() if alert.active_period and alert.active_period[0].HasField('end') else None,
-                    'modified': datetime.fromtimestamp(realcity_alert.modifiedTime, timezone.utc).isoformat() if realcity_alert and realcity_alert.HasField('modifiedTime') else None,
-                    'lines': sorted(list(affected_lines)),
-                    'stops': stop_names,
-                    'points': sorted(list(affected_stops)),
-                    'url': alert.url.translation[0].text if alert.HasField('url') and alert.url.translation else None,
-                    'html_content': desc_translations.get('hu', ''),  # BKK usually provides HTML in Hungarian
-                    'text_content': ' '.join(desc_translations.values()),  # Plain text version
-                    'priority': 1 if any(route.effect_type == 1 for route in route_details) else 0,  # High priority for NO_SERVICE
+                    'start': start_time,
+                    'end': end_time,
+                    'modified': datetime.fromtimestamp(realcity_data['modified_time'], tz=timezone.utc).isoformat() if realcity_data['modified_time'] else None,
+                    'lines': sorted(affected_lines),
+                    'stops': sorted(stop_names),
+                    'points': sorted(affected_stops),
+                    'url': url,
+                    'html_content': desc_translations.get('hu'),
+                    'text_content': ' '.join(t for t in desc_translations.values()),
+                    'priority': 0,  # Default priority
                     'type': 'alert',
                     'is_monitored': is_monitored,
                     '_metadata': {
                         'language': {
-                            'available': sorted(list(available_languages)),
-                            'provided': 'hu',  # BKK's primary language
+                            'available': sorted(available_languages),
+                            'provided': 'hu',  # Default to Hungarian
                             'requested': None,
                             'warning': None
                         },
-                        'route_details': route_details,
-                        'start_text': start_text,
-                        'end_text': end_text
+                        'start_text': realcity_data['start_text'],
+                        'end_text': realcity_data['end_text'],
+                        'route_details': realcity_data['route_details']
                     }
                 }
-                
                 messages.append(message)
             
             return {'messages': messages}
             
     except Exception as e:
         logger.error(f"Error getting service alerts: {e}")
-        return {'messages': []}
+        raise
 
 # Helper functions
 def _get_current_gtfs_path() -> Optional[Path]:
