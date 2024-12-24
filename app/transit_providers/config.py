@@ -32,26 +32,32 @@ def register_provider_config(provider_name: str, default_config: Dict[str, Any])
     logger.debug(f"Registered default config for {provider_name}")
 
 def get_provider_config(provider_name: str) -> Dict[str, Any]:
-    """Get merged configuration for a provider (following precedence: default.py → provider config → local.py)"""
-    # Start with global defaults from default.py
-    config = {}
+    """Get merged configuration for a provider (following precedence order from least to most important:
+    1. Provider defaults (least important)
+    2. default.py (overrides provider defaults)
+    3. local.py (most important, overrides both)
+    )"""
+    # Start with provider-specific defaults (least important)
+    config = deepcopy(PROVIDER_DEFAULTS.get(provider_name, {}))
+    logger.debug(f"Starting with provider defaults for {provider_name}: {config}")
     
-    # Get relevant config from default.py
-    # Look for provider-specific keys in default.py (e.g., STIB_STOPS for STIB)
+    # Get all possible keys for this provider
+    possible_keys = set(config.keys())  # Start with keys from provider defaults
+    possible_keys.update(get_config('PROVIDER_KEYS', {}).get(provider_name, []))  # Add keys from PROVIDER_KEYS
+    
+    # Merge values from default.py (overrides provider defaults)
     provider_upper = provider_name.upper()
-    for key in PROVIDER_DEFAULTS.get(provider_name, {}):
+    for key in possible_keys:
         default_key = f"{provider_upper}_{key}" if not key.startswith(provider_upper) else key
         default_value = get_config(default_key)
         if default_value is not None:
-            config[key] = deepcopy(default_value)
-    logger.debug(f"Config from default.py for {provider_name}: {config}")
+            if key in config and isinstance(config[key], dict) and isinstance(default_value, dict):
+                config[key] = deep_update(config[key], deepcopy(default_value))
+            else:
+                config[key] = deepcopy(default_value)
+    logger.debug(f"After default.py for {provider_name}: {config}")
     
-    # Merge provider-specific defaults
-    provider_defaults = deepcopy(PROVIDER_DEFAULTS.get(provider_name, {}))
-    config = deep_update(config, provider_defaults)
-    logger.debug(f"After provider defaults for {provider_name}: {config}")
-    
-    # Get user config from local.py and merge it
+    # Get user config from local.py and merge it (most important)
     provider_config = get_config('PROVIDER_CONFIG', {})
     user_config = deepcopy(provider_config.get(provider_name, {}))
     config = deep_update(config, user_config)
