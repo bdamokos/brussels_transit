@@ -209,6 +209,11 @@ async function fetchAndUpdateData() {
         }
 
         // Combine the data from all providers
+        console.log("Combining data from providers:");
+        console.log("STIB stops:", Object.keys(stibData.stops_data || {}).length);
+        console.log("De Lijn stops:", Object.keys(delijnData.stops_data || {}).length);
+        console.log("BKK stops:", Object.keys(bkkData.stops_data || {}).length);
+        
         const combinedData = {
             stops_data: {
                 ...stibData.stops_data,
@@ -231,20 +236,30 @@ async function fetchAndUpdateData() {
                 ...(stibData.errors || []),
                 ...(delijnData.errors || []),
                 ...(bkkData.errors || [])
-            ]
+            ],
+            routes: {
+                ...(stibData.routes || {}),
+                ...(delijnData.routes || {}),
+                ...(bkkData.routes || {})
+            }
         };
 
         console.log("Combined data:", combinedData);
+        console.log("Total stops:", Object.keys(combinedData.stops_data).length);
+        console.log("Total routes:", Object.keys(combinedData.routes || {}).length);
 
         // Update the UI with combined data
         console.log("Updating stops data...");
-        updateStopsData(combinedData.stops_data);
+        await updateStopsData(combinedData.stops_data);
         
         console.log("Updating service messages...");
         await updateServiceMessages(combinedData.messages);
         
         console.log("Updating map data...");
         await updateMapData(combinedData);
+        
+        console.log("Updating route lines...");
+        await updateRouteLines(combinedData);
         
         console.log("Updating errors...");
         updateErrors(combinedData.errors, []);
@@ -265,10 +280,11 @@ async function fetchAndUpdateData() {
 }
 
 // UI update functions
-function updateStopsData(stopsData) {
+async function updateStopsData(stopsData) {
     console.log("Updating stops data with:", stopsData);
-    const sections = document.querySelectorAll('.stop-section');
     
+    // Update UI sections
+    const sections = document.querySelectorAll('.stop-section');
     sections.forEach(section => {
         const stopName = section.dataset.stopName;
         const content = section.querySelector('.stop-content');
@@ -299,7 +315,7 @@ function updateStopsData(stopsData) {
                             --text-border-color: ${lineColor.text_border};
                             --bg-border-color: ${lineColor.background_border};
                         `
-                        : `background-color: ${lineColor || '#666'}`;
+                        : `background-color: ${typeof lineColor === 'object' ? lineColor[line] : (lineColor || '#666')}`;
                     
                     const metadata = lineData._metadata || {};
                     delete lineData._metadata;
@@ -380,24 +396,56 @@ function updateStopsData(stopsData) {
         });
     });
     
-    // Then update map markers
-    stopsLayer.eachLayer(marker => {
-        const stopId = marker.stopId;
-        const stopInfo = stopsData[stopId];
-        const isDelijn = DELIJN_STOP_IDS.has(stopId);
-        const isBkk = transitApp.bkkModule.BKK_STOP_IDS.has(stopId);
+    // Add stop markers to the map
+    console.log("Adding stop markers to map...");
+    Object.entries(stopsData).forEach(([stopId, stopInfo]) => {
+        console.log(`Processing stop ${stopId}:`, stopInfo);
+        if (!stopInfo.coordinates) {
+            console.log(`Skipping stop ${stopId} - no coordinates`);
+            return;
+        }
         
-        if (stopInfo && stopInfo.lines) {
-            let popupContent = `<strong>${properTitle(stopInfo.name)}</strong><br>`;
+        // Check if marker already exists
+        let existingMarker = null;
+        stopsLayer.eachLayer(marker => {
+            if (marker.stopId === stopId) {
+                existingMarker = marker;
+            }
+        });
+        
+        if (!existingMarker) {
+            console.log(`Creating new marker for stop ${stopId} at`, stopInfo.coordinates);
+            // Create new marker
+            const marker = L.circleMarker(
+                [stopInfo.coordinates.lat, stopInfo.coordinates.lon],
+                {
+                    radius: 8,
+                    fillColor: '#fff',
+                    color: '#000',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8,
+                    pane: 'stopsPane'
+                }
+            );
             
+            marker.stopId = stopId;
+            marker.addTo(stopsLayer);
+            existingMarker = marker;
+            console.log(`Added marker for stop ${stopId}`);
+        }
+        
+        // Update popup content
+        let popupContent = `<strong>${properTitle(stopInfo.name)}</strong><br>`;
+        if (stopInfo.lines) {
             for (const [line, lineData] of Object.entries(stopInfo.lines)) {
                 const metadata = lineData._metadata || {};
-                delete lineData._metadata;
-                
                 for (const [destination, times] of Object.entries(lineData)) {
                     if (!times || times.length === 0) continue;
                     
                     const lineColor = transitApp.lineColors[line];
+                    const isDelijn = DELIJN_STOP_IDS.has(stopId);
+                    const isBkk = transitApp.bkkModule.BKK_STOP_IDS.has(stopId);
                     const style = (isDelijn || isBkk) && typeof lineColor === 'object'
                         ? `
                             --text-color: ${lineColor.text};
@@ -405,9 +453,8 @@ function updateStopsData(stopsData) {
                             --text-border-color: ${lineColor.text_border};
                             --bg-border-color: ${lineColor.background_border};
                         `
-                        : `background-color: ${lineColor || '#666'}`;
+                        : `background-color: ${typeof lineColor === 'object' ? lineColor[line] : (lineColor || '#666')}`;
                     
-                    // Add line and destination
                     popupContent += `
                         <div class="line-info">
                             <span class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}" 
@@ -417,38 +464,10 @@ function updateStopsData(stopsData) {
                             → ${destination}
                         </div>
                     `;
-                    
-                    // Add next arrival times (limit to 2 for popup)
-                    const nextArrivals = times.slice(0, 2).map(time => {
-                        if ((isDelijn || isBkk) && time.is_realtime) {
-                            const sameTime = time.realtime_time === time.scheduled_time;
-                            const minutes = time.realtime_minutes !== undefined ? time.realtime_minutes : time.scheduled_minutes;
-                            return sameTime ? 
-                                `${minutes} (⚡/🕒 ${time.realtime_time})` : 
-                                `${minutes} (⚡${time.realtime_time} - 🕒${time.scheduled_time})`;
-                        } else {
-                            const minutes = time.minutes !== undefined ? time.minutes : time.scheduled_minutes;
-                            const displayTime = time.formatted_time || time.scheduled_time;
-                            if (minutes === undefined || !displayTime) {
-                                console.debug('Missing time data in popup:', time);
-                                return '';
-                            }
-                            return `${minutes} (${displayTime})`;
-                        }
-                    }).filter(Boolean).join(', ');
-                    
-                    popupContent += `<div class="arrival-times">${nextArrivals}</div>`;
                 }
             }
-            
-            // Update popup content
-            marker.setPopupContent(popupContent);
-            
-            // If popup is open, update it
-            if (marker.isPopupOpen()) {
-                marker.getPopup().update();
-            }
         }
+        existingMarker.bindPopup(popupContent);
     });
 }
 
@@ -975,6 +994,56 @@ function updateDistances(position) {
     }
 }
 
+// Add this function to handle route lines
+async function updateRouteLines(data) {
+    console.log("Updating route lines with data:", data);
+    
+    // Clear existing routes
+    routesLayer.clearLayers();
+    console.log("Cleared existing route lines");
+    
+    // Add route lines if available
+    if (data.routes) {
+        console.log("Found routes data:", Object.keys(data.routes).length, "routes");
+        Object.entries(data.routes).forEach(([line, routeData]) => {
+            console.log(`Processing route line ${line}:`, routeData);
+            if (!routeData.variants) {
+                console.log(`No variants for line ${line}`);
+                return;
+            }
+            
+            routeData.variants.forEach((variant, index) => {
+                if (!variant.coordinates || !Array.isArray(variant.coordinates)) {
+                    console.log(`Invalid coordinates for line ${line} variant ${index}`);
+                    return;
+                }
+                
+                const lineColor = transitApp.lineColors[line];
+                console.log(`Line ${line} color:`, lineColor);
+                const color = typeof lineColor === 'object' ? 
+                    (lineColor.background || '#666') : 
+                    (typeof lineColor === 'object' ? lineColor[line] : (lineColor || '#666'));
+                
+                console.log(`Creating polyline for line ${line} with color ${color}`);
+                const polyline = L.polyline(
+                    variant.coordinates.map(coord => [coord.lat, coord.lon]),
+                    {
+                        color: color,
+                        weight: 4,
+                        opacity: 0.6,
+                        className: 'route-line'
+                    }
+                );
+                
+                polyline.addTo(routesLayer);
+                console.log(`Added route line ${line} variant ${index} to map`);
+            });
+        });
+    } else {
+        console.log("No routes data available");
+    }
+}
+
 // Initialize everything when the DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
     try {
@@ -1060,7 +1129,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Add the tile layer first
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            minZoom: 11,
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
         
