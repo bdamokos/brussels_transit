@@ -114,5 +114,26 @@ def import_providers():
             except Exception as e:
                 logger.error(f"Error importing module {module_name}: {e}")
 
+def get_provider_from_path(provider_path: str) -> str:
+    """Convert a provider path (e.g. 'be/stib') back to a provider ID (e.g. 'stib')
+    
+    Args:
+        provider_path: The path of the provider (e.g. 'be/stib')
+        
+    Returns:
+        str: The provider ID if found, empty string if not found
+    """
+    logger.debug(f"Looking up provider from path: {provider_path}")
+    
+    # Check each provider's path
+    for provider_name, provider in PROVIDERS.items():
+        path = get_provider_path(provider_name)
+        if path == provider_path:
+            logger.debug(f"Found provider {provider_name} for path {provider_path}")
+            return provider_name
+            
+    logger.debug(f"No provider found for path {provider_path}")
+    return ""
+
 # Import all providers when this module is imported
 import_providers()
