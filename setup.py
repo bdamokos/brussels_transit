@@ -10,5 +10,5 @@ setup(
         "httpx>=0.27.2",
         "python-dotenv>=1.0.0",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.9",
 ) 
