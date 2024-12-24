@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTFS Data Manager</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <style>
+        .provider-card {
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .provider-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .backend-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            display: none;
+        }
+        .backend-status.loading {
+            display: block;
+            background-color: #ffc107;
+            color: #000;
+        }
+        .backend-status.error {
+            display: block;
+            background-color: #dc3545;
+            color: #fff;
+        }
+        .backend-status.ready {
+            display: block;
+            background-color: #198754;
+            color: #fff;
+            opacity: 1;
+            transition: opacity 2s;
+        }
+        .backend-status.ready.fade-out {
+            opacity: 0;
+        }
+        .validation-info {
+            font-size: 0.9em;
+            color: #666;
+            padding: 8px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .validation-error {
+            color: #dc3545;
+            font-weight: 500;
+        }
+        .validation-warning {
+            color: #ffc107;
+            font-weight: 500;
+        }
+        .provider-info {
+            font-size: 0.9em;
+            color: #666;
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+        .card-title {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        .text-info {
+            color: #0dcaf0;
+            font-weight: 500;
+        }
+        .text-muted {
+            color: #6c757d;
+            text-decoration: none;
+        }
+        .text-muted:hover {
+            color: #495057;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Backend Status Indicator -->
+    <div id="backendStatus" class="backend-status">
+        <span class="status-text"></span>
+    </div>
+
+    <div class="container mt-4">
+        <!-- Navigation -->
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand">GTFS Data Manager</span>
+                <div class="navbar-nav">
+                    <a class="nav-link" href="index.html">Route Explorer</a>
+                    <a class="nav-link" href="stop_explorer.html">Stop Explorer</a>
+                    <a class="nav-link active" href="get_gtfs_data.html">Data Manager</a>
+                </div>
+            </div>
+        </nav>
+
+        <h1 class="mb-4">GTFS Data Manager</h1>
+
+        <!-- Search Form -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="countrySearch" placeholder="Search by country code (e.g. BE)">
+                    <button class="btn btn-primary" id="searchBtn">Search Providers</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Providers -->
+        <div class="mb-4">
+            <h2>Current Providers</h2>
+            <div id="currentProvidersContainer">
+                <div class="alert alert-info">
+                    Loading current providers...
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Providers -->
+        <div>
+            <h2>Available Providers</h2>
+            <div id="providersContainer">
+                <div class="alert alert-info">
+                    Enter a country code to search for GTFS data providers.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const backendStatus = document.getElementById('backendStatus');
+            const providersContainer = document.getElementById('providersContainer');
+            const currentProvidersContainer = document.getElementById('currentProvidersContainer');
+            const searchBtn = document.getElementById('searchBtn');
+            const countrySearch = document.getElementById('countrySearch');
+
+            function showStatus(message, type) {
+                backendStatus.className = `backend-status ${type}`;
+                backendStatus.querySelector('.status-text').textContent = message;
+                if (type === 'ready') {
+                    setTimeout(() => backendStatus.classList.add('fade-out'), 2000);
+                }
+            }
+
+            function displayProviders(providers, container, isCurrentProvider = false) {
+                container.innerHTML = '';
+                
+                if (providers.length === 0) {
+                    container.innerHTML = `
+                        <div class="alert alert-warning">
+                            No providers found.
+                        </div>
+                    `;
+                    return;
+                }
+
+                providers.forEach(provider => {
+                    const card = document.createElement('div');
+                    card.className = 'card provider-card';
+                    
+                    // Get validation info from latest dataset
+                    const validationInfo = provider.latest_dataset?.validation_report || {};
+                    const validationHtml = `
+                        <div class="validation-info">
+                            ${validationInfo.total_error ? `<span class="validation-error">Errors: ${validationInfo.total_error}</span> | ` : ''}
+                            ${validationInfo.total_warning ? `<span class="validation-warning">Warnings: ${validationInfo.total_warning}</span>` : ''}
+                            ${validationInfo.total_info ? `<span class="text-info">Info: ${validationInfo.total_info}</span>` : ''}
+                        </div>
+                    `;
+
+                    // Get provider info
+                    const providerInfo = `
+                        <div class="provider-info">
+                            ${provider.raw_id ? `Provider ID: ${provider.raw_id}<br>` : ''}
+                            ${provider.feed_name ? `Feed: ${provider.feed_name}<br>` : ''}
+                            ${provider.latest_dataset ? `Dataset ID: ${provider.latest_dataset.id}<br>` : ''}
+                            ${provider.latest_dataset ? `Last updated: ${new Date(provider.latest_dataset.downloaded_at).toLocaleString()}<br>` : ''}
+                            ${provider.latest_dataset?.hosted_url ? `<a href="${provider.latest_dataset.hosted_url}" target="_blank" class="text-muted">Source URL</a><br>` : ''}
+                        </div>
+                    `;
+
+                    card.innerHTML = `
+                        <div class="card-body">
+                            <h5 class="card-title">${provider.provider || provider.name}</h5>
+                            <p class="card-text">
+                                ${providerInfo}
+                                ${validationHtml}
+                            </p>
+                            ${isCurrentProvider ? 
+                                `<button class="btn btn-success" disabled>Already Downloaded</button>` :
+                                `<button class="btn btn-primary download-btn" data-provider-id="${provider.id}">
+                                    Download GTFS Data
+                                </button>`
+                            }
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            }
+
+            // Load current providers on page load
+            async function loadCurrentProviders() {
+                showStatus('Loading current providers...', 'loading');
+                try {
+                    const response = await fetch('http://localhost:8000/providers_info');
+                    if (!response.ok) throw new Error('Failed to fetch current providers');
+                    const providers = await response.json();
+                    displayProviders(providers, currentProvidersContainer, true);
+                    showStatus('Current providers loaded', 'ready');
+                } catch (error) {
+                    showStatus('Error loading current providers', 'error');
+                    console.error('Error:', error);
+                }
+            }
+
+            loadCurrentProviders();
+
+            searchBtn.addEventListener('click', async () => {
+                const countryCode = countrySearch.value.trim().toUpperCase();
+                if (!countryCode) {
+                    showStatus('Please enter a country code', 'error');
+                    return;
+                }
+
+                showStatus('Searching providers...', 'loading');
+                try {
+                    const response = await fetch(`http://localhost:8000/api/providers/${countryCode}`);
+                    if (!response.ok) throw new Error('Failed to fetch providers');
+                    const providers = await response.json();
+                    
+                    // Convert providers to the format expected by displayProviders
+                    const formattedProviders = providers.map(p => ({
+                        id: p.id,  // This is the raw ID needed for the download API
+                        provider: p.provider,
+                        name: p.provider,
+                        feed_name: p.feed_name,
+                        latest_dataset: p.latest_dataset
+                    }));
+                    
+                    displayProviders(formattedProviders, providersContainer);
+                    showStatus('Providers loaded successfully', 'ready');
+                } catch (error) {
+                    showStatus('Error loading providers', 'error');
+                    console.error('Error:', error);
+                }
+            });
+
+            providersContainer.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('download-btn')) {
+                    const providerId = e.target.dataset.providerId;
+                    e.target.disabled = true;
+                    e.target.textContent = 'Downloading...';
+                    
+                    showStatus('Downloading GTFS data...', 'loading');
+                    try {
+                        const response = await fetch(`http://localhost:8000/api/download/${providerId}`, {
+                            method: 'POST'
+                        });
+                        if (!response.ok) throw new Error('Failed to download GTFS data');
+                        showStatus('GTFS data downloaded successfully', 'ready');
+                        e.target.textContent = 'Download Complete';
+                        e.target.classList.replace('btn-primary', 'btn-success');
+                        
+                        // Reload current providers
+                        await loadCurrentProviders();
+                    } catch (error) {
+                        showStatus('Error downloading GTFS data', 'error');
+                        console.error('Error:', error);
+                        e.target.disabled = false;
+                        e.target.textContent = 'Retry Download';
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

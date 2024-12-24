@@ -10,6 +10,7 @@ The aim is for a modular design that allows for easy addition of new transit pro
 - Configurable display of multiple stops
 - Auto-refresh of waiting times
 - API that can be used by other applications (e.g. a Raspberry Pi display)
+- Schedule Explorer: A web interface to explore GTFS schedules and plan routes (beta)
 
 ![Screenshot of the web portal the application creates](docs/images/webportal.png)
 
@@ -36,8 +37,26 @@ See for example this implementation: [Raspberry Pi Waiting Time Display](https:/
    - Linux/Mac: `source .venv/bin/activate`
 4. Install dependencies: `pip install -r requirements.txt`
 5. Copy `local.py.example` to `local.py` and add your API keys to the `.env` file
-6. Run the application: `python app/main.py`
-7. Access the application at `http://localhost:5001`
+
+### Running the Application
+
+You can run all components (legacy app, Schedule Explorer frontend and backend) with a single command:
+
+```bash
+python start.py
+```
+
+This will start:
+- Legacy app on http://localhost:5001 (real-time waiting times)
+- Schedule Explorer frontend on http://localhost:8080 (GTFS schedule explorer)
+- Schedule Explorer backend on http://localhost:8000 (GTFS schedule explorer API)
+
+To stop all components, press Ctrl+C.
+
+Alternatively, you can run individual components:
+- Legacy app only: `python app/main.py`
+- Schedule Explorer backend: `cd app/schedule_explorer && uvicorn backend.main:app --reload`
+- Schedule Explorer frontend: `cd app/schedule_explorer/frontend && python -m http.server 8080`
 
 ### Running with Docker
 
