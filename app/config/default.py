@@ -18,7 +18,7 @@ ENABLED_PROVIDERS = [
 ]
 
 # Language Configuration
-LANGUAGE_PRECEDENCE = ['en', 'fr', 'nl']  # Default language fallback chain
+LANGUAGE_PRECEDENCE = ['en', 'hu', 'fr', 'nl', 'de']  # Default language fallback chain
 
 # Port
 PORT = os.getenv('PORT', 5001) # If changed, the Dockerfile and docker-compose.yaml need to be updated manually
