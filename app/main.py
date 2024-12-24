@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, abort
 import html
 import json
 from datetime import datetime, timedelta
@@ -499,17 +499,49 @@ def get_provider_assets(provider):
 
 @app.route('/transit_providers/<path:provider_path>/js/<path:filename>')
 def serve_provider_js(provider_path, filename):
-    return send_from_directory(f'transit_providers/{provider_path}/js', filename)
+    # Sanitize paths and prevent directory traversal
+    safe_provider_path = os.path.normpath(provider_path).replace('\\', '/').lstrip('/')
+    safe_filename = os.path.normpath(filename).replace('\\', '/').lstrip('/')
+    
+    # Ensure the provider path is valid and exists
+    provider_dir = os.path.join('transit_providers', safe_provider_path, 'js')
+    if not os.path.exists(os.path.join(app.root_path, provider_dir)):
+        abort(404)
+    
+    # Additional security check to prevent escaping the intended directory
+    if '..' in safe_provider_path or '..' in safe_filename:
+        abort(403)
+    
+    return send_from_directory(provider_dir, safe_filename)
 
 @app.route('/transit_providers/<path:provider_path>/css/<path:filename>')
 def serve_provider_css(provider_path, filename):
-    return send_from_directory(f'transit_providers/{provider_path}/css', filename)
+    # Sanitize paths and prevent directory traversal
+    safe_provider_path = os.path.normpath(provider_path).replace('\\', '/').lstrip('/')
+    safe_filename = os.path.normpath(filename).replace('\\', '/').lstrip('/')
+    
+    # Ensure the provider path is valid and exists
+    provider_dir = os.path.join('transit_providers', safe_provider_path, 'css')
+    if not os.path.exists(os.path.join(app.root_path, provider_dir)):
+        abort(404)
+    
+    # Additional security check to prevent escaping the intended directory
+    if '..' in safe_provider_path or '..' in safe_filename:
+        abort(403)
+    
+    return send_from_directory(provider_dir, safe_filename)
 
 # Update static file serving to avoid conflicts
 @app.route('/static/css/<path:filename>')
 def serve_static_css(filename):
-    """Serve static CSS files"""
-    return send_from_directory('static/css', filename)
+    # Sanitize filename and prevent directory traversal
+    safe_filename = os.path.normpath(filename).replace('\\', '/').lstrip('/')
+    
+    # Additional security check to prevent escaping the intended directory
+    if '..' in safe_filename:
+        abort(403)
+    
+    return send_from_directory('static/css', safe_filename)
 
 @app.route('/static/js/core/<path:filename>')
 def serve_static_core_js(filename):
