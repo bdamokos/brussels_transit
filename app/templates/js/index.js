@@ -693,27 +693,42 @@ async function updateMapData(data) {
                 // Update the icon's bearing
                 const isDelijn = transitApp.config.delijn?.monitored_lines?.includes(vehicle.line);
                 const isBkk = transitApp.config.bkk?.monitored_lines?.includes(vehicle.line);
+                let displayName = vehicle.line;
                 let markerStyle;
                 
-                if ((isDelijn || isBkk) && typeof routeColor === 'object') {
+                // Get BKK line info if available
+                if (isBkk) {
+                    const lineInfo = transitApp.bkkModule.getLineInfo(vehicle.line);
+                    if (lineInfo) {
+                        displayName = lineInfo.displayName || vehicle.line;
+                        routeColor = lineInfo.colors || routeColor;
+                    }
+                }
+                
+                // Handle different color formats
+                if ((isDelijn || isBkk) && typeof routeColor === 'object' && 'background' in routeColor) {
                     markerStyle = `
                         --text-color: ${routeColor.text};
                         --bg-color: ${routeColor.background};
                         --text-border-color: ${routeColor.text_border};
                         --bg-border-color: ${routeColor.background_border};
                     `;
+                } else if (typeof routeColor === 'object') {
+                    // STIB format where colors are keyed by line number
+                    const stibColor = routeColor[vehicle.line];
+                    markerStyle = `background-color: ${stibColor || '#666'}`;
                 } else {
-                    markerStyle = `--bg-color: ${routeColor}; --text-color: white;`;
+                    markerStyle = `background-color: ${routeColor || '#666'}`;
                 }
 
                 const newIcon = L.divIcon({
                     html: `
                         <div class="vehicle-marker-content" style="
                             --bearing: ${vehicle.bearing}deg;
-                            ${markerStyle}
                         ">
-                            <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}">
-                                ${vehicle.line}
+                            <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}"
+                                 style="${markerStyle}">
+                                ${displayName}
                             </div>
                             <div class="vehicle-arrow"></div>
                         </div>
@@ -725,16 +740,50 @@ async function updateMapData(data) {
                 });
                 existingMarker.setIcon(newIcon);
                 
-                // Format direction display
-                const directionDisplay = vehicle.headsign || vehicle.direction;
-                const segmentInfo = getSegmentInfo(vehicle);
+                // Enhanced popup content
+                let popupContent = `<strong>Line ${displayName}</strong><br>`;
                 
-                existingMarker.setPopupContent(`
-                    <strong>Line ${vehicle.line}</strong><br>
-                    To: ${directionDisplay}<br>
-                    ${segmentInfo}
-                    ${vehicle.delay ? `<br>Delay: ${Math.round(vehicle.delay / 60)} minutes` : ''}
-                `);
+                if (isBkk) {
+                    // BKK-specific popup content
+                    popupContent += `
+                        ${vehicle.destination ? `<div>To: ${vehicle.destination}</div>` : ''}
+                        ${vehicle.trip_id ? `<div>Trip: ${vehicle.trip_id}</div>` : ''}
+                        ${vehicle.status ? `<div>Status: ${vehicle.status}</div>` : ''}
+                        ${vehicle.license_plate ? `<div>Vehicle: ${vehicle.license_plate}</div>` : ''}
+                        ${vehicle.bkk_specific?.vehicle_model ? `<div>Model: ${vehicle.bkk_specific.vehicle_model.trim()}</div>` : ''}
+                        ${vehicle.bkk_specific?.door_open ? '<div>🚪 Doors open</div>' : ''}
+                        ${vehicle.speed ? `<div>Speed: ${vehicle.speed} km/h</div>` : ''}
+                        ${vehicle.timestamp ? `<div>Last updated: ${new Date(vehicle.timestamp).toLocaleTimeString()}</div>` : ''}
+                    `;
+                    
+                    // Add delay information if available
+                    if (vehicle.delay !== undefined && vehicle.delay !== null) {
+                        const delayMinutes = Math.round(vehicle.delay / 60);
+                        const delayClass = delayMinutes < 0 ? 'early' : delayMinutes > 0 ? 'late' : 'on-time';
+                        popupContent += `
+                            <div class="delay ${delayClass}">
+                                ${delayMinutes === 0 ? 'On time' :
+                                  delayMinutes < 0 ? `${Math.abs(delayMinutes)} minutes early` :
+                                  `${delayMinutes} minutes late`}
+                            </div>
+                        `;
+                    }
+                } else {
+                    // Default popup content for other providers
+                    const directionDisplay = vehicle.headsign || vehicle.direction;
+                    popupContent += `
+                        ${directionDisplay ? `<div>To: ${directionDisplay}</div>` : ''}
+                        ${vehicle.delay ? `<div>Delay: ${Math.round(vehicle.delay / 60)} minutes</div>` : ''}
+                    `;
+                }
+                
+                // Add segment info for all providers
+                const segmentInfo = getSegmentInfo(vehicle);
+                if (segmentInfo) {
+                    popupContent += `<div>${segmentInfo}</div>`;
+                }
+                
+                existingMarker.setPopupContent(popupContent);
                 
                 // Mark this position as seen
                 newVehiclePositions.add(`${vehicleKey}-${lat}-${lon}`);
@@ -790,26 +839,41 @@ function createVehicleMarker(vehicle, routeColor, lat, lon) {
     const isDelijn = transitApp.config.delijn?.monitored_lines?.includes(vehicle.line);
     const isBkk = transitApp.config.bkk?.monitored_lines?.includes(vehicle.line);
     let markerStyle;
+    let displayName = vehicle.line;
     
-    if ((isDelijn || isBkk) && typeof routeColor === 'object') {
+    // Get BKK line info if available
+    if (isBkk) {
+        const lineInfo = transitApp.bkkModule.getLineInfo(vehicle.line);
+        if (lineInfo) {
+            displayName = lineInfo.displayName || vehicle.line;
+            routeColor = lineInfo.colors || routeColor;
+        }
+    }
+    
+    // Handle different color formats
+    if ((isDelijn || isBkk) && typeof routeColor === 'object' && 'background' in routeColor) {
         markerStyle = `
             --text-color: ${routeColor.text};
             --bg-color: ${routeColor.background};
             --text-border-color: ${routeColor.text_border};
             --bg-border-color: ${routeColor.background_border};
         `;
+    } else if (typeof routeColor === 'object') {
+        // STIB format where colors are keyed by line number
+        const stibColor = routeColor[vehicle.line];
+        markerStyle = `background-color: ${stibColor || '#666'}`;
     } else {
-        markerStyle = `--bg-color: ${routeColor}; --text-color: white;`;
+        markerStyle = `background-color: ${routeColor || '#666'}`;
     }
     
     const vehicleIcon = L.divIcon({
         html: `
             <div class="vehicle-marker-content" style="
                 --bearing: ${vehicle.bearing}deg;
-                ${markerStyle}
             ">
-                <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}">
-                    ${vehicle.line}
+                <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}" 
+                     style="${markerStyle}">
+                    ${displayName}
                 </div>
                 <div class="vehicle-arrow"></div>
             </div>
@@ -826,17 +890,50 @@ function createVehicleMarker(vehicle, routeColor, lat, lon) {
         zIndexOffset: 1000
     });
     
-    // Format direction display
-    const directionDisplay = vehicle.headsign || vehicle.direction;
+    // Enhanced popup content
+    let popupContent = `<strong>Line ${displayName}</strong><br>`;
+    
+    if (isBkk) {
+        // BKK-specific popup content
+        popupContent += `
+            ${vehicle.destination ? `<div>To: ${vehicle.destination}</div>` : ''}
+            ${vehicle.trip_id ? `<div>Trip: ${vehicle.trip_id}</div>` : ''}
+            ${vehicle.status ? `<div>Status: ${vehicle.status}</div>` : ''}
+            ${vehicle.license_plate ? `<div>Vehicle: ${vehicle.license_plate}</div>` : ''}
+            ${vehicle.bkk_specific?.vehicle_model ? `<div>Model: ${vehicle.bkk_specific.vehicle_model.trim()}</div>` : ''}
+            ${vehicle.bkk_specific?.door_open ? '<div>🚪 Doors open</div>' : ''}
+            ${vehicle.speed ? `<div>Speed: ${vehicle.speed} km/h</div>` : ''}
+            ${vehicle.timestamp ? `<div>Last updated: ${new Date(vehicle.timestamp).toLocaleTimeString()}</div>` : ''}
+        `;
+        
+        // Add delay information if available
+        if (vehicle.delay !== undefined && vehicle.delay !== null) {
+            const delayMinutes = Math.round(vehicle.delay / 60);
+            const delayClass = delayMinutes < 0 ? 'early' : delayMinutes > 0 ? 'late' : 'on-time';
+            popupContent += `
+                <div class="delay ${delayClass}">
+                    ${delayMinutes === 0 ? 'On time' :
+                      delayMinutes < 0 ? `${Math.abs(delayMinutes)} minutes early` :
+                      `${delayMinutes} minutes late`}
+                </div>
+            `;
+        }
+    } else {
+        // Default popup content for other providers
+        const directionDisplay = vehicle.headsign || vehicle.direction;
+        popupContent += `
+            ${directionDisplay ? `<div>To: ${directionDisplay}</div>` : ''}
+            ${vehicle.delay ? `<div>Delay: ${Math.round(vehicle.delay / 60)} minutes</div>` : ''}
+        `;
+    }
+    
+    // Add segment info for all providers
     const segmentInfo = getSegmentInfo(vehicle);
+    if (segmentInfo) {
+        popupContent += `<div>${segmentInfo}</div>`;
+    }
     
-    marker.bindPopup(`
-        <strong>Line ${vehicle.line}</strong><br>
-        To: ${directionDisplay}<br>
-        ${segmentInfo}
-        ${vehicle.delay ? `<br>Delay: ${Math.round(vehicle.delay / 60)} minutes` : ''}
-    `);
-    
+    marker.bindPopup(popupContent);
     marker.addTo(vehiclesLayer);
     return marker;
 }
