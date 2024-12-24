@@ -44,7 +44,8 @@ TIMEZONE = "Europe/Brussels"
 # List of enabled providers
 ENABLED_PROVIDERS = [
     'delijn',
-    'stib'
+    'stib',
+    'bkk'
 ]
 
 # Language Configuration
@@ -53,5 +54,22 @@ ENABLED_PROVIDERS = [
 # LANGUAGE_PRECEDENCE = ['fr', 'nl', 'en']  # Example: prefer French, then Dutch
 # Note: If a provider has languages not in this list (e.g., 'de'),
 # they will be added to the chain before falling back to raw content
+
+
+# Provider-specific configuration
+PROVIDER_CONFIG = {
+    'bkk': {
+        'STOP_IDS': [
+            
+            'F01111',  # Wesselényi utca / Erzsébet körút
+        ],
+        'MONITORED_LINES': [
+            '3040', # tram line 4
+             
+        ],
+        'CACHE_DIR': Path('cache/bkk'),
+        'GTFS_DIR': Path('cache/bkk/gtfs'),
+    }
+} 
 
 # Add any other overrides here
