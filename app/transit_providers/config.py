@@ -52,7 +52,8 @@ def get_provider_config(provider_name: str) -> Dict[str, Any]:
     logger.debug(f"After provider defaults for {provider_name}: {config}")
     
     # Get user config from local.py and merge it
-    user_config = deepcopy(get_config(provider_name.upper(), {}))
+    provider_config = get_config('PROVIDER_CONFIG', {})
+    user_config = deepcopy(provider_config.get(provider_name, {}))
     config = deep_update(config, user_config)
     logger.debug(f"Final merged config for {provider_name}: {config}")
     

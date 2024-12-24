@@ -1,6 +1,6 @@
 // messages.js - Handles service message display and updates
 
-import { getLineColor } from './utils.js';
+import { settings } from './utils.js';
 
 /**
  * Updates the service messages displayed on the UI.
@@ -54,7 +54,7 @@ function renderMessages(messages, isSecondary) {
         
         // Get affected lines and stops
         const lines = message.lines || [];
-        const stops = message.points || [];
+        const stops = message.stops || message.points || [];  // Use stop names if available, fall back to IDs
         
         return `
             <div class="message ${isSecondary ? 'secondary' : ''}">
@@ -62,11 +62,12 @@ function renderMessages(messages, isSecondary) {
                 ${content}
                 ${lines.length > 0 ? `
                     <div class="affected-lines">
-                        Lines: ${lines.map(line => `
-                            <span class="line-number" style="background-color: ${getLineColor(line)}">
+                        Lines: ${lines.map(line => {
+                            const color = settings.lineColors[line] || '#666';
+                            return `<span class="line-number" style="background-color: ${color}; color: white;">
                                 ${line}
-                            </span>
-                        `).join('')}
+                            </span>`;
+                        }).join('')}
                     </div>
                 ` : ''}
                 ${stops.length > 0 ? `
