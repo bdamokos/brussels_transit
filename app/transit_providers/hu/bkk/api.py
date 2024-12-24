@@ -378,7 +378,10 @@ async def get_stops() -> Dict[str, Stop]:
         return cached_stops
         
     # Get fresh GTFS data if needed
-    gtfs_manager = GTFSManager()
+    if gtfs_manager is None:
+        logger.error("GTFSManager not initialized")
+        return {}
+        
     gtfs_dir = await gtfs_manager.ensure_gtfs_data()
     if not gtfs_dir:
         return {}
