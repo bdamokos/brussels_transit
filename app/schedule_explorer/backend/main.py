@@ -62,6 +62,7 @@ feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
 available_providers: List[Dict] = []
 logger = setup_logging()
+db: Optional[MobilityAPI] = None
 
 def find_gtfs_directories() -> List[Dict]:
     """Find all GTFS data directories in the downloads directory and their metadata."""
@@ -121,7 +122,6 @@ def find_gtfs_directories() -> List[Dict]:
 async def get_providers_by_country(country_code: str):
     """Get list of available GTFS providers for a specific country"""
     try:
-        db = MobilityAPI()
         providers = db.get_providers_by_country(country_code)
         # Add sanitized names to the providers
         for provider in providers:
@@ -139,7 +139,6 @@ async def download_gtfs(provider_id: str):
         DOWNLOAD_DIR.mkdir(exist_ok=True)
         
         # Download the GTFS data
-        db = MobilityAPI()
         result = db.download_latest_dataset(provider_id, str(DOWNLOAD_DIR))
         
         if result:
@@ -161,8 +160,9 @@ async def get_providers():
 @app.on_event("startup")
 async def startup_event():
     """Load available GTFS providers on startup"""
-    global available_providers
+    global available_providers, db
     available_providers = find_gtfs_directories()
+    db = MobilityAPI()
 
 @app.post("/provider/{provider_name}")
 async def set_provider(provider_name: str):
