@@ -1,8 +1,14 @@
-# Brussels Public Transport Waiting Times
+# Public Transport Waiting Times
 
-Creates a dashboard showing waiting times for Brussels public transport at selected STIB and De Lijn stops, ordered by distance from a given point (map centre or user's current location).
+Creates a dashboard showing waiting times for implemented public transport companies' stops, ordered by distance from a given point (map centre or user's current location).
 
 The aim is for a modular design that allows for easy addition of new transit providers, including in other countries.
+
+Currently supported:
+- Belgium: STIB, De Lijn
+- Hungary: BKK
+
+Alongside realtime waiting times, it creates a dashboard to browse stops and routes from static GTFS data that it can dynamically download from the Mobility Database.
 
 ## Features
 - Real-time waiting times for STIB/MIVB buses, trams and metros
@@ -47,8 +53,8 @@ python start.py
 ```
 
 This will start:
-- Legacy app on http://localhost:5001 (real-time waiting times)
-- Schedule Explorer frontend on http://localhost:8080 (GTFS schedule explorer)
+- Waiting time dashboard http://localhost:5001 (limited to hardcoded providers)
+- Schedule Explorer frontend on http://localhost:8080 (GTFS schedule explorer - allows loading the GTFS data of all providers who are in the Mobility Database and do not require specific authentication)
 - Schedule Explorer backend on http://localhost:8000 (GTFS schedule explorer API)
 
 To stop all components, press Ctrl+C.
@@ -85,10 +91,33 @@ Alternatively, you can run individual components:
    - "De Lijn GTFS Static"
 4. Add the keys to your `.env` file
 
+### BKK (Budapest)
+
+1. Visit https://opendata.bkk.hu/data-sources
+2. Register and get a key under the key management option
+3. Add the keys to your `.env` file
+
+### Mobility Database
+
+1. Go to https://mobilitydatabase.org
+2. Create an account
+3. Get your API refresh key
+4. Add the keys to your `.env` file
+
+
 ## Figuring out stop IDs
 
+General method:
+
+- Go to the GTFS downloader interface of the Schedule Explorer, download the GTFS data for your provider
+- Switch to the Stop explorer tab, type in your stop name
+- Select the stops that appear, look for the route and direction you want to monitor
+- Note down the stop_id for the relevant stop
+
+Note that the Schedule Explorer works with a wide range of providers, the waiting time interface is limited to the 3 providers currently implemented.
+  
 ### Stib
-Either:
+Alternatively:
 - Explore the open data portal and find the stop ID (https://opendata.stib-mivb.be/) (You can filter by the 'where' field to narrow down the search. E.g. where: pointid="1234" to get information about a specific stop.)
 - Use the [STIB stop finder](https://www.stib-mivb.be/index.htm?l=fr) and look for `stop=` in the URL
 - For each line, one direction is designated as "City" and the other as "Suburb" - it is not always the same direction as you might expect.
