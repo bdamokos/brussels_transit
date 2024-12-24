@@ -532,13 +532,18 @@ def validate_static_path(base_dir: str, filename: str, allowed_extensions: set) 
 
 @app.route('/transit_providers/<path:provider_path>/js/<path:filename>')
 def serve_provider_js(provider_path, filename):
-    # Get provider ID from path
+    # Get provider ID from path and validate
     provider = get_provider_from_path(provider_path)
     if not provider or provider not in PROVIDERS:
         abort(404)
     
+    # Sanitize provider path before using in path construction
+    safe_provider_path = os.path.normpath(provider_path).replace('\\', '/').lstrip('/')
+    if '..' in safe_provider_path:
+        abort(403)
+    
     # Construct provider directory path
-    provider_dir = os.path.join('transit_providers', provider_path, 'js')
+    provider_dir = os.path.join('transit_providers', safe_provider_path, 'js')
     
     # Validate file path
     if not validate_static_path(provider_dir, filename, {'.js'}):
@@ -548,13 +553,18 @@ def serve_provider_js(provider_path, filename):
 
 @app.route('/transit_providers/<path:provider_path>/css/<path:filename>')
 def serve_provider_css(provider_path, filename):
-    # Get provider ID from path
+    # Get provider ID from path and validate
     provider = get_provider_from_path(provider_path)
     if not provider or provider not in PROVIDERS:
         abort(404)
     
+    # Sanitize provider path before using in path construction
+    safe_provider_path = os.path.normpath(provider_path).replace('\\', '/').lstrip('/')
+    if '..' in safe_provider_path:
+        abort(403)
+    
     # Construct provider directory path
-    provider_dir = os.path.join('transit_providers', provider_path, 'css')
+    provider_dir = os.path.join('transit_providers', safe_provider_path, 'css')
     
     # Validate file path
     if not validate_static_path(provider_dir, filename, {'.css'}):
