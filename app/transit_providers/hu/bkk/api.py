@@ -500,14 +500,32 @@ async def get_waiting_times() -> Dict:
         monitored_lines = config.get('MONITORED_LINES', [])
         stop_ids = config.get('STOP_IDS', [])
         
+        # Ensure GTFS data is downloaded
+        if gtfs_manager:
+            await gtfs_manager.ensure_gtfs_data()
+        
+        # Initialize formatted_data with all monitored stops
+        formatted_data = {"stops_data": {}}
+        
+        # Add all monitored stops to the response, even if there are no waiting times
+        for stop_id in stop_ids:
+            stop_info = _get_stop_info(stop_id)
+            if stop_info:
+                formatted_data["stops_data"][stop_id] = {
+                    "name": stop_info['name'],
+                    "coordinates": {
+                        "lat": stop_info['lat'],
+                        "lon": stop_info['lon']
+                    } if stop_info.get('lat') and stop_info.get('lon') else None,
+                    "lines": {}
+                }
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(TRIP_UPDATES_URL)
             response.raise_for_status()
             
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
-            
-            formatted_data = {"stops_data": {}}
             
             for entity in feed.entity:
                 if not entity.HasField('trip_update'):
@@ -526,20 +544,6 @@ async def get_waiting_times() -> Dict:
                     if stop_ids and stop_id not in stop_ids:
                         continue
                         
-                    # Get stop info from cache
-                    stop_info = _get_stop_info(stop_id)
-                        
-                    # Initialize stop data if needed
-                    if stop_id not in formatted_data["stops_data"]:
-                        formatted_data["stops_data"][stop_id] = {
-                            "name": stop_info['name'],
-                            "coordinates": {
-                                "lat": stop_info['lat'],
-                                "lon": stop_info['lon']
-                            } if stop_info['lat'] and stop_info['lon'] else None,
-                            "lines": {}
-                        }
-                    
                     # Initialize line data if needed
                     if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
                         formatted_data["stops_data"][stop_id]["lines"][line_id] = {
@@ -612,7 +616,20 @@ async def get_waiting_times() -> Dict:
             return formatted_data
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
-        return {"stops_data": {}}
+        # Return empty stops_data with monitored stops
+        formatted_data = {"stops_data": {}}
+        for stop_id in stop_ids:
+            stop_info = _get_stop_info(stop_id)
+            if stop_info:
+                formatted_data["stops_data"][stop_id] = {
+                    "name": stop_info['name'],
+                    "coordinates": {
+                        "lat": stop_info['lat'],
+                        "lon": stop_info['lon']
+                    } if stop_info.get('lat') and stop_info.get('lon') else None,
+                    "lines": {}
+                }
+        return formatted_data
 
 def parse_translations(translation_bytes: bytes) -> Dict[str, str]:
     """Parse translation message bytes into a dictionary of language codes to text."""
