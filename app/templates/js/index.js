@@ -5,42 +5,50 @@ let routesLayer;
 let vehiclesLayer;
 let vehicleMarkers = new Map();  // Store markers by their unique position key
 let stopNames = {};
-let delijnConfig = null;
 let DELIJN_STOP_IDS = new Set();  // Will be populated when we get delijnConfig
 let userLocation = null;
 let locationWatchId = null;
 let lastLocationUpdate = 0;
 const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
 
-// Add this function to fetch De Lijn route data
-async function fetchDeLijnRoutes(lines) {
-    const routes = {};
-    for (const line of lines) {
-        try {
-            const response = await fetch(`/api/delijn/lines/${line}/route`);
-            if (response.ok) {
-                routes[line] = await response.json();
-                console.log(`Fetched De Lijn route for line ${line}:`, routes[line]);
-            }
-        } catch (e) {
-            console.error(`Error fetching route for De Lijn line ${line}:`, e);
+// Utility functions
+function properTitle(text) {
+    // Handle undefined, null, or non-string input
+    if (!text) {
+        return '';
+    }
+    
+    // Convert to string if it isn't already
+    text = String(text);
+    
+    // List of words that should remain uppercase
+    const uppercaseWords = new Set(['uz', 'vub', 'ulb']);
+    
+    // Split on spaces and hyphens
+    const words = text.toLowerCase().replace('-', ' - ').split(' ');
+    
+    // Process each word
+    return words.map(word => {
+        // Skip empty words
+        if (!word) return '';
+        
+        // Handle words with periods (abbreviations)
+        if (word.includes('.')) {
+            const parts = word.split('.');
+            return parts.map(p => 
+                p && uppercaseWords.has(p.toLowerCase()) ? 
+                    p.toUpperCase() : 
+                    p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : ''
+            ).join('.');
+        } else if (uppercaseWords.has(word)) {
+            return word.toUpperCase();
+        } else {
+            return word.charAt(0).toUpperCase() + word.slice(1);
         }
-    }
-    return routes;
+    }).filter(Boolean).join(' ') || 'Unknown';  // Return 'Unknown' if result is empty
 }
 
-// Add this helper near the top with other utility functions
-async function isDelijnEnabled() {
-    try {
-        const response = await fetch('/api/delijn/config');
-        return response.ok;
-    } catch (error) {
-        console.log('De Lijn provider not enabled');
-        return false;
-    }
-}
-
-// Modify the fetchAndUpdateData function to add checks
+// Data fetching and update functions
 async function fetchAndUpdateData() {
     try {
         console.log("Starting data fetch...");
@@ -50,27 +58,35 @@ async function fetchAndUpdateData() {
         console.log("STIB response status:", stibResponse.status);
         const stibData = await stibResponse.json();
         
-        // Check if De Lijn is enabled before making any De Lijn API calls
-        const delijnEnabled = await isDelijnEnabled();
+        // Fetch STIB colors for monitored lines
+        if (stibData.stops_data) {
+            const monitoredLines = new Set();
+            Object.values(stibData.stops_data).forEach(stop => {
+                if (stop.lines) {
+                    Object.keys(stop.lines).forEach(line => monitoredLines.add(line));
+                }
+            });
+
+            for (const line of monitoredLines) {
+                try {
+                    const colorResponse = await fetch(`/api/stib/colors/${line}`);
+                    if (colorResponse.ok) {
+                        const color = await colorResponse.json();
+                        transitApp.lineColors[line] = color;
+                    }
+                } catch (error) {
+                    console.warn(`Error fetching color for STIB line ${line}:`, error);
+                }
+            }
+        }
         
         // Initialize De Lijn data with empty defaults
         let delijnData = { stops_data: {}, messages: [], processed_vehicles: [] };
-        let delijnMessages = [];  // Changed from { messages: [] } to []
+        let delijnMessages = [];
         let delijnVehiclesData = [];
         
-        if (delijnEnabled) {
-            // Only make De Lijn API calls if the provider is enabled
-            const delijnResponse = await fetch('/api/delijn/data');
-            if (delijnResponse.ok) {
-                const responseData = await delijnResponse.json();
-                // Ensure we preserve the stops_data structure
-                delijnData = {
-                    ...responseData,
-                    stops_data: delijnData.stops_data
-                };
-                console.log("De Lijn data:", delijnData);
-            }
-            
+        // Fetch De Lijn data if enabled
+        if (transitApp.config.delijn) {
             // Fetch global De Lijn waiting times
             const delijnWaitingTimesResponse = await fetch('/api/delijn/waiting_times');
             if (delijnWaitingTimesResponse.ok) {
@@ -80,17 +96,14 @@ async function fetchAndUpdateData() {
                 // Store colors for later use
                 if (waitingTimesData.colors) {
                     Object.entries(waitingTimesData.colors).forEach(([line, colors]) => {
-                        lineColors[line] = colors;
+                        transitApp.lineColors[line] = colors;
                     });
                 }
                 
                 // Transform waiting times data into the expected format
                 if (waitingTimesData.stops) {
-                    console.log("Processing De Lijn stops:", Object.keys(waitingTimesData.stops));
                     Object.entries(waitingTimesData.stops).forEach(([stopId, stopInfo]) => {
-                        console.log(`Processing stop ${stopId}:`, stopInfo);
                         if (stopInfo.lines) {
-                            console.log(`Stop ${stopId} has lines:`, stopInfo.lines);
                             delijnData.stops_data[stopId] = {
                                 name: stopInfo.name,
                                 coordinates: stopInfo.coordinates,
@@ -98,18 +111,18 @@ async function fetchAndUpdateData() {
                             };
                         }
                     });
-                    console.log("Transformed De Lijn stops data:", delijnData.stops_data);
                 }
             }
             
+            // Fetch De Lijn messages
             const delijnMessagesResponse = await fetch('/api/delijn/messages');
             if (delijnMessagesResponse.ok) {
-                delijnMessages = await delijnMessagesResponse.json();  // Extract messages array directly
-                console.log("De Lijn messages:", delijnMessages);
+                delijnMessages = await delijnMessagesResponse.json();
             }
             
-            if (delijnConfig?.monitored_lines) {
-                const delijnVehiclesPromises = delijnConfig.monitored_lines.map(async line => {
+            // Fetch De Lijn vehicles
+            if (transitApp.config.delijn.monitored_lines) {
+                const delijnVehiclesPromises = transitApp.config.delijn.monitored_lines.map(async line => {
                     try {
                         const response = await fetch(`/api/delijn/vehicles/${line}`);
                         if (response.ok) {
@@ -125,25 +138,99 @@ async function fetchAndUpdateData() {
             }
         }
 
-        // Combine the data
+        // Initialize BKK data with empty defaults
+        let bkkData = { stops_data: {}, messages: [], processed_vehicles: [] };
+        let bkkMessages = [];
+        let bkkVehiclesData = [];
+        
+        // Fetch BKK data if enabled
+        if (transitApp.config.bkk) {
+            try {
+                // Fetch BKK waiting times
+                const bkkWaitingTimes = await transitApp.bkkModule.fetchBkkWaitingTimes();
+                console.log("BKK waiting times:", bkkWaitingTimes);
+                
+                // Store colors for later use
+                if (bkkWaitingTimes.colors) {
+                    Object.entries(bkkWaitingTimes.colors).forEach(([line, colors]) => {
+                        transitApp.lineColors[line] = colors;
+                    });
+                }
+                
+                // Transform waiting times data into the expected format
+                if (bkkWaitingTimes.stops_data) {
+                    Object.entries(bkkWaitingTimes.stops_data).forEach(([stopId, stopInfo]) => {
+                        if (stopInfo.lines) {
+                            bkkData.stops_data[stopId] = {
+                                name: stopInfo.name,
+                                coordinates: stopInfo.coordinates,
+                                lines: Object.entries(stopInfo.lines).reduce((acc, [lineId, lineData]) => {
+                                    // Get line info for display name
+                                    const info = transitApp.bkkModule.getLineInfo(lineId);
+                                    const metadata = {
+                                        route_short_name: info?.displayName || lineData._metadata?.route_short_name || lineId
+                                    };
+                                    
+                                    // Remove metadata from line data and add it separately
+                                    const { _metadata, ...destinations } = lineData;
+                                    acc[lineId] = {
+                                        _metadata: metadata,
+                                        ...destinations
+                                    };
+                                    return acc;
+                                }, {})
+                            };
+                        }
+                    });
+                }
+                
+                // Fetch BKK messages
+                bkkMessages = await transitApp.bkkModule.fetchBkkMessages();
+                
+                // Fetch BKK vehicles
+                if (transitApp.config.bkk.monitored_lines) {
+                    const bkkVehiclesPromises = transitApp.config.bkk.monitored_lines.map(async line => {
+                        try {
+                            const response = await fetch(`/api/bkk/vehicles/${line}`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                return Array.isArray(data) ? data : data.vehicles || [];
+                            }
+                        } catch (error) {
+                            console.warn(`Error fetching vehicles for line ${line}:`, error);
+                        }
+                        return [];
+                    });
+                    bkkVehiclesData = await Promise.all(bkkVehiclesPromises);
+                }
+            } catch (error) {
+                console.error('Error fetching BKK data:', error);
+            }
+        }
+
+        // Combine the data from all providers
         const combinedData = {
             stops_data: {
                 ...stibData.stops_data,
-                ...delijnData.stops_data
+                ...delijnData.stops_data,
+                ...bkkData.stops_data
             },
             messages: {
                 messages: [
                     ...(stibData.messages?.messages || []),
-                    ...delijnMessages  // Use the messages array directly
+                    ...delijnMessages,
+                    ...bkkMessages
                 ]
             },
             processed_vehicles: [
                 ...(stibData.processed_vehicles || []),
-                ...delijnVehiclesData.flat()
+                ...delijnVehiclesData.flat(),
+                ...bkkVehiclesData.flat()
             ],
             errors: [
                 ...(stibData.errors || []),
-                ...(delijnData.errors || [])
+                ...(delijnData.errors || []),
+                ...(bkkData.errors || [])
             ]
         };
 
@@ -154,7 +241,7 @@ async function fetchAndUpdateData() {
         updateStopsData(combinedData.stops_data);
         
         console.log("Updating service messages...");
-        updateServiceMessages(combinedData.messages);
+        await updateServiceMessages(combinedData.messages);
         
         console.log("Updating map data...");
         await updateMapData(combinedData);
@@ -176,6 +263,8 @@ async function fetchAndUpdateData() {
         }
     }
 }
+
+// UI update functions
 function updateStopsData(stopsData) {
     console.log("Updating stops data with:", stopsData);
     const sections = document.querySelectorAll('.stop-section');
@@ -187,21 +276,8 @@ function updateStopsData(stopsData) {
         
         physicalStops.forEach(stopContainer => {
             const stopId = stopContainer.dataset.stopId;
-            // Determine provider based on stop ID
-            const isDelijn = DELIJN_STOP_IDS.has(stopId);
-            const provider = isDelijn ? 'delijn' : 'stib';
-            stopContainer.dataset.provider = provider;  // Set the provider in the DOM
+            const provider = stopContainer.dataset.provider;
             const stopInfo = stopsData[stopId];
-            
-            console.log(`Processing stop ${stopId}:`, {
-                provider,
-                isDelijn,
-                hasData: !!stopInfo,
-                hasLines: stopInfo?.lines,
-                data: stopInfo,
-                inDelijnSet: DELIJN_STOP_IDS.has(stopId),
-                delijnStopIds: Array.from(DELIJN_STOP_IDS)
-            });
             
             // Clear existing content but keep divider if it exists
             const divider = stopContainer.querySelector('.stop-divider');
@@ -211,115 +287,80 @@ function updateStopsData(stopsData) {
             }
             
             if (stopInfo && stopInfo.lines) {
-                for (const [line, destinations] of Object.entries(stopInfo.lines)) {
-                    for (const [destination, times] of Object.entries(destinations)) {
+                for (const [line, lineData] of Object.entries(stopInfo.lines)) {
+                    const lineContainer = document.createElement('div');
+                    lineContainer.className = 'line-container';
+                    
+                    const lineColor = transitApp.lineColors[line];
+                    const style = (provider === 'delijn' || provider === 'bkk') && typeof lineColor === 'object'
+                        ? `
+                            --text-color: ${lineColor.text};
+                            --bg-color: ${lineColor.background};
+                            --text-border-color: ${lineColor.text_border};
+                            --bg-border-color: ${lineColor.background_border};
+                        `
+                        : `background-color: ${lineColor || '#666'}`;
+                    
+                    const metadata = lineData._metadata || {};
+                    delete lineData._metadata;
+                    
+                    for (const [destination, times] of Object.entries(lineData)) {
                         if (!times || times.length === 0) continue;
-                        
-                        const lineContainer = document.createElement('div');
-                        lineContainer.className = 'line-container';
-                        
-                        const lineColor = lineColors[line];
-                        console.log(`Line ${line} color:`, lineColor);
-                        const style = isDelijn && typeof lineColor === 'object'
-                            ? `
-                                --text-color: ${lineColor.text};
-                                --bg-color: ${lineColor.background};
-                                --text-border-color: ${lineColor.text_border};
-                                --bg-border-color: ${lineColor.background_border};
-                            `
-                            : `background-color: ${lineColor || '#666'}`;
-
-                        // Process each passing time
-                        const timeGroups = [];
-                        for (let i = 0; i < times.length; i++) {
-                            const time = times[i];
-                            console.log(`Processing time entry for ${line} to ${destination}:`, time);
-                            
-                            if (time.message && typeof time.message === 'object') {
-                                // Handle multilingual message object
-                                timeGroups.push({
-                                    message: time.message.en || time.message.fr || time.message.nl || 'No message',
-                                    is_message: true
-                                });
-                            } else if (time.message) {
-                                // Handle simple string message
-                                timeGroups.push({
-                                    message: time.message,
-                                    is_message: true
-                                });
-                            } else if (isDelijn) {
-                                // For De Lijn data, preserve all time information
-                                timeGroups.push({
-                                    realtime_minutes: time.realtime_minutes,
-                                    realtime_time: time.realtime_time,
-                                    scheduled_minutes: time.scheduled_minutes,
-                                    scheduled_time: time.scheduled_time,
-                                    delay: time.delay,
-                                    is_realtime: time.is_realtime,
-                                    is_delijn: true
-                                });
-                            } else {
-                                // For STIB data
-                                timeGroups.push({
-                                    minutes: time.minutes,
-                                    formatted_time: time.formatted_time,
-                                    is_delijn: false
-                                });
-                            }
-                        }
                         
                         lineContainer.innerHTML = `
                             <div class="line-info">
-                                <span class="${isDelijn ? 'delijn-line-number' : 'line-number'}" 
+                                <span class="${(provider === 'delijn' || provider === 'bkk') ? 'delijn-line-number' : 'line-number'}" 
                                       style="${style}">
-                                    ${line}
+                                    ${metadata.route_short_name || line}
                                 </span>
                                 <span class="direction">→ ${destination}</span>
                             </div>
                             <div class="times-container">
-                                ${timeGroups.map(group => {
-                                    if (group.message) {
-                                        return `<span class="service-message end-service">${group.message}</span>`;
-                                    } else if (group.is_delijn) {
-                                        // For De Lijn data
-                                        if (group.is_realtime) {
-                                            const delay = group.delay || 0;
+                                ${times.map(time => {
+                                    if (time.message) {
+                                        // Handle translated messages
+                                        const message = typeof time.message === 'object' ?
+                                            (time.message.en || time.message.hu || Object.values(time.message)[0]) :
+                                            time.message;
+                                        return `<span class="service-message end-service">${message}</span>`;
+                                    } else if (provider === 'delijn' || provider === 'bkk') {
+                                        if (time.is_realtime) {
+                                            const delay = time.delay || 0;
                                             const delayClass = delay < 0 ? 'early' : delay > 0 ? 'late' : 'on-time';
                                             
-                                            // Check if realtime and scheduled times are the same
-                                            const sameTime = group.realtime_time === group.scheduled_time;
+                                            const sameTime = time.realtime_time === time.scheduled_time;
                                             
                                             return `
-                                                <span class="time-display delijn">
-                                                    <span class="minutes ${delayClass}">${group.realtime_minutes}</span>
+                                                <span class="time-display ${provider}">
+                                                    <span class="minutes ${delayClass}">${time.realtime_minutes}</span>
                                                     <span class="actual-time">
                                                         ${sameTime ? 
-                                                            `(⚡/ ${group.realtime_time})` : 
-                                                            `(⚡${group.realtime_time} - 🕒${group.scheduled_time})`}
+                                                            `(⚡/ ${time.realtime_time})` : 
+                                                            `(⚡${time.realtime_time} - 🕒${time.scheduled_time})`}
                                                     </span>
                                                 </span>
                                             `;
                                         } else {
                                             return `
-                                                <span class="time-display delijn">
-                                                    <span class="minutes">${group.scheduled_minutes}</span>
-                                                    <span class="actual-time">(🕒 ${group.scheduled_time})</span>
+                                                <span class="time-display ${provider}">
+                                                    <span class="minutes">${time.scheduled_minutes}</span>
+                                                    <span class="actual-time">(🕒 ${time.scheduled_time})</span>
                                                 </span>
                                             `;
                                         }
                                     } else {
-                                        const minutes = group.minutes;
-                                        const time = group.formatted_time;
+                                        const minutes = time.minutes;
+                                        const displayTime = time.formatted_time;
                                         
-                                        if (minutes === undefined || !time) {
-                                            console.debug('Missing time data:', group);
+                                        if (minutes === undefined || !displayTime) {
+                                            console.debug('Missing time data:', time);
                                             return '';
                                         }
 
                                         return `
                                             <span class="time-display">
                                                 <span class="minutes ${parseInt(minutes) < 0 ? 'late' : ''}">${minutes}'</span>
-                                                <span class="actual-time"> (${time})</span>
+                                                <span class="actual-time"> (${displayTime})</span>
                                             </span>
                                         `;
                                     }
@@ -343,17 +384,21 @@ function updateStopsData(stopsData) {
     stopsLayer.eachLayer(marker => {
         const stopId = marker.stopId;
         const stopInfo = stopsData[stopId];
-        const isDelijn = delijnConfig?.stops?.some(stop => stop.id === stopId);
+        const isDelijn = DELIJN_STOP_IDS.has(stopId);
+        const isBkk = transitApp.bkkModule.BKK_STOP_IDS.has(stopId);
         
         if (stopInfo && stopInfo.lines) {
             let popupContent = `<strong>${properTitle(stopInfo.name)}</strong><br>`;
             
-            for (const [line, destinations] of Object.entries(stopInfo.lines)) {
-                for (const [destination, times] of Object.entries(destinations)) {
+            for (const [line, lineData] of Object.entries(stopInfo.lines)) {
+                const metadata = lineData._metadata || {};
+                delete lineData._metadata;
+                
+                for (const [destination, times] of Object.entries(lineData)) {
                     if (!times || times.length === 0) continue;
                     
-                    const lineColor = lineColors[line];
-                    const style = isDelijn && typeof lineColor === 'object'
+                    const lineColor = transitApp.lineColors[line];
+                    const style = (isDelijn || isBkk) && typeof lineColor === 'object'
                         ? `
                             --text-color: ${lineColor.text};
                             --bg-color: ${lineColor.background};
@@ -365,9 +410,9 @@ function updateStopsData(stopsData) {
                     // Add line and destination
                     popupContent += `
                         <div class="line-info">
-                            <span class="${isDelijn ? 'delijn-line-number' : 'line-number'}" 
+                            <span class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}" 
                                   style="${style}">
-                                ${line}
+                                ${metadata.route_short_name || line}
                             </span>
                             → ${destination}
                         </div>
@@ -375,7 +420,7 @@ function updateStopsData(stopsData) {
                     
                     // Add next arrival times (limit to 2 for popup)
                     const nextArrivals = times.slice(0, 2).map(time => {
-                        if (isDelijn && time.is_realtime) {
+                        if ((isDelijn || isBkk) && time.is_realtime) {
                             const sameTime = time.realtime_time === time.scheduled_time;
                             const minutes = time.realtime_minutes !== undefined ? time.realtime_minutes : time.scheduled_minutes;
                             return sameTime ? 
@@ -407,7 +452,7 @@ function updateStopsData(stopsData) {
     });
 }
 
-function updateServiceMessages(messages) {
+async function updateServiceMessages(messages) {
     const primaryContainer = document.getElementById('primary-messages-container');
     const secondaryContainer = document.getElementById('secondary-messages-container');
     
@@ -416,50 +461,91 @@ function updateServiceMessages(messages) {
         secondaryContainer.innerHTML = '';
         return;
     }
+
+    // Collect all STIB lines from messages and fetch their colors if not already in transitApp.lineColors
+    const stibLines = new Set();
+    messages.messages.forEach(message => {
+        const lines = message.lines || message.affected_lines || [];
+        // Only collect lines that don't have colors yet and don't have line_info or line_colors (which would indicate BKK or De Lijn)
+        lines.forEach(line => {
+            if (!transitApp.lineColors[line] && !message.line_info && !message.line_colors) {
+                stibLines.add(line);
+            }
+        });
+    });
+
+    // Fetch colors for STIB lines
+    for (const line of stibLines) {
+        try {
+            const colorResponse = await fetch(`/api/stib/colors/${line}`);
+            if (colorResponse.ok) {
+                const color = await colorResponse.json();
+                transitApp.lineColors[line] = color;
+            }
+        } catch (error) {
+            console.warn(`Error fetching color for STIB line ${line}:`, error);
+        }
+    }
     
     const primaryMessages = messages.messages.filter(m => m.is_monitored);
     const secondaryMessages = messages.messages.filter(m => !m.is_monitored);
     
-    // Make this function async and await the renderMessages
-    (async () => {
-        // Update primary messages
-        if (primaryMessages.length > 0) {
-            primaryContainer.innerHTML = `
-                <div class="primary-messages">
-                    <h2>Important Service Messages</h2>
-                    ${await renderMessages(primaryMessages, false)}
-                </div>`;
-        } else {
-            primaryContainer.innerHTML = '';
-        }
-        
-        // Update secondary messages
-        if (secondaryMessages.length > 0) {
-            secondaryContainer.innerHTML = `
-                <div class="secondary-messages">
-                    <h2>Other Service Messages</h2>
-                    ${await renderMessages(secondaryMessages, true)}
-                </div>`;
-        } else {
-            secondaryContainer.innerHTML = '';
-        }
-    })();
+    // Update primary messages
+    if (primaryMessages.length > 0) {
+        primaryContainer.innerHTML = `
+            <div class="primary-messages">
+                <h2>Important Service Messages</h2>
+                ${renderMessages(primaryMessages, false)}
+            </div>`;
+    } else {
+        primaryContainer.innerHTML = '';
+    }
+    
+    // Update secondary messages
+    if (secondaryMessages.length > 0) {
+        secondaryContainer.innerHTML = `
+            <div class="secondary-messages">
+                <h2>Other Service Messages</h2>
+                ${renderMessages(secondaryMessages, true)}
+            </div>`;
+    } else {
+        secondaryContainer.innerHTML = '';
+    }
 }
 
-async function renderMessages(messages, isSecondary) {
-    const messageElements = messages.map(message => {
-        console.log('Message object:', message);
-
-        const title = message.title || '';
-        const text = message.text || message.description || '';
-        const messageContent = title ? `<strong>${title}</strong><br>${text}` : text;
+function renderMessages(messages, isSecondary) {
+    return messages.map(message => {
+        // Get title and description, handling translations
+        const title = typeof message.title === 'object' ? 
+            (message.title.en || message.title.hu || Object.values(message.title)[0]) : 
+            message.title || '';
+            
+        const description = typeof message.description === 'object' ? 
+            (message.description.en || message.description.hu || Object.values(message.description)[0]) : 
+            message.description || message.text || '';
+            
+        const messageContent = title ? `<strong>${title}</strong><br>${description}` : description;
 
         // Get the lines array
         const lines = message.lines || message.affected_lines || [];
         
         // Render affected lines with proper styling
         const lineElements = lines.map(line => {
-            // Check if this message has line_colors data
+            // Check if this is a BKK message with line_info
+            if (message.line_info) {
+                const lineInfo = message.line_info.find(info => info.id === line);
+                if (lineInfo) {
+                    return `
+                        <span class="delijn-line-number" style="
+                            --text-color: ${lineInfo.colors.text};
+                            --bg-color: ${lineInfo.colors.background};
+                            --text-border-color: ${lineInfo.colors.text_border};
+                            --bg-border-color: ${lineInfo.colors.background_border};
+                        ">${lineInfo.display_name}</span>
+                    `;
+                }
+            }
+            // Check if this message has line_colors data (De Lijn)
             if (message.line_colors && message.line_colors[line]) {
                 const colors = message.line_colors[line];
                 return `
@@ -472,21 +558,64 @@ async function renderMessages(messages, isSecondary) {
                 `;
             } else {
                 // Default STIB styling
+                const lineColor = transitApp.lineColors[line];
+                let style;
+                
+                // Check if the color is an object with the specific keys for De Lijn/BKK format
+                if (lineColor && typeof lineColor === 'object' && 
+                    'background' in lineColor && 'text' in lineColor) {
+                    style = `
+                        --text-color: ${lineColor.text};
+                        --bg-color: ${lineColor.background};
+                        --text-border-color: ${lineColor.text_border};
+                        --bg-border-color: ${lineColor.background_border};
+                    `;
+                } else {
+                    // For STIB, the color is an object with line numbers as keys
+                    const stibColor = lineColor && lineColor[line];
+                    style = `background-color: ${stibColor || '#666'}`;
+                }
+
                 return `
-                    <span class="line-number" style="background-color: ${lineColors[line] || '#666'}">
+                    <span class="${lineColor && typeof lineColor === 'object' && 'background' in lineColor ? 'delijn-line-number' : 'line-number'}" 
+                          style="${style}">
                         ${line}
                     </span>
                 `;
             }
         }).join('');
 
-        // Rest of the message rendering...
         const stops = message.stops ? message.stops.join(', ') : 
                      message.affected_stops ? message.affected_stops.map(stop => stop.name).join(', ') : '';
+
+        // Add BKK-specific fields if available
+        let bkkInfo = '';
+        if (message._metadata) {
+            const startText = message._metadata.start_text?.en || message._metadata.start_text?.hu;
+            const endText = message._metadata.end_text?.en || message._metadata.end_text?.hu;
+            
+            if (startText || endText) {
+                bkkInfo = `
+                    <div class="message-timing">
+                        ${startText ? `<div>From: ${startText}</div>` : ''}
+                        ${endText ? `<div>Until: ${endText}</div>` : ''}
+                    </div>
+                `;
+            }
+        }
+
+        // Add URL if available
+        const urlInfo = message.url ? `
+            <div class="message-url">
+                <a href="${message.url}" target="_blank" rel="noopener noreferrer">More information</a>
+            </div>
+        ` : '';
 
         return `
             <div class="message ${isSecondary ? 'secondary' : ''}">
                 ${messageContent}
+                ${bkkInfo}
+                ${urlInfo}
                 <div class="affected-details">
                     <div class="affected-lines">
                         Lines: ${lineElements}
@@ -499,9 +628,7 @@ async function renderMessages(messages, isSecondary) {
                 </div>
             </div>
         `;
-    });
-
-    return messageElements.join('');
+    }).join('');
 }
 
 async function updateMapData(data) {
@@ -517,7 +644,7 @@ async function updateMapData(data) {
             if (!position) return;
             
             const [lat, lon] = position;
-            const routeColor = lineColors[vehicle.line] || '#666';
+            const routeColor = transitApp.lineColors[vehicle.line] || '#666';
             
             // Create a key for this vehicle based on line and direction
             const vehicleKey = `${vehicle.line}-${vehicle.direction}`;
@@ -534,7 +661,6 @@ async function updateMapData(data) {
                 const distance = map.distance([lat, lon], [markerPos.lat, markerPos.lng]);
                 
                 // Consider it the same vehicle if it's within 500 meters
-                // (adjust this threshold based on your needs)
                 if (distance < 500 && distance < minDistance) {
                     existingMarker = marker;
                     minDistance = distance;
@@ -546,10 +672,11 @@ async function updateMapData(data) {
                 existingMarker.setLatLng([lat, lon]);
                 
                 // Update the icon's bearing
-                const isDelijn = delijnConfig?.monitored_lines?.includes(vehicle.line);
+                const isDelijn = transitApp.config.delijn?.monitored_lines?.includes(vehicle.line);
+                const isBkk = transitApp.config.bkk?.monitored_lines?.includes(vehicle.line);
                 let markerStyle;
                 
-                if (isDelijn && typeof routeColor === 'object') {
+                if ((isDelijn || isBkk) && typeof routeColor === 'object') {
                     markerStyle = `
                         --text-color: ${routeColor.text};
                         --bg-color: ${routeColor.background};
@@ -566,7 +693,7 @@ async function updateMapData(data) {
                             --bearing: ${vehicle.bearing}deg;
                             ${markerStyle}
                         ">
-                            <div class="${isDelijn ? 'delijn-line-number' : 'line-number'}">
+                            <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}">
                                 ${vehicle.line}
                             </div>
                             <div class="vehicle-arrow"></div>
@@ -593,7 +720,7 @@ async function updateMapData(data) {
                 // Mark this position as seen
                 newVehiclePositions.add(`${vehicleKey}-${lat}-${lon}`);
             } else {
-                // Create new marker as before
+                // Create new marker
                 const marker = createVehicleMarker(vehicle, routeColor, lat, lon);
                 const markerKey = `${vehicleKey}-${lat}-${lon}`;
                 vehicleMarkers.set(markerKey, marker);
@@ -611,12 +738,41 @@ async function updateMapData(data) {
     }
 }
 
+function updateErrors(errors, shapeErrors) {
+    const errorsContainer = document.getElementById('errors-container');
+    if (!errorsContainer) {
+        console.warn('Errors container not found');
+        return;
+    }
+
+    let html = '';
+    
+    if (errors && errors.length > 0) {
+        html += '<div class="error-section"><h2>Errors</h2>';
+        errors.forEach(error => {
+            html += `<div class="error-message">${error}</div>`;
+        });
+        html += '</div>';
+    }
+    
+    if (shapeErrors && shapeErrors.length > 0) {
+        html += '<div class="error-section"><h3>Shape Data Errors</h3>';
+        shapeErrors.forEach(error => {
+            html += `<div class="error-message secondary">${error}</div>`;
+        });
+        html += '</div>';
+    }
+    
+    errorsContainer.innerHTML = html;
+}
+
 // Helper function to create a new vehicle marker
 function createVehicleMarker(vehicle, routeColor, lat, lon) {
-    const isDelijn = delijnConfig?.monitored_lines?.includes(vehicle.line);
+    const isDelijn = transitApp.config.delijn?.monitored_lines?.includes(vehicle.line);
+    const isBkk = transitApp.config.bkk?.monitored_lines?.includes(vehicle.line);
     let markerStyle;
     
-    if (isDelijn && typeof routeColor === 'object') {
+    if ((isDelijn || isBkk) && typeof routeColor === 'object') {
         markerStyle = `
             --text-color: ${routeColor.text};
             --bg-color: ${routeColor.background};
@@ -633,7 +789,7 @@ function createVehicleMarker(vehicle, routeColor, lat, lon) {
                 --bearing: ${vehicle.bearing}deg;
                 ${markerStyle}
             ">
-                <div class="${isDelijn ? 'delijn-line-number' : 'line-number'}">
+                <div class="${(isDelijn || isBkk) ? 'delijn-line-number' : 'line-number'}">
                     ${vehicle.line}
                 </div>
                 <div class="vehicle-arrow"></div>
@@ -666,191 +822,75 @@ function createVehicleMarker(vehicle, routeColor, lat, lon) {
     return marker;
 }
 
-// Add this function to fetch coordinates for a stop
-async function fetchStopCoordinates(stopId) {
+function getSegmentInfo(vehicle) {
+    let segmentInfo = '';
+    if (vehicle.current_segment && vehicle.current_segment.length === 2) {
+        const [currentStopId, nextStopId] = vehicle.current_segment;
+        const currentStop = stopNames[currentStopId]?.name || currentStopId;
+        const nextStop = stopNames[nextStopId]?.name || nextStopId;
+        segmentInfo = `Between ${properTitle(currentStop)} and ${properTitle(nextStop)}`;
+        
+        // Fetch missing stop names if needed
+        const missingStops = [];
+        if (!stopNames[currentStopId]) missingStops.push(currentStopId);
+        if (!stopNames[nextStopId]) missingStops.push(nextStopId);
+        if (missingStops.length > 0) {
+            fetchStopNames(missingStops);
+        }
+    }
+    return segmentInfo;
+}
+
+// Helper functions
+async function fetchStopNames(stopIds) {
     try {
-        // First try STIB coordinates
-        const stibResponse = await fetch(`/api/stop_coordinates/${stopId}`);
-        if (stibResponse.ok) {
-            const data = await stibResponse.json();
-            if (data.coordinates && data.coordinates.lat && data.coordinates.lon) {
-                return data.coordinates;
-            }
+        const response = await fetch('/api/stop_names', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(stopIds)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-
-        // If not found in STIB, check if it's a De Lijn stop
-        if (delijnConfig && delijnConfig.stops) {
-            const delijnStop = delijnConfig.stops.find(stop => stop.id === stopId);
-            if (delijnStop && delijnStop.coordinates) {
-                return delijnStop.coordinates;
-            }
+        
+        const data = await response.json();
+        if (data && data.stops) {
+            stopNames = {...stopNames, ...data.stops};
         }
-
-        console.warn(`No coordinates found for stop ${stopId}`);
-        return null;
     } catch (error) {
-        console.error(`Error fetching coordinates for stop ${stopId}:`, error);
-        return null;
+        console.error('Error fetching stop names:', error);
     }
 }
 
-// Update the updateStopMarkerPopup function to handle De Lijn colors
-async function updateStopMarkerPopup(stopId, stopInfo) {
-    stopsLayer.eachLayer(async (marker) => {
-        if (marker.stopId === stopId) {
-            let popupContent = `<strong>${properTitle(stopInfo.name)}</strong><br>`;
-            
-            if (stopInfo.lines) {
-                // Process all lines at once
-                const linePromises = Object.entries(stopInfo.lines).map(async ([line, destinations]) => {
-                    const isDelijn = delijnConfig?.monitored_lines?.includes(line);
-                    let style;
-                    
-                    if (isDelijn) {
-                        const delijnColors = await getDeLijnColors(line);
-                        if (delijnColors) {
-                            style = `
-                                --text-color: ${delijnColors.text};
-                                --bg-color: ${delijnColors.background};
-                                --text-border-color: ${delijnColors.text_border};
-                                --bg-border-color: ${delijnColors.background_border};
-                            `;
-                        }
-                    } else {
-                        const lineColor = lineColors[line] || '#666';
-                        style = `--bg-color: ${lineColor}; --text-color: white;`;
-                    }
+function resetMapView() {
+    map.setView(
+        [transitApp.map_config.center.lat, transitApp.map_config.center.lon], 
+        transitApp.map_config.zoom
+    );
+    if (!userLocation) {
+        // If we're using map center for distances, update them
+        userLocation = map.getCenter();
+        updateDistances(userLocation);
+    }
+}
 
-                    return `
-                        <div class="line-info">
-                            <span class="${isDelijn ? 'delijn-line-number' : 'line-number'}" 
-                                  style="${style}">
-                                ${line}
-                            </span>
-                            → ${destinations.join(', ')}
-                        </div>
-                    `;
-                });
-                
-                // Wait for all line styles to be processed
-                const lineElements = await Promise.all(linePromises);
-                popupContent += lineElements.join('');
-            }
-            
-            marker.setPopupContent(popupContent);
-        }
+function useMapCenter() {
+    userLocation = map.getCenter();
+    updateDistances(userLocation);
+    
+    // Update distances when map is moved
+    map.on('moveend', () => {
+        userLocation = map.getCenter();
+        updateDistances(userLocation);
     });
-}
-
-// Modify the initializeMapLayers function to store stopId with markers
-async function initializeMapLayers(data) {
-    console.log("Initializing map layers with data:", data);
-    
-    // Add route shapes
-    if (data.shapes) {
-        console.log('Processing shapes data:', data.shapes);
-        for (const [line, shapeData] of Object.entries(data.shapes)) {
-            console.log(`Processing shape for line ${line}:`, shapeData);
-            
-            // Add null check here
-            if (!shapeData) {
-                console.warn(`No shape data available for line ${line}`);
-                continue;
-            }
-            
-            // Handle STIB shapes (array format)
-            if (Array.isArray(shapeData)) {
-                console.log(`Line ${line} has array format with ${shapeData.length} variants`);
-                shapeData.forEach((variant, index) => {
-                    console.log(`Processing variant ${index} for line ${line}:`, variant);
-                    if (variant && variant.shape) {
-                        console.log(`Shape coordinates for line ${line} variant ${index}:`, variant.shape.slice(0, 3), '... (first 3 points)');
-                        const convertedCoords = variant.shape.map(coord => {
-                            return [coord[1], coord[0]];
-                        });
-                        console.log(`Converted coordinates for line ${line} variant ${index}:`, convertedCoords.slice(0, 3), '... (first 3 points)');
-                        L.polyline(convertedCoords, {
-                            color: lineColors[line] || '#666',
-                            weight: 3,
-                            opacity: 0.7,
-                            pane: 'routesPane',
-                            interactive: false
-                        }).addTo(routesLayer);
-                    } else {
-                        console.warn(`No shape data for line ${line} variant ${index}`);
-                    }
-                });
-            }
-            // Handle De Lijn shapes (object format with variants)
-            else if (shapeData.variants) {
-                console.log(`Line ${line} has object format with variants`);
-                shapeData.variants.forEach((variant, index) => {
-                    console.log(`Processing De Lijn variant ${index} for line ${line}:`, variant);
-                    if (variant && variant.coordinates) {
-                        console.log(`Coordinates for line ${line} variant ${index}:`, variant.coordinates.slice(0, 3), '... (first 3 points)');
-                        const lineColor = typeof lineColors[line] === 'object' 
-                            ? lineColors[line].background 
-                            : lineColors[line] || '#666';
-                            
-                        L.polyline(variant.coordinates, {
-                            color: lineColor,
-                            weight: 3,
-                            opacity: 0.7,
-                            pane: 'routesPane',
-                            interactive: false
-                        }).addTo(routesLayer);
-                    } else {
-                        console.warn(`No coordinates for line ${line} variant ${index}`);
-                    }
-                });
-            }
-            else {
-                console.warn(`Unknown shape data format for line ${line}:`, shapeData);
-            }
-        }
-    } else {
-        console.warn('No shapes data in response');
-    }
-    
-    // Add stops
-    if (data.display_stops) {
-        for (const stop of data.display_stops) {
-            const coordinates = await fetchStopCoordinates(stop.id);
-            if (coordinates && coordinates.lat && coordinates.lon) {
-                const marker = L.circleMarker([coordinates.lat, coordinates.lon], {
-                    radius: 8,
-                    fillColor: '#fff',
-                    color: '#000',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.8,
-                    pane: 'stopsPane'
-                });
-                
-                // Store the stop ID with the marker
-                marker.stopId = stop.id;
-                
-                // Initial popup content
-                let popupContent = `<strong>${properTitle(stop.name)}</strong><br>`;
-                if (stop.lines) {
-                    popupContent += Object.entries(stop.lines)
-                        .map(([line, destinations]) => 
-                            `<span class="line-number" style="background-color: ${lineColors[line] || '#666'}">${line}</span> → ${destinations.join(', ')}`
-                        ).join('<br>');
-                }
-                
-                marker.bindPopup(popupContent);
-                marker.addTo(stopsLayer);
-            } else {
-                console.warn(`Missing or invalid coordinates for stop ${stop.name} (${stop.id})`);
-            }
-        }
-    }
 }
 
 // Add this function to calculate walking time
 function calculateWalkingTime(meters) {
-    const seconds = meters / WALKING_SPEED;
+    const seconds = meters / transitApp.WALKING_SPEED;
     const minutes = Math.round(seconds / 60);
     return minutes;
 }
@@ -935,163 +975,6 @@ function updateDistances(position) {
     }
 }
 
-// Add error handling function
-function updateErrors(errors, shapeErrors) {
-    const errorsContainer = document.getElementById('errors-container');
-    if (!errorsContainer) {
-        console.warn('Errors container not found');
-        return;
-    }
-
-    let html = '';
-    
-    if (errors && errors.length > 0) {
-        html += '<div class="error-section"><h2>Errors</h2>';
-        errors.forEach(error => {
-            html += `<div class="error-message">${error}</div>`;
-        });
-        html += '</div>';
-    }
-    
-    if (shapeErrors && shapeErrors.length > 0) {
-        html += '<div class="error-section"><h3>Shape Data Errors</h3>';
-        shapeErrors.forEach(error => {
-            html += `<div class="error-message secondary">${error}</div>`;
-        });
-        html += '</div>';
-    }
-    
-    errorsContainer.innerHTML = html;
-}
-
-// Add this function to fetch stop names
-async function fetchStopNames(stopIds) {
-    try {
-        const response = await fetch('/api/stop_names', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(stopIds)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        if (data && data.stops) {
-            stopNames = {...stopNames, ...data.stops};
-        }
-    } catch (error) {
-        console.error('Error fetching stop names:', error);
-    }
-}
-
-function getSegmentInfo(vehicle) {
-    let segmentInfo = '';
-    if (vehicle.current_segment && vehicle.current_segment.length === 2) {
-        const [currentStopId, nextStopId] = vehicle.current_segment;
-        const currentStop = stopNames[currentStopId]?.name || currentStopId;
-        const nextStop = stopNames[nextStopId]?.name || nextStopId;
-        segmentInfo = `Between ${properTitle(currentStop)} and ${properTitle(nextStop)}`;
-        
-        // Fetch missing stop names if needed
-        const missingStops = [];
-        if (!stopNames[currentStopId]) missingStops.push(currentStopId);
-        if (!stopNames[nextStopId]) missingStops.push(nextStopId);
-        if (missingStops.length > 0) {
-            fetchStopNames(missingStops);
-        }
-    }
-    return segmentInfo;
-}
-
-// Add function to fetch De Lijn colors for a line
-async function getDeLijnColors(line) {
-    const isDelijnLine = delijnConfig?.monitored_lines?.includes(line);
-    if (!isDelijnLine) {
-        return null;
-    }
-
-    try {
-        if (lineColors[line] && typeof lineColors[line] === 'object') {
-            return lineColors[line];
-        }
-
-        const response = await fetch(`/api/delijn/lines/${line}/colors`);
-        if (response.ok) {
-            const colors = await response.json();
-            lineColors[line] = colors;
-            return colors;
-        }
-    } catch (e) {
-        console.error(`Error fetching colors for line ${line}:`, e);
-    }
-    return null;
-}
-
-function properTitle(text) {
-    // Handle undefined, null, or non-string input
-    if (!text) {
-        return '';
-    }
-    
-    // Convert to string if it isn't already
-    text = String(text);
-    
-    // List of words that should remain uppercase
-    const uppercaseWords = new Set(['uz', 'vub', 'ulb']);
-    
-    // Split on spaces and hyphens
-    const words = text.toLowerCase().replace('-', ' - ').split(' ');
-    
-    // Process each word
-    return words.map(word => {
-        // Skip empty words
-        if (!word) return '';
-        
-        // Handle words with periods (abbreviations)
-        if (word.includes('.')) {
-            const parts = word.split('.');
-            return parts.map(p => 
-                p && uppercaseWords.has(p.toLowerCase()) ? 
-                    p.toUpperCase() : 
-                    p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : ''
-            ).join('.');
-        } else if (uppercaseWords.has(word)) {
-            return word.toUpperCase();
-        } else {
-            return word.charAt(0).toUpperCase() + word.slice(1);
-        }
-    }).filter(Boolean).join(' ') || 'Unknown';  // Return 'Unknown' if result is empty
-}
-
-// Add this function
-function resetMapView() {
-    map.setView(
-        [map_config.center.lat, map_config.center.lon], 
-        map_config.zoom
-    );
-    if (!userLocation) {
-        // If we're using map center for distances, update them
-        userLocation = map.getCenter();
-        updateDistances(userLocation);
-    }
-}
-
-// Add this function to handle using map center for distances
-function useMapCenter() {
-    userLocation = map.getCenter();
-    updateDistances(userLocation);
-    
-    // Update distances when map is moved
-    map.on('moveend', () => {
-        userLocation = map.getCenter();
-        updateDistances(userLocation);
-    });
-}
-
 // Initialize everything when the DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
     try {
@@ -1102,19 +985,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!delijnConfigResponse.ok) {
             throw new Error('Error fetching De Lijn configuration');
         }
-        delijnConfig = await delijnConfigResponse.json();
-        console.log('De Lijn config:', delijnConfig);
+        transitApp.config.delijn = await delijnConfigResponse.json();
+        console.log('De Lijn config:', transitApp.config.delijn);
 
         // Populate DELIJN_STOP_IDS
-        if (delijnConfig && delijnConfig.stops) {
-            DELIJN_STOP_IDS = new Set(delijnConfig.stops.map(stop => stop.id));
+        if (transitApp.config.delijn && transitApp.config.delijn.stops) {
+            DELIJN_STOP_IDS = new Set(transitApp.config.delijn.stops.map(stop => stop.id));
+        }
+
+        // Fetch BKK config if enabled
+        const bkkEnabled = await transitApp.bkkModule.isBkkEnabled();
+        if (bkkEnabled) {
+            transitApp.config.bkk = await transitApp.bkkModule.fetchBkkConfig();
+            console.log('BKK config:', transitApp.config.bkk);
+            
+            // BKK_STOP_IDS is handled by the bkkModule
+
+            // Add BKK stops to the page
+            if (transitApp.config.bkk.stops && transitApp.config.bkk.stops.length > 0) {
+                const stopsContainer = document.getElementById('stops-container');
+                
+                transitApp.config.bkk.stops.forEach(stop => {
+                    const stopSection = document.createElement('div');
+                    stopSection.className = 'stop-section';
+                    stopSection.dataset.stopName = stop.name;
+                    
+                    stopSection.innerHTML = `
+                        <h2>${properTitle(stop.name)}</h2>
+                        <div class="stop-content">
+                            <div class="physical-stop" data-stop-id="${stop.id}" data-provider="bkk">
+                                <div class="loading">Loading real-time data...</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    stopsContainer.appendChild(stopSection);
+                });
+            }
         }
 
         // Add De Lijn stops to the page
-        if (delijnConfig.stops && delijnConfig.stops.length > 0) {
+        if (transitApp.config.delijn?.stops && transitApp.config.delijn.stops.length > 0) {
             const stopsContainer = document.getElementById('stops-container');
             
-            delijnConfig.stops.forEach(stop => {
+            transitApp.config.delijn.stops.forEach(stop => {
                 const stopSection = document.createElement('div');
                 stopSection.className = 'stop-section';
                 stopSection.dataset.stopName = stop.name;
@@ -1132,58 +1046,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
-        // Fetch STIB static data
-        const stibStaticResponse = await fetch('/api/static_data');
-        if (!stibStaticResponse.ok) {
-            throw new Error('Error fetching STIB static data');
-        }
-        const stibStaticData = await stibStaticResponse.json();
-        console.log('STIB static data:', stibStaticData);
-
-        // Update lineColors with STIB colors
-        Object.assign(lineColors, stibStaticData.route_colors);
-
-        // Fetch De Lijn routes and colors
-        if (delijnConfig && delijnConfig.monitored_lines) {
-            console.log("Fetching De Lijn routes and colors...");
-            const [routes, colors] = await Promise.all([
-                fetchDeLijnRoutes(delijnConfig.monitored_lines),
-                Promise.all(delijnConfig.monitored_lines.map(async line => {
-                    const response = await fetch(`/api/delijn/lines/${line}/colors`);
-                    if (response.ok) {
-                        const colorData = await response.json();
-                        lineColors[line] = colorData;
-                        return { line, colors: colorData };
-                    }
-                }))
-            ]);
-            
-            console.log("De Lijn routes:", routes);
-            console.log("De Lijn colors:", colors);
-            
-            // Add routes to static data
-            stibStaticData.shapes = {
-                ...stibStaticData.shapes,
-                ...routes
-            };
-        }
-
-        // Initialize map with combined static data
-        const combinedStaticData = {
-            ...stibStaticData,
-            display_stops: [
-                ...stibStaticData.display_stops,
-                ...(delijnConfig?.stops || [])
-            ]
-        };
-        
         // Initialize map
         map = L.map('map', {
             center: [
-                map_config.center.lat, 
-                map_config.center.lon
+                transitApp.map_config.center.lat, 
+                transitApp.map_config.center.lon
             ],
-            zoom: map_config.zoom,
+            zoom: transitApp.map_config.zoom,
             zoomControl: true,
             layers: []
         });
@@ -1226,19 +1095,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         L.control.layers(null, overlays).addTo(map);
 
-        console.log("Initializing map with combined data:", combinedStaticData);
-        await initializeMapLayers(combinedStaticData);
-
-        // Handle any errors
-        if (stibStaticData.errors?.length > 0) {
-            updateErrors([], stibStaticData.errors);
-        }
-
         // Initial fetch
         await fetchAndUpdateData();
         
         // Update every 60 seconds
-        setInterval(fetchAndUpdateData, REFRESH_INTERVAL);
+        setInterval(fetchAndUpdateData, transitApp.REFRESH_INTERVAL);
 
         // Add geolocation handling
         if ('geolocation' in navigator && isSecure) {
@@ -1259,7 +1120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     locationWatchId = navigator.geolocation.watchPosition(
                         (newPosition) => {
                             // Only update if enough time has passed
-                            if (Date.now() - lastLocationUpdate >= LOCATION_UPDATE_INTERVAL) {
+                            if (Date.now() - lastLocationUpdate >= transitApp.LOCATION_UPDATE_INTERVAL) {
                                 userLocation = {
                                     lat: newPosition.coords.latitude,
                                     lng: newPosition.coords.longitude
@@ -1271,7 +1132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         null,
                         { 
                             enableHighAccuracy: true,
-                            maximumAge: LOCATION_UPDATE_INTERVAL,
+                            maximumAge: transitApp.LOCATION_UPDATE_INTERVAL,
                             timeout: 10000
                         }
                     );
@@ -1285,28 +1146,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('Geolocation not available or not in secure context');
             useMapCenter();
         }
-
-        // Clean up location watch when page is hidden/closed
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && locationWatchId !== null) {
-                navigator.geolocation.clearWatch(locationWatchId);
-                locationWatchId = null;
-            } else if (!document.hidden && !locationWatchId && 'geolocation' in navigator) {
-                // Restart watching when page becomes visible again
-                navigator.geolocation.getCurrentPosition(position => {
-                    userLocation = {
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude
-                    };
-                    lastLocationUpdate = Date.now();
-                    updateDistances(userLocation);
-                    
-                    locationWatchId = navigator.geolocation.watchPosition(
-                        // ... same watch options as above ...
-                    );
-                });
-            }
-        });
 
     } catch (error) {
         console.error('Error during initialization:', error);
@@ -1322,35 +1161,4 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 });
-
-async function getSettingsToken() {
-    try {
-        const response = await fetch('/api/auth/token');
-        if (!response.ok) throw new Error('Failed to get token');
-        const data = await response.json();
-        return data.token;
-    } catch (error) {
-        console.error('Error getting settings token:', error);
-        return null;
-    }
-}
-
-// Use the token when fetching settings
-async function getSettings() {
-    try {
-        const token = await getSettingsToken();
-        if (!token) throw new Error('No token available');
-
-        const response = await fetch('/api/settings', {
-            headers: {
-                'X-Settings-Token': token
-            }
-        });
-        if (!response.ok) throw new Error('Failed to get settings');
-        return await response.json();
-    } catch (error) {
-        console.error('Error fetching settings:', error);
-        return null;
-    }
-} 
 

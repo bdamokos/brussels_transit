@@ -129,3 +129,14 @@ TIMEZONE = "Europe/Brussels"
 
 # Rate limiting for outside API calls
 RATE_LIMIT_DELAY = 1.0  # Delay in seconds between API calls
+
+PROVIDER_CONFIG = {
+    'bkk': {
+        'PROVIDER_ID': 'mdb-990',  # BKK's ID in Mobility DB
+        'MONITORED_LINES': ['3040'],  # Bus line 30A
+        'STOP_IDS': ['F01111'],  # Wesselényi utca / Erzsébet körút
+        'CACHE_DIR': Path('cache/bkk'),
+        'GTFS_DIR': Path('gtfs/bkk'),
+        'API_KEY': os.getenv('BKK_API_KEY')
+    }
+}

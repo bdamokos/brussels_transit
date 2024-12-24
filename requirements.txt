@@ -102,4 +102,5 @@ pandas
 psutil
 pyarrow
 msgpack
-mobility-db-api
+mobility-db-api>=0.1.1
+gtfs-realtime-bindings>=1.0.0
