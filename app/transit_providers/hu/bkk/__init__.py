@@ -31,6 +31,10 @@ from .api import (
 )
 
 provider_config = get_provider_config('bkk')
+logger.info("=== BKK CONFIG DEBUG ===")
+logger.info(f"Raw config: {provider_config}")
+logger.info("=== END BKK CONFIG DEBUG ===")
+
 GTFS_DIR = provider_config.get('GTFS_DIR')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 
