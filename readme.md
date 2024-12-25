@@ -18,6 +18,8 @@ Alongside realtime waiting times, it creates a dashboard to browse stops and rou
 - API that can be used by other applications (e.g. a Raspberry Pi display)
 - Schedule Explorer: A web interface to explore GTFS schedules and plan routes (beta)
 
+![Vehicle locations](docs/images/vehicle_tracking_on_the_frontend.png)
+
 ![Screenshot of the web portal the application creates](docs/images/webportal.png)
 
 ## Potential features
