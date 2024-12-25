@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     'API_KEY': os.getenv('BKK_API_KEY'),
     'CACHE_DIR': APP_DIR / 'cache' / 'bkk',
     'GTFS_DIR': APP_DIR / 'cache' / 'bkk' / 'gtfs',
-    'STOP_IDS': [],  # Should be set in local config
+    'STOP_IDS': ["F01110-config.py"],  # Should be set in local config - F01110 is a test stop
     'MONITORED_LINES': [],  # Should be set in local config
     'RATE_LIMIT_DELAY': 0.5,  # seconds between API calls
     'GTFS_CACHE_DURATION': 86400 * 7,  # 7 days in seconds

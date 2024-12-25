@@ -34,6 +34,10 @@ from .api import (
 )
 
 provider_config = get_provider_config('delijn')
+logger.info("=== DE LIJN CONFIG DEBUG ===")
+logger.info(f"Raw config: {provider_config}")
+logger.info("=== END DE LIJN CONFIG DEBUG ===")
+
 GTFS_DIR = provider_config.get('GTFS_DIR')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 

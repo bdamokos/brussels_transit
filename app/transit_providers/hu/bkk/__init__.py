@@ -27,10 +27,15 @@ from .api import (
     get_static_data,
     get_line_info,
     get_route_shapes,
-    get_route_variants_api
+    get_route_variants_api,
+    get_line_colors
 )
 
 provider_config = get_provider_config('bkk')
+logger.info("=== BKK CONFIG DEBUG ===")
+logger.info(f"Raw config: {provider_config}")
+logger.info("=== END BKK CONFIG DEBUG ===")
+
 GTFS_DIR = provider_config.get('GTFS_DIR')
 CACHE_DIR = provider_config.get('CACHE_DIR')
 
@@ -54,7 +59,8 @@ class BKKProvider(TransitProvider):
             'vehicles': get_vehicle_positions,
             'static_data': get_static_data,
             'line_info': get_line_info,
-            'route': get_route_variants_api
+            'route': get_route_variants_api,
+            'colors': get_line_colors
         }
         
         # Call parent class constructor
@@ -81,5 +87,6 @@ __all__ = [
     'get_vehicle_positions',
     'get_static_data',
     'get_line_info',
-    'get_route_variants_api'
+    'get_route_variants_api',
+    'get_line_colors'
 ]

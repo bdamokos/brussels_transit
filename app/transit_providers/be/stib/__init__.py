@@ -42,12 +42,16 @@ class StibProvider(TransitProvider):
         self.stop_ids = set()
         
         self.config = get_provider_config('stib')
+        logger.info("=== STIB CONFIG DEBUG ===")
+        logger.info(f"Raw config: {self.config}")
+        logger.info("=== END STIB CONFIG DEBUG ===")
+        
         stib_stops = self.config.get('STIB_STOPS', [])
         for stop in stib_stops:
             if 'lines' in stop:
                 self.monitored_lines.update(stop['lines'].keys())
             self.stop_ids.add(stop['id'])
-
+        
         # Define all endpoints
         endpoints = {
             'config': self.get_config,
