@@ -86,3 +86,4 @@ downloads/
 
 !app/schedule_explorer/backend/tests/test_data/downloads/
 !app/schedule_explorer/backend/tests/prepare_test_data.py
+DEVELOPMENT_DIARY.md

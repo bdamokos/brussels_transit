@@ -57,6 +57,12 @@ logging_config['loggers']['bkk'] = {
     'propagate': True
 }
 
+logging_config['loggers']['transit_providers.config'] = {
+    'handlers': ['bkk_file', 'file'],
+    'level': 'DEBUG',
+    'propagate': True
+}
+
 dictConfig(logging_config)
 logger = logging.getLogger('bkk')
 
@@ -500,6 +506,8 @@ async def get_waiting_times() -> Dict:
         monitored_lines = config.get('MONITORED_LINES', [])
         stop_ids = config.get('STOP_IDS', [])
         
+        logger.debug(f"get_waiting_times called with monitored_lines={monitored_lines}, stop_ids={stop_ids}")
+        
         # Ensure GTFS data is downloaded
         if gtfs_manager:
             await gtfs_manager.ensure_gtfs_data()
@@ -510,6 +518,7 @@ async def get_waiting_times() -> Dict:
         # Add all monitored stops to the response, even if there are no waiting times
         for stop_id in stop_ids:
             stop_info = _get_stop_info(stop_id)
+            logger.debug(f"Processing stop {stop_id}, got info: {stop_info}")
             if stop_info:
                 formatted_data["stops_data"][stop_id] = {
                     "name": stop_info['name'],
@@ -519,6 +528,8 @@ async def get_waiting_times() -> Dict:
                     } if stop_info.get('lat') and stop_info.get('lon') else None,
                     "lines": {}
                 }
+        
+        logger.debug(f"Initialized formatted_data with stops: {formatted_data}")
         
         async with httpx.AsyncClient() as client:
             response = await client.get(TRIP_UPDATES_URL)
