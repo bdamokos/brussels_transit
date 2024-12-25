@@ -127,11 +127,11 @@ PROVIDER_CONFIG = {
         },
         'stops': [
             {
-                'id': 'F01111',  # Wesselényi utca / Erzsébet körút
+                'id': 'F01111-default.py',  # Wesselényi utca / Erzsébet körút
                 'name': 'Wesselényi utca / Erzsébet körút',
                 'lines': {
                     '3060': [
-                        {
+                        { # This feature is not used by the app, but could be in the future
                             'type': 'direction_name',
                             'value': 'Széll Kálmán tér M'
                         }

@@ -18,13 +18,39 @@ logger = logging.getLogger('transit_providers.config')
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {}
 
 def deep_update(base_dict: Dict, update_dict: Dict) -> Dict:
-    """Recursively update a dictionary, preserving nested structures"""
+    """Recursively update a dictionary, preserving nested structures.
+    
+    When both uppercase and lowercase versions of a key exist:
+    1. If updating with uppercase, only update uppercase
+    2. If updating with lowercase, update both lowercase and uppercase
+    
+    Lists and other non-dict values are always replaced entirely.
+    Special cases:
+    - When 'stops' is provided, 'STOP_IDS' is updated with the IDs from the stops list
+    """
     result = deepcopy(base_dict)
+    
+    # Special case: if 'stops' is provided, update STOP_IDS
+    if 'stops' in update_dict:
+        stop_ids = [stop['id'] for stop in update_dict['stops']]
+        result['STOP_IDS'] = stop_ids
+    
     for key, value in update_dict.items():
+        # If the value is a dict and the existing value is also a dict, merge recursively
         if isinstance(value, dict) and key in result and isinstance(result[key], dict):
             result[key] = deep_update(result[key], value)
+        # For all other cases (including lists), replace entirely
         else:
             result[key] = deepcopy(value)
+            
+        # If we're updating with a lowercase key and an uppercase version exists
+        if not key.isupper() and key.upper() in result:
+            upper_key = key.upper()
+            if isinstance(value, dict) and isinstance(result[upper_key], dict):
+                result[upper_key] = deep_update(result[upper_key], value)
+            else:
+                result[upper_key] = deepcopy(value)
+    
     return result
 
 def register_provider_config(provider_name: str, default_config: Dict[str, Any]) -> None:

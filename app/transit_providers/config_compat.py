@@ -28,19 +28,31 @@ def convert_to_provider_format(provider_name: str, config: Dict[str, Any]) -> Di
     """Convert new configuration format to provider-specific format"""
     app_dir = Path(__file__).parent.parent  # Get the app directory
     
+    logger.debug(f"Converting config for {provider_name}")
+    logger.debug(f"Input config keys: {list(config.keys())}")
+    logger.debug(f"Input config monitored_lines: {config.get('monitored_lines')}")
+    logger.debug(f"Input config MONITORED_LINES: {config.get('MONITORED_LINES')}")
+    logger.debug(f"Input config provider_specific: {config.get('provider_specific', {})}")
+    
     # First resolve any paths in the config
     resolve_paths(config, app_dir)
     
     # Convert based on provider
+    result = None
     if provider_name == 'stib':
-        return convert_to_stib_format(config)
+        result = convert_to_stib_format(config)
     elif provider_name == 'delijn':
-        return convert_to_delijn_format(config)
+        result = convert_to_delijn_format(config)
     elif provider_name == 'bkk':
-        return convert_to_bkk_format(config)
+        result = convert_to_bkk_format(config)
     else:
         logger.warning(f"No specific conversion for provider {provider_name}, using as-is")
-        return config
+        result = config
+    
+    logger.debug(f"Converted config keys: {list(result.keys())}")
+    logger.debug(f"Converted config MONITORED_LINES: {result.get('MONITORED_LINES')}")
+    logger.debug(f"Converted config STOP_IDS: {result.get('STOP_IDS')}")
+    return result
 
 def convert_to_stib_format(config: Dict[str, Any]) -> Dict[str, Any]:
     """Convert configuration to STIB format"""
@@ -90,54 +102,65 @@ def convert_to_delijn_format(config: Dict[str, Any]) -> Dict[str, Any]:
 def convert_to_bkk_format(config: Dict[str, Any]) -> Dict[str, Any]:
     """Convert configuration to BKK format
     
-    Convert from new format:
-    {
-        'provider_specific': {
-            'PROVIDER_ID': '...',
-            'API_KEY': '...',
-            'CACHE_DIR': Path('...'),
-            'GTFS_DIR': Path('...')
-        },
-        'stops': [{'id': '...', 'name': '...', 'lines': {...}}],
-        'monitored_lines': ['...']
-    }
-    
-    To old format:
-    {
-        'STOP_IDS': ['...'],
-        'MONITORED_LINES': ['...'],
-        'PROVIDER_ID': '...',
-        'API_KEY': '...',
-        'CACHE_DIR': Path('...'),
-        'GTFS_DIR': Path('...'),
-        'RATE_LIMIT_DELAY': float,
-        'GTFS_CACHE_DURATION': int
-    }
+    This function implements a single source of truth approach:
+    1. All input config uses lowercase keys
+    2. Convert to uppercase only at the final step
+    3. Clear separation between reading values and creating result
     """
-    # Define exactly what fields we want in the output
-    result = {
-        'STOP_IDS': [],
-        'MONITORED_LINES': [],
-        'PROVIDER_ID': None,
-        'API_KEY': None,
-        'CACHE_DIR': None,
-        'GTFS_DIR': None,
-        'RATE_LIMIT_DELAY': None,
-        'GTFS_CACHE_DURATION': None
+    logger.debug(f"Converting BKK config with keys: {list(config.keys())}")
+    
+    # Step 1: Extract all values using lowercase keys only
+    values = {
+        'stop_ids': [],
+        'monitored_lines': [],
+        'provider_id': None,
+        'api_key': None,
+        'cache_dir': None,
+        'gtfs_dir': None,
+        'rate_limit_delay': None,
+        'gtfs_cache_duration': None
     }
     
-    # Copy only the fields we want from provider_specific
+    # Get values from provider_specific first
     if 'provider_specific' in config:
-        for key in result.keys():
+        logger.debug("Reading from provider_specific")
+        for key in values.keys():
             if key in config['provider_specific']:
-                result[key] = config['provider_specific'][key]
+                values[key] = config['provider_specific'][key]
     
-    # Extract stop IDs from stops
-    if 'stops' in config:
-        result['STOP_IDS'] = [stop['id'] for stop in config['stops']]
+    # Then get values from top-level config (overrides provider_specific)
+    for key in values.keys():
+        if key in config:
+            values[key] = config[key]
     
-    # Copy monitored lines
-    if 'monitored_lines' in config:
-        result['MONITORED_LINES'] = config['monitored_lines']
+    # Extract monitored lines from stops if not set
+    if not values['monitored_lines'] and 'stops' in config:
+        logger.debug("Extracting monitored lines from stops")
+        lines_from_stops = set()
+        for stop in config['stops']:
+            if 'lines' in stop:
+                lines_from_stops.update(stop['lines'].keys())
+        if lines_from_stops:
+            values['monitored_lines'] = sorted(lines_from_stops)
     
+    # Extract stop IDs from stops if not set
+    if not values['stop_ids'] and 'stops' in config:
+        logger.debug("Extracting stop IDs from stops")
+        values['stop_ids'] = [stop['id'] for stop in config['stops']]
+    
+    logger.debug(f"Extracted values: {values}")
+    
+    # Step 2: Convert to final format with uppercase keys
+    result = {
+        'STOP_IDS': values['stop_ids'],
+        'MONITORED_LINES': values['monitored_lines'],
+        'PROVIDER_ID': values['provider_id'],
+        'API_KEY': values['api_key'],
+        'CACHE_DIR': values['cache_dir'],
+        'GTFS_DIR': values['gtfs_dir'],
+        'RATE_LIMIT_DELAY': values['rate_limit_delay'],
+        'GTFS_CACHE_DURATION': values['gtfs_cache_duration']
+    }
+    
+    logger.debug(f"Final BKK config - MONITORED_LINES: {result['MONITORED_LINES']}, STOP_IDS: {result['STOP_IDS']}")
     return result 
