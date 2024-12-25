@@ -1,91 +1,136 @@
-"""Backward compatibility layer for provider configurations"""
+"""Backward compatibility layer for provider configuration"""
 
-from typing import Dict, Any, List
 from pathlib import Path
+from typing import Dict, Any, List, Union
+import logging
+
+logger = logging.getLogger(__name__)
+
+def convert_path(path_value: Union[str, Path], app_dir: Path) -> Path:
+    """Convert a path value to an absolute Path object relative to app_dir"""
+    if isinstance(path_value, (str, Path)):
+        # If it's already an absolute path, return it
+        if isinstance(path_value, Path) and path_value.is_absolute():
+            return path_value
+        # Otherwise, make it relative to app_dir
+        return app_dir / str(path_value)
+    return path_value
+
+def resolve_paths(config: Dict[str, Any], app_dir: Path) -> None:
+    """Recursively resolve all path values in a config dictionary"""
+    for key, value in config.items():
+        if isinstance(value, dict):
+            resolve_paths(value, app_dir)
+        elif isinstance(value, (str, Path)) and ('DIR' in key or 'FILE' in key):
+            config[key] = convert_path(value, app_dir)
+
+def convert_to_provider_format(provider_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert new configuration format to provider-specific format"""
+    app_dir = Path(__file__).parent.parent  # Get the app directory
+    
+    # First resolve any paths in the config
+    resolve_paths(config, app_dir)
+    
+    # Convert based on provider
+    if provider_name == 'stib':
+        return convert_to_stib_format(config)
+    elif provider_name == 'delijn':
+        return convert_to_delijn_format(config)
+    elif provider_name == 'bkk':
+        return convert_to_bkk_format(config)
+    else:
+        logger.warning(f"No specific conversion for provider {provider_name}, using as-is")
+        return config
 
 def convert_to_stib_format(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert new config format to STIB's expected format
-    
-    STIB expects:
-    {
-        'STIB_STOPS': [{'id': '...', 'name': '...', 'lines': {'1': ['A', 'B']}, 'direction': '...'}],
-        'API_KEY': '...',
-        ...other provider-specific fields
+    """Convert configuration to STIB format"""
+    result = {
+        'STIB_STOPS': [],
+        'provider_specific': config.get('provider_specific', {})
     }
-    """
-    result = {}
     
-    # Convert stops to STIB_STOPS format
-    if 'stops' in config:
-        stib_stops = []
-        for stop in config['stops']:
-            stib_stop = {
-                'id': stop['id'],
-                'name': stop.get('name'),
-                'direction': stop.get('direction')
-            }
-            
-            if 'lines' in stop:
-                converted_lines = {}
-                for line_id, destinations in stop['lines'].items():
-                    converted_destinations = []
-                    for dest in destinations:
-                        if isinstance(dest, dict):
-                            # Convert LineDestination back to string
-                            converted_destinations.append(dest['value'])
-                        else:
-                            converted_destinations.append(dest)
-                    converted_lines[line_id] = converted_destinations
-                stib_stop['lines'] = converted_lines
-            
-            stib_stops.append(stib_stop)
-        result['STIB_STOPS'] = stib_stops
-    
-    # Add provider-specific fields
-    if 'provider_specific' in config:
-        result.update(config['provider_specific'])
+    # Convert stops to legacy format
+    for stop in config.get('stops', []):
+        legacy_stop = {
+            'id': stop['id'],
+            'name': stop['name'],
+            'lines': {},
+            'direction': stop.get('direction', 'City')  # Default to 'City' if not specified
+        }
+        
+        # Convert lines to legacy format
+        for line_id, destinations in stop.get('lines', {}).items():
+            legacy_stop['lines'][line_id] = []
+            for dest in destinations:
+                if isinstance(dest, dict):
+                    legacy_stop['lines'][line_id].append(dest['value'])
+                else:
+                    legacy_stop['lines'][line_id].append(dest)
+        
+        result['STIB_STOPS'].append(legacy_stop)
     
     return result
 
 def convert_to_delijn_format(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert new config format to De Lijn's expected format
-    
-    De Lijn expects:
-    {
-        'STOP_IDS': ['...', '...'],
-        'MONITORED_LINES': ['...', '...'],
-        'API_KEY': '...',
-        ...other provider-specific fields
+    """Convert configuration to De Lijn format"""
+    result = {
+        'STOP_IDS': [],
+        'MONITORED_LINES': config.get('monitored_lines', [])
     }
-    """
-    result = {}
     
-    # Extract stop IDs from stops
-    if 'stops' in config:
-        result['STOP_IDS'] = [stop['id'] for stop in config['stops']]
+    # Add provider-specific config
+    result.update(config.get('provider_specific', {}))
     
-    # Copy monitored lines
-    if 'monitored_lines' in config:
-        result['MONITORED_LINES'] = config['monitored_lines']
-    
-    # Add provider-specific fields
-    if 'provider_specific' in config:
-        result.update(config['provider_specific'])
+    # Extract stop IDs
+    for stop in config.get('stops', []):
+        result['STOP_IDS'].append(stop['id'])
     
     return result
 
 def convert_to_bkk_format(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert new config format to BKK's expected format
+    """Convert configuration to BKK format
     
-    BKK expects:
+    Convert from new format:
     {
-        'STOP_IDS': ['...', '...'],
-        'MONITORED_LINES': ['...', '...'],
+        'provider_specific': {
+            'PROVIDER_ID': '...',
+            'API_KEY': '...',
+            'CACHE_DIR': Path('...'),
+            'GTFS_DIR': Path('...')
+        },
+        'stops': [{'id': '...', 'name': '...', 'lines': {...}}],
+        'monitored_lines': ['...']
+    }
+    
+    To old format:
+    {
+        'STOP_IDS': ['...'],
+        'MONITORED_LINES': ['...'],
         'PROVIDER_ID': '...',
-        ...other provider-specific fields
+        'API_KEY': '...',
+        'CACHE_DIR': Path('...'),
+        'GTFS_DIR': Path('...'),
+        'RATE_LIMIT_DELAY': float,
+        'GTFS_CACHE_DURATION': int
     }
     """
-    result = {}
+    # Define exactly what fields we want in the output
+    result = {
+        'STOP_IDS': [],
+        'MONITORED_LINES': [],
+        'PROVIDER_ID': None,
+        'API_KEY': None,
+        'CACHE_DIR': None,
+        'GTFS_DIR': None,
+        'RATE_LIMIT_DELAY': None,
+        'GTFS_CACHE_DURATION': None
+    }
+    
+    # Copy only the fields we want from provider_specific
+    if 'provider_specific' in config:
+        for key in result.keys():
+            if key in config['provider_specific']:
+                result[key] = config['provider_specific'][key]
     
     # Extract stop IDs from stops
     if 'stops' in config:
@@ -95,22 +140,4 @@ def convert_to_bkk_format(config: Dict[str, Any]) -> Dict[str, Any]:
     if 'monitored_lines' in config:
         result['MONITORED_LINES'] = config['monitored_lines']
     
-    # Add provider-specific fields
-    if 'provider_specific' in config:
-        result.update(config['provider_specific'])
-    
-    return result
-
-def convert_to_provider_format(provider: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert new config format to provider-specific format"""
-    converters = {
-        'stib': convert_to_stib_format,
-        'delijn': convert_to_delijn_format,
-        'bkk': convert_to_bkk_format
-    }
-    
-    converter = converters.get(provider.lower())
-    if not converter:
-        raise ValueError(f"No converter found for provider: {provider}")
-    
-    return converter(config) 
+    return result 

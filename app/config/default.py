@@ -87,21 +87,6 @@ MAP_CONFIG = {
     "max_zoom": 19
 }
 
-# STIB/MIVB Configuration
-STIB_STOPS = [
-    {
-        'id': '8122',  # Example stop - ROODEBEEK
-        'name': 'ROODEBEEK',
-        'lines': {
-            '1': ['STOCKEL', "GARE DE L'OUEST"],
-            '5': ['STOCKEL', "GARE DE L'OUEST"]
-        },
-        "direction": "Suburb"  # or "City"
-    }
-]
-
-
-
 # API Configuration
 API_CONFIG = {
     "STIB_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
@@ -132,11 +117,125 @@ RATE_LIMIT_DELAY = 1.0  # Delay in seconds between API calls
 
 PROVIDER_CONFIG = {
     'bkk': {
-        'PROVIDER_ID': 'mdb-990',  # BKK's ID in Mobility DB
-        'MONITORED_LINES': ['3040'],  # Bus line 30A
-        'STOP_IDS': ['F01111'],  # Wesselényi utca / Erzsébet körút
-        'CACHE_DIR': Path('cache/bkk'),
-        'GTFS_DIR': Path('gtfs/bkk'),
-        'API_KEY': os.getenv('BKK_API_KEY')
+        'provider_specific': {
+            'PROVIDER_ID': 'mdb-990',  # BKK's ID in Mobility DB
+            'API_KEY': os.getenv('BKK_API_KEY'),
+            'CACHE_DIR': Path('cache/bkk'),
+            'GTFS_DIR': Path('cache/bkk/gtfs'),
+            'RATE_LIMIT_DELAY': 0.5,  # 500ms between API calls
+            'GTFS_CACHE_DURATION': 7 * 24 * 60 * 60  # 7 days in seconds
+        },
+        'stops': [
+            {
+                'id': 'F01111',  # Wesselényi utca / Erzsébet körút
+                'name': 'Wesselényi utca / Erzsébet körút',
+                'lines': {
+                    '3060': [
+                        {
+                            'type': 'direction_name',
+                            'value': 'Széll Kálmán tér M'
+                        }
+                    ]
+                }
+            }
+        ],
+        'monitored_lines': ['3060']
+    },
+    'stib': {
+        'provider_specific': {
+            'API_KEY': os.getenv('STIB_API_KEY'),
+            '_AVAILABLE_LANGUAGES': ['en', 'fr', 'nl'],
+            'API_URL': "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
+            'GTFS_DIR': Path('cache/stib/gtfs'),
+            'CACHE_DIR': Path('cache/stib'),
+            'STOPS_CACHE_FILE': Path('cache/stib/stops.json'),
+            'CACHE_DURATION': timedelta(days=30),
+            'RATE_LIMIT_DELAY': 0.5,
+            'GTFS_CACHE_DURATION': 86400*30,  # 30 days in seconds
+            'GTFS_USED_FILES': ['stops.txt', 'routes.txt', 'trips.txt', 'shapes.txt', 'translations.txt']
+        },
+        'stops': [
+            {
+                'id': '8122',
+                'name': 'ROODEBEEK',
+                'lines': {
+                    '1': [
+                        {
+                            'type': 'stop_name',
+                            'value': 'STOCKEL'
+                        },
+                        {
+                            'type': 'stop_name',
+                            'value': "GARE DE L'OUEST"
+                        }
+                    ],
+                    '5': [
+                        {
+                            'type': 'stop_name',
+                            'value': 'STOCKEL'
+                        },
+                        {
+                            'type': 'stop_name',
+                            'value': "GARE DE L'OUEST"
+                        }
+                    ]
+                },
+                'direction': 'Suburb'
+            }
+        ]
+    },
+    'delijn': {
+        'provider_specific': {
+            'API_URL': 'https://api.delijn.be/DLKernOpenData/api/v1',
+            '_AVAILABLE_LANGUAGES': ['nl'],
+            'GTFS_URL': 'https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip',
+            'GTFS_DIR': Path('cache/delijn/gtfs'),
+            'CACHE_DIR': Path('cache/delijn'),
+            'RATE_LIMIT_DELAY': 0.5,
+            'GTFS_CACHE_DURATION': 86400*30,  # 30 days in seconds
+            'API_KEY': os.getenv('DELIJN_API_KEY'),
+            'GTFS_STATIC_API_KEY': os.getenv('DELIJN_GTFS_STATIC_API_KEY'),
+            'GTFS_REALTIME_API_KEY': os.getenv('DELIJN_GTFS_REALTIME_API_KEY'),
+            'GTFS_USED_FILES': ['stops.txt', 'routes.txt', 'trips.txt', 'shapes.txt']
+        },
+        'stops': [
+            {
+                'id': '307250',
+                'name': 'Haren',
+                'lines': {
+                    '272': [
+                        {
+                            'type': 'direction_name',
+                            'value': 'Heen'
+                        }
+                    ],
+                    '282': [
+                        {
+                            'type': 'direction_name',
+                            'value': 'Heen'
+                        }
+                    ]
+                }
+            },
+            {
+                'id': '307251',
+                'name': 'Haren',
+                'lines': {
+                    '272': [
+                        {
+                            'type': 'direction_name',
+                            'value': 'Terug'
+                        }
+                    ],
+                    '282': [
+                        {
+                            'type': 'direction_name',
+                            'value': 'Terug'
+                        }
+                    ]
+                }
+            }
+        ],
+        'monitored_lines': ['116', '117', '118', '144']
     }
 }
