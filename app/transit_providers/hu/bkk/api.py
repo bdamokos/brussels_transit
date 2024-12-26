@@ -829,6 +829,9 @@ async def get_waiting_times() -> Dict:
                         } if stop_info.get('lat') and stop_info.get('lon') else None,
                         "lines": {}
                     }
+            perf_data['stops_init_time'] = time.time() - stops_init_start
+            
+            logger.debug(f"Initialized formatted_data with stops: {formatted_data}")
             
             # Create reusable client with timeout and keep-alive
             timeout = httpx.Timeout(10.0, connect=5.0)
@@ -897,33 +900,7 @@ async def get_waiting_times() -> Dict:
                         } if stop_info.get('lat') and stop_info.get('lon') else None,
                         "lines": {}
                     }
-            
-            # Merge chunk results
-            for chunk_result, chunk_stats in results:
-                # Merge stats
-                for key, value in chunk_stats.items():
-                    perf_data['stats'][key] += value
-                
-                # Merge data
-                for stop_id, stop_data in chunk_result.items():
-                    if stop_id not in formatted_data["stops_data"]:
-                        continue
-                    
-                    for line_id, line_data in stop_data['lines'].items():
-                        if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                            formatted_data["stops_data"][stop_id]["lines"][line_id] = line_data
-                        else:
-                            for dest, times in line_data.items():
-                                if dest == "_metadata":
-                                    continue
-                                if dest not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
-                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest] = times
-                                else:
-                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest].extend(times)
-            
-            perf_data['parallel_processing_time'] = time.time() - parallel_start
-            
-            # Convert timestamps to human-readable format and calculate delays
+                   # Convert timestamps to human-readable format and calculate delays
             time_conversion_start = time.time()
             now = datetime.now(timezone.utc)
             now_local = now.astimezone(ZoneInfo('Europe/Budapest'))
@@ -961,12 +938,45 @@ async def get_waiting_times() -> Dict:
                                 "scheduled_time": scheduled_time.strftime("%H:%M"),
                                 "provider": "bkk"
                             })
-                        
-                        # Sort times for this destination
-                        processed_times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
+                            
                         line_data[destination] = processed_times
             
             perf_data['time_conversion_time'] = time.time() - time_conversion_start
+            # Merge chunk results
+            for chunk_result, chunk_stats in results:
+                # Merge stats
+                for key, value in chunk_stats.items():
+                    perf_data['stats'][key] += value
+                
+                # Merge data
+                for stop_id, stop_data in chunk_result.items():
+                    if stop_id not in formatted_data["stops_data"]:
+                        continue
+                    
+                    for line_id, line_data in stop_data['lines'].items():
+                        if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                            formatted_data["stops_data"][stop_id]["lines"][line_id] = line_data
+                        else:
+                            for dest, times in line_data.items():
+                                if dest == "_metadata":
+                                    continue
+                                if dest not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
+                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest] = times
+                                else:
+                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest].extend(times)
+            
+            perf_data['parallel_processing_time'] = time.time() - parallel_start
+            
+
+            
+            # Sort waiting times
+            sorting_start = time.time()
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                for line_id, line_data in stop_data["lines"].items():
+                    for destination, times in line_data.items():
+                        if destination != "_metadata":  # Skip metadata when sorting
+                            times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
+            perf_data['sorting_time'] = time.time() - sorting_start
             
             perf_data['total_time'] = time.time() - start_time
             formatted_data['_metadata']['performance'] = perf_data
