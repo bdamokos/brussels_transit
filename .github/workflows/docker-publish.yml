@@ -33,9 +33,10 @@ jobs:
           fi
 
   docker-test:
-    needs: [check-changes]
-    if: github.event_name != 'schedule' || needs.check-changes.outputs.should_run == 'true'
     runs-on: ubuntu-latest
+    # Run tests on PRs and when scheduled job detects changes
+    if: github.event_name == 'pull_request' || github.event_name == 'release' || (github.event_name == 'schedule' && needs.check-changes.outputs.should_run == 'true')
+    needs: [check-changes]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,7 +56,8 @@ jobs:
 
   security-scan:
     needs: [check-changes, docker-test]
-    if: (github.event_name != 'pull_request') && (github.event_name != 'schedule' || needs.check-changes.outputs.should_run == 'true')
+    # Run security scan on PRs, releases, and scheduled updates
+    if: github.event_name == 'pull_request' || github.event_name == 'release' || (github.event_name == 'schedule' && needs.check-changes.outputs.should_run == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -76,12 +78,12 @@ jobs:
 
   build-and-push:
     needs: [check-changes, docker-test, security-scan]
-    if: (github.event_name != 'pull_request') && (github.event_name != 'schedule' || needs.check-changes.outputs.should_run == 'true')
+    # Only build and push on releases and scheduled updates
+    if: (github.event_name == 'release' || (github.event_name == 'schedule' && needs.check-changes.outputs.should_run == 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
