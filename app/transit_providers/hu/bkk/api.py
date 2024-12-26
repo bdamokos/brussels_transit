@@ -21,8 +21,6 @@ from transit_providers.nearest_stop import (
 )
 from asyncio import Lock, create_task, wait_for, TimeoutError as AsyncTimeoutError, get_running_loop
 import time
-import multiprocessing
-from functools import partial
 
 # Export public API functions
 __all__ = [
@@ -637,105 +635,6 @@ def _get_fallback_destination(stop_sequence: Optional[List[str]]) -> str:
     stop_info = _get_stop_info(last_stop)
     return stop_info.get('name', '')
 
-def _convert_entity_for_processing(entity):
-    """Convert a protobuf entity to a simple dict for multiprocessing."""
-    if not entity.HasField('trip_update'):
-        return None
-        
-    trip = entity.trip_update
-    stop_updates = []
-    
-    for stop_time in trip.stop_time_update:
-        update = {
-            'stop_id': stop_time.stop_id,
-            'stop_sequence': stop_time.stop_sequence,
-            'arrival_time': stop_time.arrival.time if stop_time.HasField('arrival') else None
-        }
-        stop_updates.append(update)
-    
-    return {
-        'trip_id': trip.trip.trip_id,
-        'route_id': trip.trip.route_id,
-        'stop_updates': stop_updates
-    }
-
-def _process_entity_chunk(entity_dicts, monitored_lines, stop_ids, trips_cache, routes_cache, stops_cache):
-    """Process a chunk of entities in a separate process."""
-    chunk_results = {}
-    stats = {
-        'entities_processed': 0,
-        'stop_times_processed': 0,
-        'scheduled_time_lookups': 0,
-        'fallback_destinations_used': 0
-    }
-    
-    for entity_dict in entity_dicts:
-        if entity_dict is None:
-            continue
-            
-        line_id = _get_line_id_from_trip(entity_dict['route_id'])
-        if monitored_lines and line_id not in monitored_lines:
-            continue
-        
-        stats['entities_processed'] += 1
-        
-        # Collect stop sequence for this trip
-        stop_sequence = [update['stop_id'] for update in entity_dict['stop_updates']]
-        
-        # Get destination using cached data
-        trip_id = entity_dict['trip_id']
-        base_trip_id = trip_id.split('-')[0]
-        
-        # Try to get destination from cache
-        if trip_id in trips_cache:
-            destination = trips_cache[trip_id]['headsign']
-        elif base_trip_id in trips_cache:
-            destination = trips_cache[base_trip_id]['headsign']
-        else:
-            # Use fallback
-            if not stop_sequence:
-                continue
-            last_stop = stop_sequence[-1]
-            stop_info = stops_cache.get(last_stop, {})
-            destination = stop_info.get('name', '')
-            if destination:
-                stats['fallback_destinations_used'] += 1
-            else:
-                continue
-        
-        route_info = routes_cache.get(line_id, {'route_short_name': line_id, 'route_desc': None})
-        
-        for stop_update in entity_dict['stop_updates']:
-            stats['stop_times_processed'] += 1
-            stop_id = stop_update['stop_id']
-            
-            if stop_ids and stop_id not in stop_ids:
-                continue
-                
-            # Initialize structure if needed
-            if stop_id not in chunk_results:
-                chunk_results[stop_id] = {'lines': {}}
-            
-            if line_id not in chunk_results[stop_id]['lines']:
-                chunk_results[stop_id]['lines'][line_id] = {
-                    '_metadata': {
-                        'route_short_name': route_info['route_short_name'],
-                        'route_desc': route_info['route_desc']
-                    }
-                }
-            
-            if destination not in chunk_results[stop_id]['lines'][line_id]:
-                chunk_results[stop_id]['lines'][line_id][destination] = []
-            
-            if stop_update['arrival_time'] is not None:
-                chunk_results[stop_id]['lines'][line_id][destination].append({
-                    'arrival_timestamp': stop_update['arrival_time'],
-                    'scheduled_timestamp': stop_update['arrival_time'],  # We'll calculate actual scheduled times later
-                    'provider': 'bkk'
-                })
-    
-    return chunk_results, stats
-
 async def get_waiting_times() -> Dict:
     """Get waiting times for monitored stops with request coalescing."""
     global _last_waiting_times_result, _last_waiting_times_update, _waiting_times_locks, _caches_initialized
@@ -751,7 +650,7 @@ async def get_waiting_times() -> Dict:
             'api_request_time': 0,
             'feed_parse_time': 0,
             'route_cache_time': 0,
-            'parallel_processing_time': 0,
+            'entity_processing_time': 0,
             'time_conversion_time': 0,
             'sorting_time': 0,
             'cached': False,
@@ -759,8 +658,7 @@ async def get_waiting_times() -> Dict:
                 'entities_processed': 0,
                 'stop_times_processed': 0,
                 'scheduled_time_lookups': 0,
-                'fallback_destinations_used': 0,
-                'process_count': 0
+                'fallback_destinations_used': 0
             }
         }
 
@@ -858,49 +756,81 @@ async def get_waiting_times() -> Dict:
             } if monitored_lines else {}
             perf_data['route_cache_time'] = time.time() - route_cache_start
             
-            # Prepare for parallel processing
-            parallel_start = time.time()
+            # Process feed data
+            entity_processing_start = time.time()
             
-            # Determine number of processes (leave one core free)
-            process_count = max(1, multiprocessing.cpu_count() - 1)
-            perf_data['stats']['process_count'] = process_count
+            for entity in feed.entity:
+                entity_start = time.time()
+                perf_data['stats']['entities_processed'] += 1
+                
+                if not entity.HasField('trip_update'):
+                    continue
+                    
+                trip = entity.trip_update
+                line_id = _get_line_id_from_trip(trip.trip.route_id)
+                if monitored_lines and line_id not in monitored_lines:
+                    continue
+                
+                # Collect stop sequence for this trip
+                stop_sequence = []
+                for update in trip.stop_time_update:
+                    stop_sequence.append(update.stop_id)
+                
+                destination = _get_destination_from_trip(trip.trip.trip_id, stop_sequence)
+                if not destination:
+                    continue  # Skip if we couldn't get a destination even with fallback
+                
+                route_info = route_info_cache.get(line_id, _get_route_info(line_id))
+                
+                for stop_time in trip.stop_time_update:
+                    stop_time_start = time.time()
+                    perf_data['stats']['stop_times_processed'] += 1
+                    
+                    stop_id = stop_time.stop_id
+                    if stop_ids and stop_id not in stop_ids:
+                        continue
+                        
+                    # Initialize line data if needed
+                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                            "_metadata": {
+                                "route_short_name": route_info['route_short_name'],
+                                "route_desc": route_info['route_desc']
+                            }
+                        }
+                    
+                    # Initialize destination data if needed
+                    if destination not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
+                        
+                    if stop_time.HasField('arrival'):
+                        # Store raw timestamps for later processing
+                        arrival_time = stop_time.arrival.time
+                        
+                        # Get scheduled time from static GTFS data
+                        scheduled_time_start = time.time()
+                        perf_data['stats']['scheduled_time_lookups'] += 1
+                        scheduled_time = _get_scheduled_time(
+                            trip.trip.trip_id,
+                            stop_id,
+                            stop_time.stop_sequence
+                        )
+                        scheduled_timestamp = scheduled_time.timestamp() if scheduled_time else arrival_time
+                        logger.debug(f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s")
+                        
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
+                            "arrival_timestamp": arrival_time,
+                            "scheduled_timestamp": scheduled_timestamp,
+                            "provider": "bkk"
+                        })
+                    
+                    logger.debug(f"Stop time processing took: {time.time() - stop_time_start:.4f}s")
+                
+                logger.debug(f"Entity processing took: {time.time() - entity_start:.4f}s")
             
-            # Convert entities to simple dicts for multiprocessing
-            entity_dicts = [_convert_entity_for_processing(e) for e in feed.entity]
-            entity_dicts = [e for e in entity_dicts if e is not None]  # Remove None values
+            perf_data['entity_processing_time'] = time.time() - entity_processing_start
             
-            # Split entities into chunks
-            chunk_size = len(entity_dicts) // process_count + (1 if len(entity_dicts) % process_count else 0)
-            entity_chunks = [entity_dicts[i:i + chunk_size] for i in range(0, len(entity_dicts), chunk_size)]
-            
-            # Process chunks in parallel
-            with multiprocessing.Pool(process_count) as pool:
-                process_func = partial(
-                    _process_entity_chunk,
-                    monitored_lines=monitored_lines,
-                    stop_ids=stop_ids,
-                    trips_cache=_trips_cache,
-                    routes_cache=route_info_cache,
-                    stops_cache=_stops_cache
-                )
-                results = pool.map(process_func, entity_chunks)
-            
-            # Merge results
-            formatted_data = {"stops_data": {}, "_metadata": {}}
-            
-            # First initialize all monitored stops
-            for stop_id in stop_ids:
-                stop_info = _get_stop_info(stop_id)
-                if stop_info:
-                    formatted_data["stops_data"][stop_id] = {
-                        "name": stop_info['name'],
-                        "coordinates": {
-                            "lat": stop_info['lat'],
-                            "lon": stop_info['lon']
-                        } if stop_info.get('lat') and stop_info.get('lon') else None,
-                        "lines": {}
-                    }
-                   # Convert timestamps to human-readable format and calculate delays
+            # Convert timestamps to human-readable format and calculate delays
             time_conversion_start = time.time()
             now = datetime.now(timezone.utc)
             now_local = now.astimezone(ZoneInfo('Europe/Budapest'))
@@ -942,32 +872,6 @@ async def get_waiting_times() -> Dict:
                         line_data[destination] = processed_times
             
             perf_data['time_conversion_time'] = time.time() - time_conversion_start
-            # Merge chunk results
-            for chunk_result, chunk_stats in results:
-                # Merge stats
-                for key, value in chunk_stats.items():
-                    perf_data['stats'][key] += value
-                
-                # Merge data
-                for stop_id, stop_data in chunk_result.items():
-                    if stop_id not in formatted_data["stops_data"]:
-                        continue
-                    
-                    for line_id, line_data in stop_data['lines'].items():
-                        if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                            formatted_data["stops_data"][stop_id]["lines"][line_id] = line_data
-                        else:
-                            for dest, times in line_data.items():
-                                if dest == "_metadata":
-                                    continue
-                                if dest not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
-                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest] = times
-                                else:
-                                    formatted_data["stops_data"][stop_id]["lines"][line_id][dest].extend(times)
-            
-            perf_data['parallel_processing_time'] = time.time() - parallel_start
-            
-
             
             # Sort waiting times
             sorting_start = time.time()
