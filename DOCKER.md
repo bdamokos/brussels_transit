@@ -9,19 +9,35 @@ This repository provides Docker support for running the Public Transit applicati
 
 Images are published to GitHub Container Registry (ghcr.io) under three different scenarios:
 
-1. **Releases**: When a new release (including pre-releases) is published
+1. **Stable Releases**: When a new release is published (non-pre-release)
    - Creates versioned tags (e.g., `v1.2.3`, `v1.2`)
+   - Updates the `stable` tag
    - Available in three variants:
-     - Default: `ghcr.io/bdamokos/brussels-transit:v1.2.3`
-     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-temp`
-     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-static`
+     - Default: `ghcr.io/bdamokos/brussels-transit:v1.2.3` or `:stable`
+     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-temp` or `:stable-ngrok-temp`
+     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-static` or `:stable-ngrok-static`
 
-2. **Weekly Updates**: Every Sunday at midnight UTC (only if there were changes in the last week)
+2. **Pre-releases**: When an alpha/beta/rc release is published
+   - Creates versioned tags (e.g., `v1.2.3-rc.1`)
+   - Updates the `edge` tag
+   - Available in three variants:
+     - Default: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1` or `:edge`
+     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1-ngrok-temp` or `:edge-ngrok-temp`
+     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1-ngrok-static` or `:edge-ngrok-static`
+
+3. **Weekly Updates**: Every Sunday at midnight UTC (only if there were changes in the last week)
    - Updates the `latest` tags
    - Available in three variants:
      - Default: `ghcr.io/bdamokos/brussels-transit:latest`
      - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:latest-ngrok-temp`
      - Static ngrok: `ghcr.io/bdamokos/brussels-transit:latest-ngrok-static`
+
+### Tag Usage Guidelines
+
+- Use `:stable` for production environments
+- Use `:edge` for testing new features
+- Use `:latest` for development environments
+- Use version tags (e.g., `v1.2.3`) for reproducible deployments
 
 ## Available Configurations
 

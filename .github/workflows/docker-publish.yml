@@ -102,9 +102,15 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            # Weekly latest tag
             type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
+            # Version tags for releases
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            # Stable tag for published releases
+            type=raw,value=stable,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            # Edge tag for pre-releases
+            type=raw,value=edge,enable=${{ github.event_name == 'release' && github.event.release.prerelease }}
 
       # Build and push backend-only image (default)
       - name: Build and push backend image
