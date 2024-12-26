@@ -1,7 +1,7 @@
 """BKK protobuf definitions"""
 
 from .gtfs_realtime_pb2 import FeedMessage, FeedHeader, FeedEntity, TripUpdate, VehiclePosition, Alert
-from .gtfs_realtime_realcity_pb2 import BkkSpecific
+from .gtfs_realtime_realcity_pb2 import VehicleDescriptor, StopTimeUpdate, RouteDetail, Alert as RealCityAlert
 
 __all__ = [
     'FeedMessage',
@@ -10,5 +10,8 @@ __all__ = [
     'TripUpdate',
     'VehiclePosition',
     'Alert',
-    'BkkSpecific'
+    'VehicleDescriptor',
+    'StopTimeUpdate',
+    'RouteDetail',
+    'RealCityAlert'
 ] 

@@ -8,7 +8,7 @@ from pathlib import Path
 import asyncio
 from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
 import httpx
-from google.transit import gtfs_realtime_pb2
+from .protos import gtfs_realtime_pb2
 from google.protobuf import json_format
 from google.protobuf.internal import decoder, wire_format
 from mobility_db_api import MobilityAPI
