@@ -135,6 +135,7 @@ jobs:
     needs: [security-scan]
     if: |
       github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'schedule' && needs.check-changes.outputs.should_run == 'true')
     permissions:
       contents: read
