@@ -18,6 +18,8 @@ from transit_providers.nearest_stop import (
     ingest_gtfs_stops, get_nearest_stops, cache_stops, 
     get_cached_stops, Stop, get_stop_by_name as generic_get_stop_by_name
 )
+import time
+from asyncio import Lock, create_task, wait_for, TimeoutError as AsyncTimeoutError
 
 # Export public API functions
 __all__ = [
@@ -91,13 +93,18 @@ ALERTS_URL = f'https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb?key={API
 # Cache for scheduled stop times
 _stop_times_cache = {}
 _last_cache_update = None
-_CACHE_DURATION = timedelta(hours=3)
+_CACHE_DURATION = timedelta(hours=24)
 
 # Cache for stop and route information
 _stops_cache = {}
 _routes_cache = {}
 _stops_cache_update = None
 _routes_cache_update = None
+
+# Add after other global variables
+_waiting_times_lock = Lock()
+_last_waiting_times_result = None
+_current_waiting_times_task = None
 
 class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
@@ -499,28 +506,50 @@ async def get_vehicle_positions(line=None, direction=None):
         return vehicles
 
 async def get_waiting_times() -> Dict:
-    """Get waiting times for monitored stops."""
+    """Get waiting times for monitored stops with timeout handling and request coalescing."""
+    global _current_waiting_times_task, _last_waiting_times_result
+    
+    async with _waiting_times_lock:
+        # Create a new task if there isn't one or if the existing one is done
+        if not _current_waiting_times_task or _current_waiting_times_task.done():
+            try:
+                _current_waiting_times_task = create_task(_fetch_waiting_times())
+            except Exception as e:
+                logger.error(f"Error creating waiting times task: {e}")
+                return {"stops_data": {}}
+    
+    try:
+        # Wait for the task with timeout
+        return await wait_for(_current_waiting_times_task, timeout=29.0)
+    except AsyncTimeoutError:
+        logger.warning("Request timed out, returning empty response")
+        return {"stops_data": {}}
+
+async def _fetch_waiting_times() -> Dict:
+    """Internal function to fetch waiting times."""
+    global _last_waiting_times_result
+    
+    start_time = time.time()
+    logger.debug("Starting get_waiting_times")
+    
     try:
         # Get latest config
         config = get_provider_config('bkk')
-        monitored_lines = config.get('MONITORED_LINES', [])
-        stop_ids = config.get('STOP_IDS', [])
+        monitored_lines = set(config.get('MONITORED_LINES', []))
+        stop_ids = set(config.get('STOP_IDS', []))
         
         logger.debug(f"get_waiting_times called with monitored_lines={monitored_lines}, stop_ids={stop_ids}")
         
-        # Ensure GTFS data is downloaded
-        if gtfs_manager:
-            await gtfs_manager.ensure_gtfs_data()
+        # Pre-fetch all required data
+        stops_data = {}
+        route_info_cache = {}
         
-        # Initialize formatted_data with all monitored stops
-        formatted_data = {"stops_data": {}}
-        
-        # Add all monitored stops to the response, even if there are no waiting times
+        # Initialize stops data structure once
+        init_start = time.time()
         for stop_id in stop_ids:
             stop_info = _get_stop_info(stop_id)
-            logger.debug(f"Processing stop {stop_id}, got info: {stop_info}")
             if stop_info:
-                formatted_data["stops_data"][stop_id] = {
+                stops_data[stop_id] = {
                     "name": stop_info['name'],
                     "coordinates": {
                         "lat": stop_info['lat'],
@@ -528,15 +557,30 @@ async def get_waiting_times() -> Dict:
                     } if stop_info.get('lat') and stop_info.get('lon') else None,
                     "lines": {}
                 }
+        logger.debug(f"Initialized stops data in {time.time() - init_start:.2f} seconds")
         
-        logger.debug(f"Initialized formatted_data with stops: {formatted_data}")
+        # Pre-fetch route info for all monitored lines
+        for line_id in monitored_lines:
+            route_info_cache[line_id] = _get_route_info(line_id)
         
-        async with httpx.AsyncClient() as client:
+        # Create reusable client with timeout and keep-alive
+        timeout = httpx.Timeout(10.0, connect=5.0)
+        limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        
+        api_start = time.time()
+        async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
             response = await client.get(TRIP_UPDATES_URL)
             response.raise_for_status()
+            logger.debug(f"API call took {time.time() - api_start:.2f} seconds")
             
+            parse_start = time.time()
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
+            logger.debug(f"Protobuf parsing took {time.time() - parse_start:.2f} seconds")
+            
+            # Pre-process all entities to group by stop_id for faster lookup
+            process_start = time.time()
+            stop_updates = {}
             
             for entity in feed.entity:
                 if not entity.HasField('trip_update'):
@@ -544,44 +588,36 @@ async def get_waiting_times() -> Dict:
                     
                 trip = entity.trip_update
                 line_id = _get_line_id_from_trip(trip.trip.route_id)
-                if monitored_lines and line_id not in monitored_lines:
+                if line_id not in monitored_lines:
                     continue
                 
                 destination = _get_destination_from_trip(trip.trip.trip_id)
-                route_info = _get_route_info(line_id)
+                route_info = route_info_cache.get(line_id)
+                if not route_info:
+                    continue
                 
                 for stop_time in trip.stop_time_update:
                     stop_id = stop_time.stop_id
-                    if stop_ids and stop_id not in stop_ids:
+                    if stop_id not in stop_ids:
                         continue
-                        
-                    # Initialize line data if needed
-                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                    
+                    if stop_id not in stop_updates:
+                        stop_updates[stop_id] = {}
+                    
+                    if line_id not in stop_updates[stop_id]:
+                        stop_updates[stop_id][line_id] = {
                             "_metadata": {
                                 "route_short_name": route_info['route_short_name'],
                                 "route_desc": route_info['route_desc']
                             }
                         }
                     
-                    # Initialize destination data if needed
-                    if destination not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
-                        
+                    if destination not in stop_updates[stop_id][line_id]:
+                        stop_updates[stop_id][line_id][destination] = []
+                    
                     if stop_time.HasField('arrival'):
                         now = datetime.now(timezone.utc)
-                        
-                        # Get actual arrival time in UTC
                         arrival_time_utc = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
-                        
-                        # Convert to Budapest time for display
-                        from zoneinfo import ZoneInfo
-                        budapest_tz = ZoneInfo('Europe/Budapest')
-                        arrival_time = arrival_time_utc.astimezone(budapest_tz)
-                        
-                        # Calculate minutes for display (in local time)
-                        now_local = now.astimezone(budapest_tz)
-                        realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
                         
                         # Get scheduled time from static GTFS data (already in UTC)
                         scheduled_time_utc = _get_scheduled_time(
@@ -590,12 +626,18 @@ async def get_waiting_times() -> Dict:
                             stop_time.stop_sequence
                         )
                         
+                        # Convert to Budapest time for display
+                        from zoneinfo import ZoneInfo
+                        budapest_tz = ZoneInfo('Europe/Budapest')
+                        arrival_time = arrival_time_utc.astimezone(budapest_tz)
+                        now_local = now.astimezone(budapest_tz)
+                        
+                        # Calculate minutes and times
+                        realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
+                        
                         if scheduled_time_utc:
-                            # Convert scheduled time to local for display
                             scheduled_time = scheduled_time_utc.astimezone(budapest_tz)
                             scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
-                            
-                            # Calculate delay in seconds with full precision
                             delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
                         else:
                             scheduled_time = arrival_time
@@ -605,11 +647,11 @@ async def get_waiting_times() -> Dict:
                         # Skip if both scheduled and realtime are in the past
                         if scheduled_minutes < 0 and realtime_minutes < 0:
                             continue
-                            
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
+                        
+                        stop_updates[stop_id][line_id][destination].append({
                             "delay": delay_seconds,
-                            "is_realtime": delay_seconds != 0,  # Only realtime if there's an actual delay
-                            "message": None,  # BKK doesn't provide message per arrival
+                            "is_realtime": delay_seconds != 0,
+                            "message": None,
                             "realtime_minutes": f"{realtime_minutes}'",
                             "realtime_time": arrival_time.strftime("%H:%M"),
                             "scheduled_minutes": f"{scheduled_minutes}'",
@@ -617,30 +659,28 @@ async def get_waiting_times() -> Dict:
                             "provider": "bkk"
                         })
             
-            # Sort waiting times by arrival time for each destination
-            for stop_id, stop_data in formatted_data["stops_data"].items():
-                for line_id, line_data in stop_data["lines"].items():
+            # Update stops_data with processed updates
+            for stop_id, updates in stop_updates.items():
+                stops_data[stop_id]["lines"] = updates
+                
+                # Sort waiting times by arrival time for each destination
+                for line_data in updates.values():
                     for destination, times in line_data.items():
-                        if destination != "_metadata":  # Skip metadata when sorting
+                        if destination != "_metadata":
                             times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
             
-            return formatted_data
+            logger.debug(f"Processing feed data took {time.time() - process_start:.2f} seconds")
+            logger.info(f"Total get_waiting_times execution took {time.time() - start_time:.2f} seconds")
+            
+            result = {"stops_data": stops_data}
+            _last_waiting_times_result = result
+            return result
+            
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
-        # Return empty stops_data with monitored stops
-        formatted_data = {"stops_data": {}}
-        for stop_id in stop_ids:
-            stop_info = _get_stop_info(stop_id)
-            if stop_info:
-                formatted_data["stops_data"][stop_id] = {
-                    "name": stop_info['name'],
-                    "coordinates": {
-                        "lat": stop_info['lat'],
-                        "lon": stop_info['lon']
-                    } if stop_info.get('lat') and stop_info.get('lon') else None,
-                    "lines": {}
-                }
-        return formatted_data
+        result = {"stops_data": stops_data if 'stops_data' in locals() else {}}
+        _last_waiting_times_result = result
+        return result
 
 def parse_translations(translation_bytes: bytes) -> Dict[str, str]:
     """Parse translation message bytes into a dictionary of language codes to text."""
@@ -774,239 +814,74 @@ def parse_realcity_extension(alert_bytes: bytes) -> Dict:
     
     return realcity_data
 
-async def get_service_alerts() -> Dict:
-    """Get current service alerts."""
-    try:
-        # Get latest config
-        config = get_provider_config('bkk')
-        monitored_lines = config.get('MONITORED_LINES', [])
-        stop_ids = config.get('STOP_IDS', [])
+async def get_service_alerts() -> List[Dict]:
+    """Get service alerts from BKK GTFS-RT feed."""
+    # Get latest config
+    config = get_provider_config('bkk')
+    monitored_lines = config.get('MONITORED_LINES', [])
+    stop_ids = config.get('STOP_IDS', [])
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(ALERTS_URL)
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(response.content)
         
-        async with httpx.AsyncClient() as client:
-            response = await client.get(ALERTS_URL)
-            response.raise_for_status()
+        alerts = []
+        for entity in feed.entity:
+            if not entity.HasField('alert'):
+                continue
+                
+            alert = entity.alert
             
-            feed = gtfs_realtime_pb2.FeedMessage()
-            feed.ParseFromString(response.content)
+            # Get affected lines and stops
+            affected_lines = set()
+            affected_stops = set()
             
-            messages = []
-            for entity in feed.entity:
-                if not entity.HasField('alert'):
-                    continue
-                    
-                alert = entity.alert
-                
-                # Get affected lines and stops
-                affected_lines = set()
-                affected_stops = set()
-                for informed_entity in alert.informed_entity:
-                    if informed_entity.HasField('route_id'):
-                        line_id = _get_line_id_from_trip(informed_entity.route_id)
-                        if not monitored_lines or line_id in monitored_lines:
-                            affected_lines.add(line_id)
-                    if informed_entity.HasField('stop_id'):
-                        affected_stops.add(informed_entity.stop_id)
-                
-                # Skip if no monitored lines are affected
-                if monitored_lines and not affected_lines:
-                    continue
-                
-                # Get stop names for affected stops
-                stop_names = []
-                for stop_id in affected_stops:
-                    stop_info = _get_stop_info(stop_id)
-                    if stop_info:
-                        stop_names.append(stop_info['name'])
-                
-                # Check if message affects monitored lines/stops
-                is_monitored = (
-                    (not monitored_lines or bool(affected_lines & set(monitored_lines))) and
-                    (not stop_ids or bool(affected_stops & set(stop_ids)))
-                )
-                
+            for informed_entity in alert.informed_entity:
+                if informed_entity.HasField('route_id'):
+                    affected_lines.add(_get_line_id_from_trip(informed_entity.route_id))
+                if informed_entity.HasField('stop_id'):
+                    affected_stops.add(informed_entity.stop_id)
+            
+            # Filter alerts based on monitored lines and stops
+            if (
+                (not monitored_lines or bool(affected_lines & set(monitored_lines))) and
+                (not stop_ids or bool(affected_stops & set(stop_ids)))
+            ):
                 # Get translations for header and description
-                header_translations = {}
-                desc_translations = {}
-                available_languages = set()
-                
-                # Process header translations
-                for translation in alert.header_text.translation:
-                    lang = translation.language or 'hu'  # Default to Hungarian
-                    header_translations[lang] = translation.text
-                    available_languages.add(lang)
-                
-                # Process description translations
-                for translation in alert.description_text.translation:
-                    lang = translation.language or 'hu'  # Default to Hungarian
-                    desc_translations[lang] = translation.text
-                    available_languages.add(lang)
-                
-                # Get URL if available
-                url = None
-                if alert.HasField('url'):
-                    for translation in alert.url.translation:
-                        if translation.language == 'en':
-                            url = translation.text
-                            break
-                    if not url and alert.url.translation:
-                        url = alert.url.translation[0].text
-                
-                # Get active period
-                start_time = None
-                end_time = None
-                if alert.active_period:
-                    period = alert.active_period[0]
-                    if period.HasField('start'):
-                        start_time = datetime.fromtimestamp(period.start, tz=timezone.utc).isoformat()
-                    if period.HasField('end'):
-                        end_time = datetime.fromtimestamp(period.end, tz=timezone.utc).isoformat()
-                
-                # Parse realcity extension
-                realcity_data = parse_realcity_extension(alert.SerializeToString())
-                
-                # Format the message
-                message = {
-                    'title': header_translations,
-                    'description': desc_translations,
-                    'start': start_time,
-                    'end': end_time,
-                    'modified': datetime.fromtimestamp(realcity_data['modified_time'], tz=timezone.utc).isoformat() if realcity_data['modified_time'] else None,
-                    'lines': sorted(affected_lines),
-                    'stops': sorted(stop_names),
-                    'points': sorted(affected_stops),
-                    'url': url,
-                    'html_content': desc_translations.get('hu'),
-                    'text_content': ' '.join(t for t in desc_translations.values()),
-                    'priority': 0,  # Default priority
-                    'type': 'alert',
-                    'is_monitored': is_monitored,
-                    '_metadata': {
-                        'language': {
-                            'available': sorted(available_languages),
-                            'provided': 'hu',  # Default to Hungarian
-                            'requested': None,
-                            'warning': None
-                        },
-                        'start_text': realcity_data['start_text'],
-                        'end_text': realcity_data['end_text'],
-                        'route_details': realcity_data['route_details']
-                    }
+                alert_dict = {
+                    "id": entity.id,
+                    "lines": list(affected_lines),
+                    "stops": list(affected_stops),
+                    "effect": alert.effect,
+                    "header": {},
+                    "description": {},
+                    "url": {},
+                    "active_period": []
                 }
-                messages.append(message)
-            
-            return {'messages': messages}
-            
-    except Exception as e:
-        logger.error(f"Error getting service alerts: {e}")
-        raise
+                
+                alerts.append(alert_dict)
+        
+        return alerts
 
 # Helper functions
 def _get_current_gtfs_path() -> Optional[Path]:
-    """Get the path to the current GTFS dataset"""
-    try:
-        # First try reading from metadata file
-        metadata_file = GTFS_DIR / 'datasets_metadata.json'
-        if metadata_file.exists():
-            import json
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-                # Find the latest BKK dataset
-                bkk_datasets = [
-                    (k, v) for k, v in metadata.items() 
-                    if v['provider_id'] == PROVIDER_ID
-                ]
-                if bkk_datasets:
-                    # Sort by download date and get the latest
-                    latest = sorted(
-                        bkk_datasets,
-                        key=lambda x: datetime.fromisoformat(x[1]['download_date']),
-                        reverse=True
-                    )[0]
-                    return Path(latest[1]['download_path'])
-        
-        # Fallback to using MobilityAPI
-        if gtfs_manager is None:
-            logger.error("GTFSManager not initialized")
-            return None
-            
-        datasets = gtfs_manager.mobility_api.datasets
-        current_dataset = next(
-            (d for d in datasets.values() if d.provider_id == PROVIDER_ID),
-            None
-        )
-        if current_dataset:
-            return Path(current_dataset.download_path)
-        
+    """Get the path to the current GTFS data directory."""
+    if not GTFS_DIR:
         return None
-    except Exception as e:
-        logger.error(f"Error getting current GTFS path: {e}")
-        return None
+    return GTFS_DIR
 
 def _get_line_id_from_trip(route_id: str) -> str:
-    """Extract line ID from route ID based on GTFS data structure"""
-    try:
-        # First try direct route ID to route short name mapping from routes.txt
-        gtfs_dir = GTFS_DIR
-        if not gtfs_dir.exists():
-            return route_id  # Return original ID if GTFS data is not available
-            
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return route_id
-            
-        routes_file = gtfs_path / 'routes.txt'
-        if routes_file.exists():
-            with open(routes_file, 'r', encoding='utf-8') as rf:
-                # Skip header line
-                header = next(rf).strip().split(',')
-                route_id_index = header.index('route_id')
-                route_short_name_index = header.index('route_short_name')
-                
-                for route_line in rf:
-                    fields = route_line.strip().split(',')
-                    if len(fields) > max(route_id_index, route_short_name_index) and fields[route_id_index] == route_id:
-                        # Found the route, return the route_id as is since it's already in the correct format
-                        return route_id
-        
-        # If not found in routes.txt, return the route_id as is
-        # The real-time feed uses the same format as our monitored lines
-        return route_id
-    except Exception as e:
-        logger.error(f"Error extracting line ID from route {route_id}: {e}")
-        return route_id  # Return original ID if something goes wrong
+    """Extract line ID from trip route ID."""
+    return route_id.lstrip('0')
 
 def _get_destination_from_trip(trip_id: str) -> str:
-    """Extract destination from trip ID based on GTFS data structure"""
-    try:
-        # Load trip information from GTFS data
-        gtfs_dir = GTFS_DIR
-        if not gtfs_dir.exists():
-            return ''
-            
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return ''
-            
-        trips_file = gtfs_path / 'trips.txt'
-        if not trips_file.exists():
-            return ''
-            
-        with open(trips_file, 'r', encoding='utf-8') as f:
-            # Skip header line
-            header = next(f).strip().split(',')
-            trip_id_index = header.index('trip_id')
-            trip_headsign_index = header.index('trip_headsign')
-            
-            for line in f:
-                fields = line.strip().split(',')
-                if len(fields) > max(trip_id_index, trip_headsign_index) and fields[trip_id_index] == trip_id:
-                    # Remove quotes if present
-                    headsign = fields[trip_headsign_index].strip('"')
-                    return headsign
-        return ''
-    except Exception as e:
-        logger.error(f"Error getting destination for trip {trip_id}: {e}")
-        return ''
+    """Extract destination from trip ID."""
+    # BKK trip IDs are in the format: line_id-direction-variant
+    parts = trip_id.split('-')
+    if len(parts) >= 2:
+        return parts[1]
+    return trip_id
 
 def _format_minutes_until(dt: datetime) -> str:
     """Format minutes until given datetime"""
