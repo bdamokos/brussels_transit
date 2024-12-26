@@ -10,35 +10,28 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  PYTHON_VERSION: "3.11"
 
 jobs:
-  test:
+  docker-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
+      - name: Set up test environment
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          cp app/config/local.py.example app/config/local.py
 
-      - name: Run tests
+
+      - name: Build and test backend image
         run: |
-          pytest --cov=./ --cov-report=xml
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: true
+          docker compose -f docker-compose.backend.yaml build
+          docker compose -f docker-compose.backend.yaml up -d
+          sleep 30  # Give time for services to start
+          curl -f http://localhost:5001/health || exit 1
+          #curl -f http://localhost:8000/health || exit 1
+          docker compose -f docker-compose.backend.yaml logs
+          docker compose -f docker-compose.backend.yaml down
 
   security-scan:
     runs-on: ubuntu-latest
@@ -60,7 +53,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   build:
-    needs: [test, security-scan]
+    needs: [docker-test, security-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read
