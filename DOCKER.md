@@ -39,6 +39,56 @@ Images are published to GitHub Container Registry (ghcr.io) under three differen
 - Use `:latest` for development environments
 - Use version tags (e.g., `v1.2.3`) for reproducible deployments
 
+## Configuration (Alpha Stage)
+
+During this alpha stage, configuration is done by editing two files directly in the container.
+
+### If building locally:
+1. Start the container:
+   ```bash
+   docker compose -f docker-compose.backend.yaml up -d
+   ```
+
+### If using the container registry:
+1. Pull and start the container:
+   ```bash
+   docker pull ghcr.io/bdamokos/brussels-transit:stable
+   docker run -d -p 5001:5001 -p 8000:8000 -p 8080:8080 ghcr.io/bdamokos/brussels-transit:stable
+   ```
+
+Replace `stable` with the tag you want to use (e.g., `v1.2.3`, `v1.2.3-rc.1`, `latest`, `latest-ngrok-temp`, `latest-ngrok-static`).
+
+### Then for both methods:
+2. Get the container ID:
+   ```bash
+   docker ps
+   ```
+
+3. Enter the container:
+   ```bash
+   docker exec -it <container_id> bash
+   ```
+
+4. Edit the configuration files with nano:
+   ```bash
+   # Edit environment variables (API keys, etc.)
+   nano .env
+
+   # Edit application settings (stops, map config)
+   nano app/config/local.py
+   ```
+
+5. Restart the container:
+   ```bash
+   # If using docker compose:
+   docker compose -f docker-compose.backend.yaml restart
+
+   # If using docker run:
+   docker restart <container_id>
+   ```
+
+Note: This manual configuration process will be streamlined in future releases.
+
 ## Available Configurations
 
 ### 1. Backend Only

@@ -22,6 +22,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    nano \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && mkdir -p /app/logs /app/schedule_explorer/logs /app/cache /app/schedule_explorer/cache \
