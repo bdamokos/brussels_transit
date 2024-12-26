@@ -24,10 +24,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && mkdir -p /app/logs /app/schedule_explorer/logs \
+    && mkdir -p /app/logs /app/schedule_explorer/logs /app/cache /app/schedule_explorer/cache \
     && chown -R nobody:nogroup /app \
     && chmod -R 755 /app \
-    && chmod 777 /app/logs /app/schedule_explorer/logs
+    && chmod 775 /app/logs /app/schedule_explorer/logs /app/cache /app/schedule_explorer/cache
 
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
