@@ -109,6 +109,33 @@ _WAITING_TIMES_CACHE_DURATION = 2.0  # seconds
 # Add a lock store
 _waiting_times_locks = {}
 
+# Add initialization flag
+_caches_initialized = False
+
+async def _initialize_caches():
+    """Initialize all caches at module load."""
+    global _caches_initialized
+    if _caches_initialized:
+        return
+        
+    try:
+        logger.info("Initializing BKK provider caches...")
+        _load_stops_cache()
+        _load_routes_cache()
+        _load_stop_times_cache()
+        _caches_initialized = True
+        logger.info("BKK provider caches initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing BKK provider caches: {e}")
+
+# Initialize caches at module load
+try:
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(_initialize_caches())
+except Exception as e:
+    logger.error(f"Failed to initialize caches at module load: {e}")
+
 class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
     
@@ -510,9 +537,13 @@ async def get_vehicle_positions(line=None, direction=None):
 
 async def get_waiting_times() -> Dict:
     """Get waiting times for monitored stops with request coalescing."""
-    global _last_waiting_times_result, _last_waiting_times_update, _waiting_times_locks
+    global _last_waiting_times_result, _last_waiting_times_update, _waiting_times_locks, _caches_initialized
     
     try:
+        # Ensure caches are initialized
+        if not _caches_initialized:
+            await _initialize_caches()
+        
         # Get latest config first to ensure stop_ids is defined
         config = get_provider_config('bkk')
         monitored_lines = config.get('MONITORED_LINES', [])
@@ -541,16 +572,12 @@ async def get_waiting_times() -> Dict:
             
             logger.debug(f"get_waiting_times called with monitored_lines={monitored_lines}, stop_ids={stop_ids}")
             
-            # Ensure GTFS data is downloaded
-            if gtfs_manager:
-                await gtfs_manager.ensure_gtfs_data()
-            
-            # Initialize formatted_data with all monitored stops
+            # Initialize formatted_data with all monitored stops using cached data
             formatted_data = {"stops_data": {}}
             
             # Add all monitored stops to the response, even if there are no waiting times
             for stop_id in stop_ids:
-                stop_info = _get_stop_info(stop_id)
+                stop_info = _get_stop_info(stop_id)  # This now uses cached data
                 logger.debug(f"Processing stop {stop_id}, got info: {stop_info}")
                 if stop_info:
                     formatted_data["stops_data"][stop_id] = {
@@ -575,6 +602,12 @@ async def get_waiting_times() -> Dict:
                 feed = gtfs_realtime_pb2.FeedMessage()
                 feed.ParseFromString(response.content)
                 
+                # Pre-load route info for all monitored lines to avoid repeated cache checks
+                route_info_cache = {
+                    line_id: _get_route_info(line_id)
+                    for line_id in monitored_lines
+                } if monitored_lines else {}
+                
                 for entity in feed.entity:
                     if not entity.HasField('trip_update'):
                         continue
@@ -585,7 +618,7 @@ async def get_waiting_times() -> Dict:
                         continue
                     
                     destination = _get_destination_from_trip(trip.trip.trip_id)
-                    route_info = _get_route_info(line_id)
+                    route_info = route_info_cache.get(line_id, _get_route_info(line_id))
                     
                     for stop_time in trip.stop_time_update:
                         stop_id = stop_time.stop_id
