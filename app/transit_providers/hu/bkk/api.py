@@ -173,22 +173,26 @@ async def _initialize_caches():
         
     try:
         logger.info("Initializing BKK provider caches...")
-        _load_stops_cache()
-        _load_routes_cache()
-        _load_stop_times_cache()
-        _load_trips_cache()  # Add trips cache initialization
+        try:
+            _load_stops_cache()
+        except Exception as e:
+            logger.error(f"Failed to initialize stops cache: {e}", exc_info=True)
+        try:
+            _load_routes_cache()
+        except Exception as e:
+            logger.error(f"Failed to initialize routes cache: {e}", exc_info=True)
+        try:
+            _load_stop_times_cache()
+        except Exception as e:
+            logger.error(f"Failed to initialize stop times cache: {e}", exc_info=True)
+        try:
+            _load_trips_cache()  # Add trips cache initialization
+        except Exception as e:
+            logger.error(f"Failed to initialize trips cache: {e}", exc_info=True)
         _caches_initialized = True
         logger.info("BKK provider caches initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing BKK provider caches: {e}")
-
-# Initialize caches at module load
-try:
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(_initialize_caches())
-except Exception as e:
-    logger.error(f"Failed to initialize caches at module load: {e}")
 
 class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
@@ -1620,3 +1624,11 @@ async def get_line_colors(line_number: Optional[str] = None) -> Dict[str, Dict[s
     except Exception as e:
         logger.error(f"Error getting line colors: {e}")
         return {}
+
+# Initialize caches at module load
+try:
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(_initialize_caches())
+except Exception as e:
+    logger.error(f"Failed to initialize caches at module load: {e}")
