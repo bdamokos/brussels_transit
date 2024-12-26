@@ -160,6 +160,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            # Manual trigger tag
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
             # Weekly latest tag
             type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
             # Version tags for releases
