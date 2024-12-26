@@ -88,3 +88,5 @@ downloads/
 DEVELOPMENT_DIARY.md
 compare_configs.py
 backup/*
+app/transit_providers/hu/bkk/protos/gtfs-realtime.proto
+app/transit_providers/hu/bkk/protos/gtfs-realtime-realcity.proto
