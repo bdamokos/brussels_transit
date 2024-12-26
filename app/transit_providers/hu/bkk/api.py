@@ -540,14 +540,31 @@ async def get_waiting_times() -> Dict:
     global _last_waiting_times_result, _last_waiting_times_update, _waiting_times_locks, _caches_initialized
     
     try:
+        start_time = time.time()
+        perf_data = {
+            'total_time': 0,
+            'cache_init_time': 0,
+            'config_time': 0,
+            'cache_check_time': 0,
+            'stops_init_time': 0,
+            'api_request_time': 0,
+            'processing_time': 0,
+            'sorting_time': 0,
+            'cached': False
+        }
+
         # Ensure caches are initialized
+        cache_init_start = time.time()
         if not _caches_initialized:
             await _initialize_caches()
+        perf_data['cache_init_time'] = time.time() - cache_init_start
         
         # Get latest config first to ensure stop_ids is defined
+        config_start = time.time()
         config = get_provider_config('bkk')
         monitored_lines = config.get('MONITORED_LINES', [])
         stop_ids = config.get('STOP_IDS', [])
+        perf_data['config_time'] = time.time() - config_start
         
         # Get or create lock for current event loop
         loop = asyncio.get_running_loop()
@@ -556,11 +573,18 @@ async def get_waiting_times() -> Dict:
         lock = _waiting_times_locks[loop]
         
         # Check if we have a recent result
+        cache_check_start = time.time()
         now = time.time()
         if (_last_waiting_times_result is not None and 
             _last_waiting_times_update is not None and 
             now - _last_waiting_times_update < _WAITING_TIMES_CACHE_DURATION):
+            perf_data['cached'] = True
+            perf_data['total_time'] = time.time() - start_time
+            if '_metadata' not in _last_waiting_times_result:
+                _last_waiting_times_result['_metadata'] = {}
+            _last_waiting_times_result['_metadata']['performance'] = perf_data
             return _last_waiting_times_result
+        perf_data['cache_check_time'] = time.time() - cache_check_start
         
         async with lock:
             # Double-check pattern in case another request already updated while we were waiting
@@ -568,12 +592,18 @@ async def get_waiting_times() -> Dict:
             if (_last_waiting_times_result is not None and 
                 _last_waiting_times_update is not None and 
                 now - _last_waiting_times_update < _WAITING_TIMES_CACHE_DURATION):
+                perf_data['cached'] = True
+                perf_data['total_time'] = time.time() - start_time
+                if '_metadata' not in _last_waiting_times_result:
+                    _last_waiting_times_result['_metadata'] = {}
+                _last_waiting_times_result['_metadata']['performance'] = perf_data
                 return _last_waiting_times_result
             
             logger.debug(f"get_waiting_times called with monitored_lines={monitored_lines}, stop_ids={stop_ids}")
             
             # Initialize formatted_data with all monitored stops using cached data
-            formatted_data = {"stops_data": {}}
+            stops_init_start = time.time()
+            formatted_data = {"stops_data": {}, "_metadata": {}}
             
             # Add all monitored stops to the response, even if there are no waiting times
             for stop_id in stop_ids:
@@ -588,6 +618,7 @@ async def get_waiting_times() -> Dict:
                         } if stop_info.get('lat') and stop_info.get('lon') else None,
                         "lines": {}
                     }
+            perf_data['stops_init_time'] = time.time() - stops_init_start
             
             logger.debug(f"Initialized formatted_data with stops: {formatted_data}")
             
@@ -595,113 +626,125 @@ async def get_waiting_times() -> Dict:
             timeout = httpx.Timeout(10.0, connect=5.0)
             limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
             
+            # Make API request
+            api_request_start = time.time()
             async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
                 response = await client.get(TRIP_UPDATES_URL)
                 response.raise_for_status()
                 
                 feed = gtfs_realtime_pb2.FeedMessage()
                 feed.ParseFromString(response.content)
+            perf_data['api_request_time'] = time.time() - api_request_start
+            
+            # Process feed data
+            processing_start = time.time()
+            
+            # Pre-load route info for all monitored lines to avoid repeated cache checks
+            route_info_cache = {
+                line_id: _get_route_info(line_id)
+                for line_id in monitored_lines
+            } if monitored_lines else {}
+            
+            for entity in feed.entity:
+                if not entity.HasField('trip_update'):
+                    continue
+                    
+                trip = entity.trip_update
+                line_id = _get_line_id_from_trip(trip.trip.route_id)
+                if monitored_lines and line_id not in monitored_lines:
+                    continue
                 
-                # Pre-load route info for all monitored lines to avoid repeated cache checks
-                route_info_cache = {
-                    line_id: _get_route_info(line_id)
-                    for line_id in monitored_lines
-                } if monitored_lines else {}
+                destination = _get_destination_from_trip(trip.trip.trip_id)
+                route_info = route_info_cache.get(line_id, _get_route_info(line_id))
                 
-                for entity in feed.entity:
-                    if not entity.HasField('trip_update'):
+                for stop_time in trip.stop_time_update:
+                    stop_id = stop_time.stop_id
+                    if stop_ids and stop_id not in stop_ids:
                         continue
                         
-                    trip = entity.trip_update
-                    line_id = _get_line_id_from_trip(trip.trip.route_id)
-                    if monitored_lines and line_id not in monitored_lines:
-                        continue
+                    # Initialize line data if needed
+                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                            "_metadata": {
+                                "route_short_name": route_info['route_short_name'],
+                                "route_desc": route_info['route_desc']
+                            }
+                        }
                     
-                    destination = _get_destination_from_trip(trip.trip.trip_id)
-                    route_info = route_info_cache.get(line_id, _get_route_info(line_id))
-                    
-                    for stop_time in trip.stop_time_update:
-                        stop_id = stop_time.stop_id
-                        if stop_ids and stop_id not in stop_ids:
+                    # Initialize destination data if needed
+                    if destination not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
+                        
+                    if stop_time.HasField('arrival'):
+                        now = datetime.now(timezone.utc)
+                        
+                        # Get actual arrival time in UTC
+                        arrival_time_utc = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
+                        
+                        # Convert to Budapest time for display
+                        from zoneinfo import ZoneInfo
+                        budapest_tz = ZoneInfo('Europe/Budapest')
+                        arrival_time = arrival_time_utc.astimezone(budapest_tz)
+                        
+                        # Calculate minutes for display (in local time)
+                        now_local = now.astimezone(budapest_tz)
+                        realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
+                        
+                        # Get scheduled time from static GTFS data (already in UTC)
+                        scheduled_time_utc = _get_scheduled_time(
+                            trip.trip.trip_id,
+                            stop_id,
+                            stop_time.stop_sequence
+                        )
+                        
+                        if scheduled_time_utc:
+                            # Convert scheduled time to local for display
+                            scheduled_time = scheduled_time_utc.astimezone(budapest_tz)
+                            scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
+                            
+                            # Calculate delay in seconds with full precision
+                            delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
+                        else:
+                            scheduled_time = arrival_time
+                            scheduled_minutes = realtime_minutes
+                            delay_seconds = 0
+                        
+                        # Skip if both scheduled and realtime are in the past
+                        if scheduled_minutes < 0 and realtime_minutes < 0:
                             continue
                             
-                        # Initialize line data if needed
-                        if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                            formatted_data["stops_data"][stop_id]["lines"][line_id] = {
-                                "_metadata": {
-                                    "route_short_name": route_info['route_short_name'],
-                                    "route_desc": route_info['route_desc']
-                                }
-                            }
-                        
-                        # Initialize destination data if needed
-                        if destination not in formatted_data["stops_data"][stop_id]["lines"][line_id]:
-                            formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
-                            
-                        if stop_time.HasField('arrival'):
-                            now = datetime.now(timezone.utc)
-                            
-                            # Get actual arrival time in UTC
-                            arrival_time_utc = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
-                            
-                            # Convert to Budapest time for display
-                            from zoneinfo import ZoneInfo
-                            budapest_tz = ZoneInfo('Europe/Budapest')
-                            arrival_time = arrival_time_utc.astimezone(budapest_tz)
-                            
-                            # Calculate minutes for display (in local time)
-                            now_local = now.astimezone(budapest_tz)
-                            realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
-                            
-                            # Get scheduled time from static GTFS data (already in UTC)
-                            scheduled_time_utc = _get_scheduled_time(
-                                trip.trip.trip_id,
-                                stop_id,
-                                stop_time.stop_sequence
-                            )
-                            
-                            if scheduled_time_utc:
-                                # Convert scheduled time to local for display
-                                scheduled_time = scheduled_time_utc.astimezone(budapest_tz)
-                                scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
-                                
-                                # Calculate delay in seconds with full precision
-                                delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
-                            else:
-                                scheduled_time = arrival_time
-                                scheduled_minutes = realtime_minutes
-                                delay_seconds = 0
-                            
-                            # Skip if both scheduled and realtime are in the past
-                            if scheduled_minutes < 0 and realtime_minutes < 0:
-                                continue
-                                
-                            formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
-                                "delay": delay_seconds,
-                                "is_realtime": delay_seconds != 0,  # Only realtime if there's an actual delay
-                                "message": None,  # BKK doesn't provide message per arrival
-                                "realtime_minutes": f"{realtime_minutes}'",
-                                "realtime_time": arrival_time.strftime("%H:%M"),
-                                "scheduled_minutes": f"{scheduled_minutes}'",
-                                "scheduled_time": scheduled_time.strftime("%H:%M"),
-                                "provider": "bkk"
-                            })
-                
-                # Sort waiting times by arrival time for each destination
-                for stop_id, stop_data in formatted_data["stops_data"].items():
-                    for line_id, line_data in stop_data["lines"].items():
-                        for destination, times in line_data.items():
-                            if destination != "_metadata":  # Skip metadata when sorting
-                                times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
-                
-                _last_waiting_times_result = formatted_data
-                _last_waiting_times_update = time.time()
-                return formatted_data
+                        formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
+                            "delay": delay_seconds,
+                            "is_realtime": delay_seconds != 0,  # Only realtime if there's an actual delay
+                            "message": None,  # BKK doesn't provide message per arrival
+                            "realtime_minutes": f"{realtime_minutes}'",
+                            "realtime_time": arrival_time.strftime("%H:%M"),
+                            "scheduled_minutes": f"{scheduled_minutes}'",
+                            "scheduled_time": scheduled_time.strftime("%H:%M"),
+                            "provider": "bkk"
+                        })
+            perf_data['processing_time'] = time.time() - processing_start
+            
+            # Sort waiting times
+            sorting_start = time.time()
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                for line_id, line_data in stop_data["lines"].items():
+                    for destination, times in line_data.items():
+                        if destination != "_metadata":  # Skip metadata when sorting
+                            times.sort(key=lambda x: datetime.strptime(x["realtime_time"], "%H:%M"))
+            perf_data['sorting_time'] = time.time() - sorting_start
+            
+            perf_data['total_time'] = time.time() - start_time
+            formatted_data['_metadata']['performance'] = perf_data
+            
+            _last_waiting_times_result = formatted_data
+            _last_waiting_times_update = time.time()
+            return formatted_data
                 
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
         # Return empty stops_data with monitored stops
-        formatted_data = {"stops_data": {}}
+        formatted_data = {"stops_data": {}, "_metadata": {}}
         for stop_id in stop_ids:  # stop_ids is defined at the start of the function
             stop_info = _get_stop_info(stop_id)
             if stop_info:
@@ -713,6 +756,12 @@ async def get_waiting_times() -> Dict:
                     } if stop_info.get('lat') and stop_info.get('lon') else None,
                     "lines": {}
                 }
+        
+        # Add error performance data
+        perf_data['total_time'] = time.time() - start_time
+        perf_data['error'] = str(e)
+        formatted_data['_metadata']['performance'] = perf_data
+        
         _last_waiting_times_result = formatted_data
         _last_waiting_times_update = time.time()
         return formatted_data
