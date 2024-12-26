@@ -15,15 +15,19 @@ env:
 jobs:
   check-changes:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
     outputs:
       should_run: ${{ steps.check.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+        if: github.event_name == 'schedule'
       - id: check
         run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           last_week=$(date -d "7 days ago" +%s)
           last_commit=$(git log -1 --format=%ct)
           if [ $last_commit -gt $last_week ]; then
