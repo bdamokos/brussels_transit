@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import logging
 from logging.config import dictConfig
 from pathlib import Path
@@ -548,9 +549,17 @@ async def get_waiting_times() -> Dict:
             'cache_check_time': 0,
             'stops_init_time': 0,
             'api_request_time': 0,
-            'processing_time': 0,
+            'feed_parse_time': 0,
+            'route_cache_time': 0,
+            'entity_processing_time': 0,
+            'time_conversion_time': 0,
             'sorting_time': 0,
-            'cached': False
+            'cached': False,
+            'stats': {
+                'entities_processed': 0,
+                'stop_times_processed': 0,
+                'scheduled_time_lookups': 0
+            }
         }
 
         # Ensure caches are initialized
@@ -631,21 +640,29 @@ async def get_waiting_times() -> Dict:
             async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
                 response = await client.get(TRIP_UPDATES_URL)
                 response.raise_for_status()
-                
-                feed = gtfs_realtime_pb2.FeedMessage()
-                feed.ParseFromString(response.content)
             perf_data['api_request_time'] = time.time() - api_request_start
-            
-            # Process feed data
-            processing_start = time.time()
+                
+            # Parse feed
+            feed_parse_start = time.time()
+            feed = gtfs_realtime_pb2.FeedMessage()
+            feed.ParseFromString(response.content)
+            perf_data['feed_parse_time'] = time.time() - feed_parse_start
             
             # Pre-load route info for all monitored lines to avoid repeated cache checks
+            route_cache_start = time.time()
             route_info_cache = {
                 line_id: _get_route_info(line_id)
                 for line_id in monitored_lines
             } if monitored_lines else {}
+            perf_data['route_cache_time'] = time.time() - route_cache_start
+            
+            # Process feed data
+            entity_processing_start = time.time()
             
             for entity in feed.entity:
+                entity_start = time.time()
+                perf_data['stats']['entities_processed'] += 1
+                
                 if not entity.HasField('trip_update'):
                     continue
                     
@@ -658,6 +675,9 @@ async def get_waiting_times() -> Dict:
                 route_info = route_info_cache.get(line_id, _get_route_info(line_id))
                 
                 for stop_time in trip.stop_time_update:
+                    stop_time_start = time.time()
+                    perf_data['stats']['stop_times_processed'] += 1
+                    
                     stop_id = stop_time.stop_id
                     if stop_ids and stop_id not in stop_ids:
                         continue
@@ -676,54 +696,74 @@ async def get_waiting_times() -> Dict:
                         formatted_data["stops_data"][stop_id]["lines"][line_id][destination] = []
                         
                     if stop_time.HasField('arrival'):
-                        now = datetime.now(timezone.utc)
+                        # Store raw timestamps for later processing
+                        arrival_time = stop_time.arrival.time
                         
-                        # Get actual arrival time in UTC
-                        arrival_time_utc = datetime.fromtimestamp(stop_time.arrival.time, timezone.utc)
-                        
-                        # Convert to Budapest time for display
-                        from zoneinfo import ZoneInfo
-                        budapest_tz = ZoneInfo('Europe/Budapest')
-                        arrival_time = arrival_time_utc.astimezone(budapest_tz)
-                        
-                        # Calculate minutes for display (in local time)
-                        now_local = now.astimezone(budapest_tz)
-                        realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
-                        
-                        # Get scheduled time from static GTFS data (already in UTC)
-                        scheduled_time_utc = _get_scheduled_time(
+                        # Get scheduled time from static GTFS data
+                        scheduled_time_start = time.time()
+                        perf_data['stats']['scheduled_time_lookups'] += 1
+                        scheduled_time = _get_scheduled_time(
                             trip.trip.trip_id,
                             stop_id,
                             stop_time.stop_sequence
                         )
+                        scheduled_timestamp = scheduled_time.timestamp() if scheduled_time else arrival_time
+                        logger.debug(f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s")
                         
-                        if scheduled_time_utc:
-                            # Convert scheduled time to local for display
-                            scheduled_time = scheduled_time_utc.astimezone(budapest_tz)
-                            scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
-                            
-                            # Calculate delay in seconds with full precision
-                            delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
-                        else:
-                            scheduled_time = arrival_time
-                            scheduled_minutes = realtime_minutes
-                            delay_seconds = 0
-                        
-                        # Skip if both scheduled and realtime are in the past
-                        if scheduled_minutes < 0 and realtime_minutes < 0:
-                            continue
-                            
                         formatted_data["stops_data"][stop_id]["lines"][line_id][destination].append({
-                            "delay": delay_seconds,
-                            "is_realtime": delay_seconds != 0,  # Only realtime if there's an actual delay
-                            "message": None,  # BKK doesn't provide message per arrival
-                            "realtime_minutes": f"{realtime_minutes}'",
-                            "realtime_time": arrival_time.strftime("%H:%M"),
-                            "scheduled_minutes": f"{scheduled_minutes}'",
-                            "scheduled_time": scheduled_time.strftime("%H:%M"),
+                            "arrival_timestamp": arrival_time,
+                            "scheduled_timestamp": scheduled_timestamp,
                             "provider": "bkk"
                         })
-            perf_data['processing_time'] = time.time() - processing_start
+                    
+                    logger.debug(f"Stop time processing took: {time.time() - stop_time_start:.4f}s")
+                
+                logger.debug(f"Entity processing took: {time.time() - entity_start:.4f}s")
+            
+            perf_data['entity_processing_time'] = time.time() - entity_processing_start
+            
+            # Convert timestamps to human-readable format and calculate delays
+            time_conversion_start = time.time()
+            now = datetime.now(timezone.utc)
+            now_local = now.astimezone(ZoneInfo('Europe/Budapest'))
+            
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                for line_id, line_data in stop_data["lines"].items():
+                    for destination, times in line_data.items():
+                        if destination == "_metadata":
+                            continue
+                            
+                        processed_times = []
+                        for time_entry in times:
+                            arrival_time_utc = datetime.fromtimestamp(time_entry['arrival_timestamp'], timezone.utc)
+                            scheduled_time_utc = datetime.fromtimestamp(time_entry['scheduled_timestamp'], timezone.utc)
+                            
+                            arrival_time = arrival_time_utc.astimezone(ZoneInfo('Europe/Budapest'))
+                            scheduled_time = scheduled_time_utc.astimezone(ZoneInfo('Europe/Budapest'))
+                            
+                            realtime_minutes = int((arrival_time - now_local).total_seconds() / 60)
+                            scheduled_minutes = int((scheduled_time - now_local).total_seconds() / 60)
+                            
+                            # Skip if both scheduled and realtime are in the past
+                            if scheduled_minutes < 0 and realtime_minutes < 0:
+                                continue
+                                
+                            delay_seconds = int((arrival_time_utc - scheduled_time_utc).total_seconds())
+                            
+                            processed_times.append({
+                                "delay": delay_seconds,
+                                "is_realtime": delay_seconds != 0,
+                                "message": None,
+                                "realtime_minutes": f"{realtime_minutes}'",
+                                "realtime_time": arrival_time.strftime("%H:%M"),
+                                "scheduled_minutes": f"{scheduled_minutes}'",
+                                "scheduled_time": scheduled_time.strftime("%H:%M"),
+                                "provider": "bkk"
+                            })
+                            
+                        line_data[destination] = processed_times
+            
+            perf_data['time_conversion_time'] = time.time() - time_conversion_start
             
             # Sort waiting times
             sorting_start = time.time()
