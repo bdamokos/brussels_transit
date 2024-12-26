@@ -1,3 +1,4 @@
+
 # Public Transport Waiting Times
 
 Creates a dashboard showing waiting times for implemented public transport companies' stops, ordered by distance from a given point (map centre or user's current location).
@@ -37,7 +38,11 @@ See for example this implementation: [Raspberry Pi Waiting Time Display](https:/
 - API keys for STIB and De Lijn (see below) - requires free registration
 
 ### Installation
+*Docker*
 
+See [DOCKER.md](DOCKER.md) for how to install it directly with Docker.
+
+*Traditional way*
 1. Clone this repository
 2. Create a virtual environment: `python -m venv .venv`
 3. Activate the virtual environment:
@@ -161,5 +166,3 @@ Either:
 - Where the API provides multiple languages, English and French are taken as the default, depending on the API. (E.g. Station names for STIB in French, service messages for STIB in English)
 - Timetables are not yet supported. (This information is available in the GTFS data of both STIB and De Lijn)
 - Initial load is slow because it involves downloading and parsing a large GTFS file.
-
-
