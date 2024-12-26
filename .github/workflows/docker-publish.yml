@@ -3,7 +3,7 @@ name: Docker Build and Publish
 on:
   workflow_dispatch:  # Allows manual triggering
   release:
-    types: [published, prereleased, released]
+    types: [released]
   pull_request:
     branches: [ "main" ]
   schedule:
