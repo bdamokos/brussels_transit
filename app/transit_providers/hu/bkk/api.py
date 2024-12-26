@@ -536,6 +536,81 @@ async def get_vehicle_positions(line=None, direction=None):
             
         return vehicles
 
+def _get_destination_from_trip(trip_id: str, stop_sequence: Optional[List[str]] = None) -> str:
+    """Extract destination from trip ID based on GTFS data structure.
+    
+    Args:
+        trip_id: The trip ID to look up
+        stop_sequence: Optional list of stops in sequence for this trip, used as fallback
+    """
+    try:
+        logger.debug(f"Getting destination for trip {trip_id}")
+        
+        # Load trip information from GTFS data
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            logger.error("Could not get GTFS path")
+            return _get_fallback_destination(stop_sequence)
+            
+        trips_file = gtfs_path / 'trips.txt'
+        if not trips_file.exists():
+            logger.error(f"Trips file not found at {trips_file}")
+            return _get_fallback_destination(stop_sequence)
+            
+        with open(trips_file, 'r', encoding='utf-8') as f:
+            # Skip header line
+            header = next(f).strip().split(',')
+            try:
+                trip_id_index = header.index('trip_id')
+                trip_headsign_index = header.index('trip_headsign')
+            except ValueError as e:
+                logger.error(f"Required column not found in trips.txt: {e}")
+                return _get_fallback_destination(stop_sequence)
+            
+            # First try exact trip ID match
+            for line in f:
+                fields = line.strip().split(',')
+                if len(fields) > max(trip_id_index, trip_headsign_index):
+                    current_trip_id = fields[trip_id_index].strip('"')
+                    if current_trip_id == trip_id:
+                        headsign = fields[trip_headsign_index].strip('"')
+                        logger.debug(f"Found exact match for trip {trip_id}: {headsign}")
+                        return headsign
+            
+            # If no exact match found, try with base trip ID (without date and sequence)
+            # Format is typically: C905895082-20241226-01
+            # We want to try: C905895082
+            base_trip_id = trip_id.split('-')[0]
+            if base_trip_id != trip_id:
+                logger.debug(f"Trying base trip ID: {base_trip_id}")
+                f.seek(0)  # Reset file pointer
+                next(f)  # Skip header again
+                
+                for line in f:
+                    fields = line.strip().split(',')
+                    if len(fields) > max(trip_id_index, trip_headsign_index):
+                        current_trip_id = fields[trip_id_index].strip('"')
+                        if current_trip_id == base_trip_id:
+                            headsign = fields[trip_headsign_index].strip('"')
+                            logger.debug(f"Found match for base trip ID {base_trip_id}: {headsign}")
+                            return headsign
+            
+            logger.warning(f"Trip {trip_id} (base: {base_trip_id}) not found in GTFS data. This might indicate that the GTFS file needs to be updated.")
+            return _get_fallback_destination(stop_sequence)
+            
+    except Exception as e:
+        logger.error(f"Error getting destination for trip {trip_id}: {e}")
+        return _get_fallback_destination(stop_sequence)
+
+def _get_fallback_destination(stop_sequence: Optional[List[str]]) -> str:
+    """Get destination from the last stop in the sequence."""
+    if not stop_sequence:
+        return ''
+        
+    last_stop = stop_sequence[-1]
+    stop_info = _get_stop_info(last_stop)
+    return stop_info.get('name', '')
+
 async def get_waiting_times() -> Dict:
     """Get waiting times for monitored stops with request coalescing."""
     global _last_waiting_times_result, _last_waiting_times_update, _waiting_times_locks, _caches_initialized
@@ -558,7 +633,8 @@ async def get_waiting_times() -> Dict:
             'stats': {
                 'entities_processed': 0,
                 'stop_times_processed': 0,
-                'scheduled_time_lookups': 0
+                'scheduled_time_lookups': 0,
+                'fallback_destinations_used': 0
             }
         }
 
@@ -671,7 +747,15 @@ async def get_waiting_times() -> Dict:
                 if monitored_lines and line_id not in monitored_lines:
                     continue
                 
-                destination = _get_destination_from_trip(trip.trip.trip_id)
+                # Collect stop sequence for this trip
+                stop_sequence = []
+                for update in trip.stop_time_update:
+                    stop_sequence.append(update.stop_id)
+                
+                destination = _get_destination_from_trip(trip.trip.trip_id, stop_sequence)
+                if not destination:
+                    continue  # Skip if we couldn't get a destination even with fallback
+                
                 route_info = route_info_cache.get(line_id, _get_route_info(line_id))
                 
                 for stop_time in trip.stop_time_update:
@@ -1138,39 +1222,6 @@ def _get_line_id_from_trip(route_id: str) -> str:
     except Exception as e:
         logger.error(f"Error extracting line ID from route {route_id}: {e}")
         return route_id  # Return original ID if something goes wrong
-
-def _get_destination_from_trip(trip_id: str) -> str:
-    """Extract destination from trip ID based on GTFS data structure"""
-    try:
-        # Load trip information from GTFS data
-        gtfs_dir = GTFS_DIR
-        if not gtfs_dir.exists():
-            return ''
-            
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return ''
-            
-        trips_file = gtfs_path / 'trips.txt'
-        if not trips_file.exists():
-            return ''
-            
-        with open(trips_file, 'r', encoding='utf-8') as f:
-            # Skip header line
-            header = next(f).strip().split(',')
-            trip_id_index = header.index('trip_id')
-            trip_headsign_index = header.index('trip_headsign')
-            
-            for line in f:
-                fields = line.strip().split(',')
-                if len(fields) > max(trip_id_index, trip_headsign_index) and fields[trip_id_index] == trip_id:
-                    # Remove quotes if present
-                    headsign = fields[trip_headsign_index].strip('"')
-                    return headsign
-        return ''
-    except Exception as e:
-        logger.error(f"Error getting destination for trip {trip_id}: {e}")
-        return ''
 
 def _format_minutes_until(dt: datetime) -> str:
     """Format minutes until given datetime"""
