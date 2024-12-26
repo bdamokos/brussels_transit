@@ -113,6 +113,58 @@ _waiting_times_locks = {}
 # Add initialization flag
 _caches_initialized = False
 
+# Add after other cache variables
+_trips_cache = {}  # Format: {trip_id: {'headsign': str, 'route_id': str}}
+_trips_cache_update = None
+
+def _load_trips_cache() -> None:
+    """Load trip information from GTFS data into cache, only for monitored lines."""
+    global _trips_cache, _trips_cache_update
+    
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return
+            
+        trips_file = gtfs_path / 'trips.txt'
+        if not trips_file.exists():
+            return
+            
+        # Get monitored lines first
+        config = get_provider_config('bkk')
+        monitored_lines = config.get('MONITORED_LINES', [])
+        
+        new_cache = {}
+        with open(trips_file, 'r', encoding='utf-8') as f:
+            header = next(f).strip().split(',')
+            try:
+                trip_id_index = header.index('trip_id')
+                trip_headsign_index = header.index('trip_headsign')
+                route_id_index = header.index('route_id')
+            except ValueError as e:
+                logger.error(f"Required column not found in trips.txt: {e}")
+                return
+            
+            for line in f:
+                fields = line.strip().split(',')
+                if len(fields) > max(trip_id_index, trip_headsign_index, route_id_index):
+                    route_id = fields[route_id_index].strip('"')
+                    # Only cache trips for monitored lines
+                    if not monitored_lines or route_id in monitored_lines:
+                        trip_id = fields[trip_id_index].strip('"')
+                        headsign = fields[trip_headsign_index].strip('"')
+                        new_cache[trip_id] = {
+                            'headsign': headsign,
+                            'route_id': route_id
+                        }
+        
+        _trips_cache = new_cache
+        _trips_cache_update = datetime.now(timezone.utc)
+        logger.info(f"Updated trips cache with {len(_trips_cache)} entries")
+        
+    except Exception as e:
+        logger.error(f"Error loading trips cache: {e}")
+
 async def _initialize_caches():
     """Initialize all caches at module load."""
     global _caches_initialized
@@ -124,6 +176,7 @@ async def _initialize_caches():
         _load_stops_cache()
         _load_routes_cache()
         _load_stop_times_cache()
+        _load_trips_cache()  # Add trips cache initialization
         _caches_initialized = True
         logger.info("BKK provider caches initialized successfully")
     except Exception as e:
@@ -546,57 +599,28 @@ def _get_destination_from_trip(trip_id: str, stop_sequence: Optional[List[str]] 
     try:
         logger.debug(f"Getting destination for trip {trip_id}")
         
-        # Load trip information from GTFS data
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            logger.error("Could not get GTFS path")
-            return _get_fallback_destination(stop_sequence)
-            
-        trips_file = gtfs_path / 'trips.txt'
-        if not trips_file.exists():
-            logger.error(f"Trips file not found at {trips_file}")
-            return _get_fallback_destination(stop_sequence)
-            
-        with open(trips_file, 'r', encoding='utf-8') as f:
-            # Skip header line
-            header = next(f).strip().split(',')
-            try:
-                trip_id_index = header.index('trip_id')
-                trip_headsign_index = header.index('trip_headsign')
-            except ValueError as e:
-                logger.error(f"Required column not found in trips.txt: {e}")
-                return _get_fallback_destination(stop_sequence)
-            
-            # First try exact trip ID match
-            for line in f:
-                fields = line.strip().split(',')
-                if len(fields) > max(trip_id_index, trip_headsign_index):
-                    current_trip_id = fields[trip_id_index].strip('"')
-                    if current_trip_id == trip_id:
-                        headsign = fields[trip_headsign_index].strip('"')
-                        logger.debug(f"Found exact match for trip {trip_id}: {headsign}")
-                        return headsign
-            
-            # If no exact match found, try with base trip ID (without date and sequence)
-            # Format is typically: C905895082-20241226-01
-            # We want to try: C905895082
-            base_trip_id = trip_id.split('-')[0]
-            if base_trip_id != trip_id:
-                logger.debug(f"Trying base trip ID: {base_trip_id}")
-                f.seek(0)  # Reset file pointer
-                next(f)  # Skip header again
-                
-                for line in f:
-                    fields = line.strip().split(',')
-                    if len(fields) > max(trip_id_index, trip_headsign_index):
-                        current_trip_id = fields[trip_id_index].strip('"')
-                        if current_trip_id == base_trip_id:
-                            headsign = fields[trip_headsign_index].strip('"')
-                            logger.debug(f"Found match for base trip ID {base_trip_id}: {headsign}")
-                            return headsign
-            
-            logger.warning(f"Trip {trip_id} (base: {base_trip_id}) not found in GTFS data. This might indicate that the GTFS file needs to be updated.")
-            return _get_fallback_destination(stop_sequence)
+        # Update cache if needed
+        now = datetime.now(timezone.utc)
+        if not _trips_cache_update or (now - _trips_cache_update) > _CACHE_DURATION:
+            _load_trips_cache()
+        
+        # First try exact trip ID match
+        if trip_id in _trips_cache:
+            headsign = _trips_cache[trip_id]['headsign']
+            logger.debug(f"Found exact match for trip {trip_id}: {headsign}")
+            return headsign
+        
+        # If no exact match found, try with base trip ID (without date and sequence)
+        # Format is typically: C905895082-20241226-01
+        # We want to try: C905895082
+        base_trip_id = trip_id.split('-')[0]
+        if base_trip_id != trip_id and base_trip_id in _trips_cache:
+            headsign = _trips_cache[base_trip_id]['headsign']
+            logger.debug(f"Found match for base trip ID {base_trip_id}: {headsign}")
+            return headsign
+        
+        logger.warning(f"Trip {trip_id} (base: {base_trip_id}) not found in GTFS data. This might indicate that the GTFS file needs to be updated.")
+        return _get_fallback_destination(stop_sequence)
             
     except Exception as e:
         logger.error(f"Error getting destination for trip {trip_id}: {e}")
