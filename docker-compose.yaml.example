@@ -1,3 +1,5 @@
+# Rename this file to docker-compose.yaml and fill in the variables to use this. You can also use the already pre-pared docker-compose.backend.yaml, docker-compose-ngrok-static.yaml, and docker-compose.ngrok-temp.yaml files instead of editing this one. For more information, see the DOCKER.md file.
+
 services:
   web:
     build: .
@@ -7,7 +9,7 @@ services:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
     env_file:
-      - .env 
+      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
@@ -54,4 +56,3 @@ services:
         limits:
           cpus: "0.25"
           memory: 256M
-
