@@ -21,6 +21,11 @@ from .models import (
     Location,
     Shape,
     RouteInfo,
+    WaitingTimeInfo,
+    StopData,
+    RouteArrivals,
+    RouteMetadata,
+    ArrivalInfo,
 )
 from .gtfs_loader import FlixbusFeed, load_feed
 
@@ -618,8 +623,8 @@ async def get_providers_info():
     return find_gtfs_directories()
 
 
-@app.get("/api/{provider_id}/waiting_times")
-@app.get("/api/{provider_id}/waiting_times/{route_id}")
+@app.get("/api/{provider_id}/waiting_times", response_model=WaitingTimeInfo)
+@app.get("/api/{provider_id}/waiting_times/{route_id}", response_model=WaitingTimeInfo)
 async def get_waiting_times(
     provider_id: str,
     route_id: Optional[str] = None,
@@ -675,8 +680,8 @@ async def get_waiting_times(
     # Get all routes serving this stop
     routes_info = await get_station_routes(stop_id)
 
-    # Initialize response structure
-    next_arrivals = {}
+    # Initialize response structure with proper models
+    next_arrivals: Dict[str, RouteArrivals] = {}
 
     # For each route, get the trips to its terminus
     for route_info in routes_info:
@@ -694,12 +699,13 @@ async def get_waiting_times(
 
         # Initialize route in next_arrivals
         if route_info.route_id not in next_arrivals:
-            next_arrivals[route_info.route_id] = {
-                "_metadata": {
-                    "route_desc": route_info.route_name,
-                    "route_short_name": route_info.short_name or route_info.route_id,
-                }
-            }
+            next_arrivals[route_info.route_id] = RouteArrivals(
+                _metadata=RouteMetadata(
+                    route_desc=route_info.route_name,
+                    route_short_name=route_info.short_name or route_info.route_id,
+                ),
+                destinations={},
+            )
 
         # Process each route's trips
         for route in routes_response.routes:
@@ -710,8 +716,8 @@ async def get_waiting_times(
 
             # Initialize headsign in next_arrivals if needed
             headsign = route_info.last_stop
-            if headsign not in next_arrivals[route_info.route_id]:
-                next_arrivals[route_info.route_id][headsign] = []
+            if headsign not in next_arrivals[route_info.route_id].destinations:
+                next_arrivals[route_info.route_id].destinations[headsign] = []
 
             # Get current time in local timezone
             current_time = (
@@ -733,39 +739,40 @@ async def get_waiting_times(
                 continue
 
             # Add arrival
-            arrival_data = {
-                "is_realtime": False,
-                "provider": provider_id,
-                "scheduled_time": first_stop.arrival_time,
-                "scheduled_minutes": calculate_minutes_until(
+            arrival_data = ArrivalInfo(
+                is_realtime=False,
+                provider=provider_id,
+                scheduled_time=first_stop.arrival_time,
+                scheduled_minutes=calculate_minutes_until(
                     first_stop.arrival_time, current_time
                 ),
-            }
+            )
 
-            next_arrivals[route_info.route_id][headsign].append(arrival_data)
+            next_arrivals[route_info.route_id].destinations[headsign].append(
+                arrival_data
+            )
 
     # Sort arrivals and limit to requested number
-    for route_id in next_arrivals:
-        for headsign in next_arrivals[route_id]:
-            if headsign != "_metadata":
-                next_arrivals[route_id][headsign].sort(
-                    key=lambda x: x["scheduled_minutes"]
-                )
-                next_arrivals[route_id][headsign] = next_arrivals[route_id][headsign][
-                    :limit
-                ]
+    for route_id, route_arrivals in next_arrivals.items():
+        for headsign in route_arrivals.destinations:
+            route_arrivals.destinations[headsign].sort(
+                key=lambda x: x.scheduled_minutes
+            )
+            route_arrivals.destinations[headsign] = route_arrivals.destinations[
+                headsign
+            ][:limit]
 
-    # Format response
-    response = {
-        "_metadata": {"performance": {"total_time": time.time() - start_time}},
-        "stops_data": {
-            stop_id: {
-                "coordinates": {"lat": gtfs_stop.lat, "lon": gtfs_stop.lon},
-                "lines": next_arrivals,
-                "name": gtfs_stop.name,
-            }
+    # Format response using models
+    response = WaitingTimeInfo(
+        _metadata={"performance": {"total_time": time.time() - start_time}},
+        stops_data={
+            stop_id: StopData(
+                coordinates=Location(lat=gtfs_stop.lat, lon=gtfs_stop.lon),
+                lines=next_arrivals,
+                name=gtfs_stop.name,
+            )
         },
-    }
+    )
 
     return response
 

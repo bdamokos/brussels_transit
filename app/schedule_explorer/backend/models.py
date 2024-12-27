@@ -61,3 +61,31 @@ class RouteInfo(BaseModel):
     service_days: List[str]
     parent_station_id: Optional[str] = (None,)
     terminus_stop_id: Optional[str] = None
+
+
+class ArrivalInfo(BaseModel):
+    is_realtime: bool
+    provider: str
+    scheduled_time: str
+    scheduled_minutes: str
+
+
+class RouteMetadata(BaseModel):
+    route_desc: str
+    route_short_name: str
+
+
+class RouteArrivals(BaseModel):
+    _metadata: RouteMetadata
+    destinations: Dict[str, List[ArrivalInfo]]  # headsign -> arrivals
+
+
+class StopData(BaseModel):
+    coordinates: Location
+    lines: Dict[str, RouteArrivals]  # route_id -> RouteArrivals
+    name: str
+
+
+class WaitingTimeInfo(BaseModel):
+    _metadata: Dict[str, Dict[str, float]]  # performance metadata
+    stops_data: Dict[str, StopData]  # stop_id -> StopData
