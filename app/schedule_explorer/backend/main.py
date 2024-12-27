@@ -748,7 +748,7 @@ async def get_waiting_times(
             # Add arrival
             arrival_data = ArrivalInfo(
                 is_realtime=False,
-                provider=provider_id,
+                provider=provider.raw_id,
                 scheduled_time=first_stop.arrival_time,
                 scheduled_minutes=calculate_minutes_until(
                     first_stop.arrival_time, current_time
