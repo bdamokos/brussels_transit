@@ -29,6 +29,8 @@ from .models import (
     Provider,
     DatasetInfo,
     DatasetValidation,
+    RouteColors,
+    LineInfo,
 )
 from .gtfs_loader import FlixbusFeed, load_feed
 
@@ -1027,3 +1029,81 @@ def calculate_minutes_until(arrival_time: str, current_time: str) -> str:
     diff = arrival - current
     minutes = int(diff.total_seconds() / 60)
     return f"{minutes}'"
+
+
+@app.get("/api/{provider_id}/colors/{route_id}", response_model=RouteColors)
+async def get_route_colors(
+    provider_id: str = Path(...),
+    route_id: str = Path(...),
+):
+    """Get the color scheme for a route."""
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
+        raise HTTPException(
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
+        )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    # Find the route
+    route = next((r for r in feed.routes if r.route_id == route_id), None)
+    if not route:
+        raise HTTPException(status_code=404, detail=f"Route {route_id} not found")
+
+    # Get colors from route, defaulting to black/white if not specified
+    background_color = f"#{route.color}" if hasattr(route, "color") and route.color else "#000000"
+    text_color = f"#{route.text_color}" if hasattr(route, "text_color") and route.text_color else "#FFFFFF"
+
+    # Return the color scheme
+    return RouteColors(
+        background=background_color,
+        background_border=background_color,  # Same as background
+        text=text_color,
+        text_border=text_color,  # Same as text
+    )
+
+
+@app.get("/api/{provider_id}/line_info/{route_id}", response_model=Dict[str, LineInfo])
+async def get_line_info(
+    provider_id: str = Path(...),
+    route_id: str = Path(...),
+):
+    """Get detailed information about a route/line."""
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
+        raise HTTPException(
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
+        )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    # Find the route
+    route = next((r for r in feed.routes if r.route_id == route_id), None)
+    if not route:
+        raise HTTPException(status_code=404, detail=f"Route {route_id} not found")
+
+    # Get route information
+    color = f"#{route.color}" if hasattr(route, "color") and route.color else None
+    text_color = f"#{route.text_color}" if hasattr(route, "text_color") and route.text_color else None
+    display_name = route.short_name if hasattr(route, "short_name") and route.short_name else route_id
+    long_name = route.route_name if hasattr(route, "route_name") and route.route_name else ""
+    route_type = route.route_type if hasattr(route, "route_type") else None 
+
+    # Return the line info
+    return {
+        route_id: LineInfo(
+            color=color,
+            display_name=display_name,
+            long_name=long_name,
+            provider=provider.raw_id,
+            route_id=route_id,
+            route_type=route_type,
+            text_color=text_color,
+        )
+    }

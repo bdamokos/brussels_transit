@@ -113,3 +113,20 @@ class StopData(BaseModel):
 class WaitingTimeInfo(BaseModel):
     _metadata: Dict[str, Dict[str, float]]  # performance metadata
     stops_data: Dict[str, StopData]  # stop_id -> StopData
+
+
+class RouteColors(BaseModel):
+    background: str  # HEX color code
+    background_border: str  # HEX color code
+    text: str  # HEX color code
+    text_border: str  # HEX color code
+
+
+class LineInfo(BaseModel):
+    color: Optional[str]  # HEX color code
+    display_name: str  # Short name or route_id if not available
+    long_name: str  # Long name or empty string if not available
+    provider: str  # Provider ID
+    route_id: str  # Route ID
+    route_type: Optional[int] = None  # GTFS route type
+    text_color: Optional[str]  # HEX color code

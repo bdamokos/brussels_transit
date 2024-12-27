@@ -601,7 +601,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     logger.info(f"Created translations map with {len(translations)} entries")
     return translations
 
-CACHE_VERSION = "2.6"
+CACHE_VERSION = "2.7"
 
 def serialize_gtfs_data(feed: 'FlixbusFeed') -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
@@ -896,7 +896,8 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             'route_long_name': row.route_long_name,
             'route_short_name': row.route_short_name,
             'color': getattr(row, 'route_color', None),
-            'text_color': getattr(row, 'route_text_color', None)
+            'text_color': getattr(row, 'route_text_color', None),
+            'route_type': int(row.route_type)
         }
         for row in routes_df.itertuples()
     }
@@ -1159,7 +1160,8 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                 text_color=route_info['text_color'],
                 headsigns=route_headsigns.get(route_id, {}),
                 service_ids=list(route_service_ids[route_id]),
-                direction_id=direction
+                direction_id=direction,
+                route_type=route_info['route_type']
             )
             routes.append(route)
     
