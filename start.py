@@ -33,7 +33,7 @@ def run_apps():
         # Schedule Explorer backend
         backend_dir = Path(__file__).parent / "app" / "schedule_explorer"
         backend_process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "backend.main:app", "--reload", "--port", "8000"],
+            [sys.executable, "-m", "uvicorn", "backend.main:app", "--port", "8000"],
             cwd=backend_dir
         )
         processes.append(('Schedule Explorer backend (port 8000)', backend_process))
