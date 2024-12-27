@@ -11,6 +11,7 @@ import logging.config
 import json
 from mobility_db_api import MobilityAPI
 import time
+from zoneinfo import ZoneInfo
 
 from .models import (
     RouteResponse,
@@ -624,7 +625,12 @@ async def get_waiting_times(
     route_id: Optional[str] = None,
     stop_id: Optional[str] = Query(None, description="Stop ID to get arrivals for"),
     limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
-    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    time_local: Optional[str] = Query(
+        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
+    ),
+    time_utc: Optional[str] = Query(
+        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
+    ),
 ):
     """Get the next scheduled arrivals at a stop."""
     start_time = time.time()
@@ -646,16 +652,20 @@ async def get_waiting_times(
     if not stop_id:
         raise HTTPException(status_code=400, detail="stop_id is required")
 
-    # Parse date or use today
+    # Parse date or use current time (converted from UTC to local)
     try:
-        if date:
-            target_date = datetime.strptime(date, "%Y-%m-%d")
-        else:
-            target_date = datetime.now()
+        if time_local:
+            # If time is provided, assume it's in local timezone
+            target_time = datetime.strptime(time_local, "%H:%M:%S").time()
+        elif time_utc or not (time_local and time_utc):
+            # If no time provided, convert current UTC time to local
+            target_time = (
+                datetime.now(ZoneInfo("UTC"))
+                .astimezone(ZoneInfo("Europe/Brussels"))
+                .time()
+            )
     except ValueError:
-        raise HTTPException(
-            status_code=400, detail="Invalid date format. Use YYYY-MM-DD"
-        )
+        raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM:SS")
 
     # Get the stop
     gtfs_stop = feed.stops.get(stop_id)
@@ -676,7 +686,10 @@ async def get_waiting_times(
 
         # Get all trips between our stop and the terminus
         routes_response = await get_routes(
-            from_station=stop_id, to_station=route_info.terminus_stop_id, date=date
+            from_station=stop_id,
+            to_station=route_info.terminus_stop_id,
+            date=None,
+            language="default",
         )
 
         # Initialize route in next_arrivals
@@ -700,13 +713,32 @@ async def get_waiting_times(
             if headsign not in next_arrivals[route_info.route_id]:
                 next_arrivals[route_info.route_id][headsign] = []
 
+            # Get current time in local timezone
+            current_time = (
+                datetime.now(ZoneInfo("UTC"))
+                .astimezone(ZoneInfo("Europe/Brussels"))
+                .strftime("%H:%M:%S")
+            )
+
+            # Convert arrival_time string to time object for comparison
+            arrival_time_datetime = parse_time(first_stop.arrival_time)
+            target_datetime = datetime.now().replace(
+                hour=target_time.hour,
+                minute=target_time.minute,
+                second=target_time.second,
+                microsecond=0,
+            )
+            # Skip arrival if it is before the target time
+            if arrival_time_datetime < target_datetime:
+                continue
+
             # Add arrival
             arrival_data = {
                 "is_realtime": False,
                 "provider": provider_id,
                 "scheduled_time": first_stop.arrival_time,
                 "scheduled_minutes": calculate_minutes_until(
-                    first_stop.arrival_time, target_date.strftime("%H:%M:%S")
+                    first_stop.arrival_time, current_time
                 ),
             }
 
@@ -738,13 +770,14 @@ async def get_waiting_times(
     return response
 
 
+def parse_time(time_str: str) -> datetime:
+    hours, minutes, seconds = map(int, time_str.split(":"))
+    base = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return base + timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+
 def calculate_minutes_until(arrival_time: str, current_time: str) -> str:
     """Calculate minutes until arrival, handling overnight times."""
-
-    def parse_time(time_str: str) -> datetime:
-        hours, minutes, seconds = map(int, time_str.split(":"))
-        base = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        return base + timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
     arrival = parse_time(arrival_time)
     current = parse_time(current_time)
