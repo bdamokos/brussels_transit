@@ -132,6 +132,24 @@ class CalendarDate:
 
 
 @dataclass
+class Agency:
+    """
+    Represents an agency from agency.txt
+    Required fields: agency_id, agency_name, agency_url, agency_timezone
+    Optional fields: agency_lang, agency_phone, agency_fare_url, agency_email
+    """
+
+    agency_id: str
+    agency_name: str
+    agency_url: str
+    agency_timezone: str
+    agency_lang: Optional[str] = None
+    agency_phone: Optional[str] = None
+    agency_fare_url: Optional[str] = None
+    agency_email: Optional[str] = None
+
+
+@dataclass
 class Route:
     route_id: str
     route_name: str
@@ -150,6 +168,11 @@ class Route:
         default_factory=list
     )  # List of all service IDs for this route
     direction_id: Optional[str] = None  # Direction of this route variant
+    route_desc: Optional[str] = None  # Description of the route
+    route_url: Optional[str] = None  # URL of a web page about the route
+    route_sort_order: Optional[int] = None  # Order in which routes should be displayed
+    continuous_pickup: Optional[int] = None  # Flag stop behavior for pickup (0-3)
+    continuous_drop_off: Optional[int] = None  # Flag stop behavior for drop-off (0-3)
     _feed: Optional["FlixbusFeed"] = field(
         default=None, repr=False, compare=False, hash=False
     )
@@ -276,6 +299,7 @@ class FlixbusFeed:
     stop_times_dict: Dict[str, List[Dict]] = field(
         default_factory=dict
     )  # trip_id -> list of stop times
+    agencies: Dict[str, Agency] = field(default_factory=dict)  # agency_id -> Agency
     _feed: Optional["FlixbusFeed"] = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -693,7 +717,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "2.7"
+CACHE_VERSION = "2.8"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -711,6 +735,9 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
             "calendar_dates": [asdict(cal_date) for cal_date in feed.calendar_dates],
             "trips": {trip_id: asdict(trip) for trip_id, trip in feed.trips.items()},
             "stop_times_dict": feed.stop_times_dict,
+            "agencies": {
+                agency_id: asdict(agency) for agency_id, agency in feed.agencies.items()
+            },
         }
 
         # Handle routes separately to avoid _feed recursion
@@ -828,6 +855,12 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
                 trip_data["stop_times"] = stop_times
                 trips[trip_id] = Trip(**trip_data)
 
+        # Convert agencies
+        agencies = {}
+        if "agencies" in raw_data:
+            for agency_id, agency_data in raw_data["agencies"].items():
+                agencies[agency_id] = Agency(**agency_data)
+
         # Convert routes
         routes = []
         for route_data in raw_data["routes"]:
@@ -857,6 +890,7 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
             calendar_dates=calendar_dates,
             trips=trips,
             stop_times_dict=raw_data["stop_times_dict"],
+            agencies=agencies,
         )
 
         logger.info(
@@ -909,6 +943,59 @@ def load_feed(
                     hash_file.unlink()
                 except:
                     pass
+
+    # Load agencies first
+    t0 = time.time()
+    logger.info("Loading agencies...")
+    agencies = {}
+    try:
+        agencies_df = pd.read_csv(
+            data_path / "agency.txt",
+            dtype={
+                "agency_id": str,
+                "agency_name": str,
+                "agency_url": str,
+                "agency_timezone": str,
+                # Optional fields
+                "agency_lang": str,
+                "agency_phone": str,
+                "agency_fare_url": str,
+                "agency_email": str,
+            },
+        )
+        for _, row in agencies_df.iterrows():
+            agency = Agency(
+                agency_id=str(row["agency_id"]),
+                agency_name=row["agency_name"],
+                agency_url=row["agency_url"],
+                agency_timezone=row["agency_timezone"],
+                agency_lang=(
+                    row["agency_lang"]
+                    if "agency_lang" in row and pd.notna(row["agency_lang"])
+                    else None
+                ),
+                agency_phone=(
+                    row["agency_phone"]
+                    if "agency_phone" in row and pd.notna(row["agency_phone"])
+                    else None
+                ),
+                agency_fare_url=(
+                    row["agency_fare_url"]
+                    if "agency_fare_url" in row and pd.notna(row["agency_fare_url"])
+                    else None
+                ),
+                agency_email=(
+                    row["agency_email"]
+                    if "agency_email" in row and pd.notna(row["agency_email"])
+                    else None
+                ),
+            )
+            agencies[agency.agency_id] = agency
+        logger.info(
+            f"Loaded {len(agencies)} agencies in {time.time() - t0:.2f} seconds"
+        )
+    except FileNotFoundError:
+        logger.warning("No agency.txt found")
 
     # Calculate optimal chunk size based on available memory
     available_memory = psutil.virtual_memory().available
@@ -985,16 +1072,14 @@ def load_feed(
             "route_short_name": str,
             "route_color": str,
             "route_text_color": str,
+            "route_type": int,
             # Optional fields
             "agency_id": str,
             "route_desc": str,
             "route_url": str,
-            "route_color": str,  # 6-character hex color
-            "route_text_color": str,  # 6-character hex color
             "route_sort_order": "Int64",  # Nullable integer for route ordering
             "continuous_pickup": "Int64",  # Nullable integer enum (0-3)
             "continuous_drop_off": "Int64",  # Nullable integer enum (0-3)
-            "network_id": str,  # Identifies transit network
         },
     )
 
@@ -1006,6 +1091,37 @@ def load_feed(
             "color": getattr(row, "route_color", None),
             "text_color": getattr(row, "route_text_color", None),
             "route_type": int(row.route_type),
+            "agency_id": (
+                str(row.agency_id)
+                if hasattr(row, "agency_id") and pd.notna(row.agency_id)
+                else None
+            ),
+            "route_desc": (
+                str(row.route_desc)
+                if hasattr(row, "route_desc") and pd.notna(row.route_desc)
+                else None
+            ),
+            "route_url": (
+                str(row.route_url)
+                if hasattr(row, "route_url") and pd.notna(row.route_url)
+                else None
+            ),
+            "route_sort_order": (
+                int(row.route_sort_order)
+                if hasattr(row, "route_sort_order") and pd.notna(row.route_sort_order)
+                else None
+            ),
+            "continuous_pickup": (
+                int(row.continuous_pickup)
+                if hasattr(row, "continuous_pickup") and pd.notna(row.continuous_pickup)
+                else None
+            ),
+            "continuous_drop_off": (
+                int(row.continuous_drop_off)
+                if hasattr(row, "continuous_drop_off")
+                and pd.notna(row.continuous_drop_off)
+                else None
+            ),
         }
         for row in routes_df.itertuples()
     }
@@ -1296,6 +1412,12 @@ def load_feed(
                 service_ids=list(route_service_ids[route_id]),
                 direction_id=direction,
                 route_type=route_info["route_type"],
+                agency_id=route_info["agency_id"],
+                route_desc=route_info["route_desc"],
+                route_url=route_info["route_url"],
+                route_sort_order=route_info["route_sort_order"],
+                continuous_pickup=route_info["continuous_pickup"],
+                continuous_drop_off=route_info["continuous_drop_off"],
             )
             routes.append(route)
 

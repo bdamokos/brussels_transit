@@ -130,3 +130,9 @@ class LineInfo(BaseModel):
     route_id: str  # Route ID
     route_type: Optional[int] = None  # GTFS route type
     text_color: Optional[str]  # HEX color code
+    agency_id: Optional[str] = None  # Agency operating this route
+    route_desc: Optional[str] = None  # Description of the route
+    route_url: Optional[str] = None  # URL of a web page about the route
+    route_sort_order: Optional[int] = None  # Order in which routes should be displayed
+    continuous_pickup: Optional[int] = None  # Flag stop behavior for pickup (0-3)
+    continuous_drop_off: Optional[int] = None  # Flag stop behavior for drop-off (0-3)

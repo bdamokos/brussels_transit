@@ -1121,5 +1121,19 @@ async def get_line_info(
             route_id=route_id,
             route_type=route_type,
             text_color=text_color,
+            agency_id=route.agency_id if hasattr(route, "agency_id") else None,
+            route_desc=route.route_desc if hasattr(route, "route_desc") else None,
+            route_url=route.route_url if hasattr(route, "route_url") else None,
+            route_sort_order=(
+                route.route_sort_order if hasattr(route, "route_sort_order") else None
+            ),
+            continuous_pickup=(
+                route.continuous_pickup if hasattr(route, "continuous_pickup") else None
+            ),
+            continuous_drop_off=(
+                route.continuous_drop_off
+                if hasattr(route, "continuous_drop_off")
+                else None
+            ),
         )
     }
