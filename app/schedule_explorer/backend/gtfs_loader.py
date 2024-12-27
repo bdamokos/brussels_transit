@@ -14,7 +14,7 @@ import lzma
 import psutil
 import time
 import csv
-
+from .memory_util import check_memory_for_file
 # Set up logging
 logger = setup_logging()
 
@@ -905,6 +905,8 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     chunk_size = 100000
     stop_times_dict = {}
     
+    use_low_memory = check_memory_for_file(data_path / "stop_times.txt")
+    
     for chunk in pd.read_csv(data_path / "stop_times.txt", 
                            chunksize=chunk_size,
                            dtype={
@@ -912,8 +914,18 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
                                'stop_id': str,
                                'arrival_time': str,
                                'departure_time': str,
-                               'stop_sequence': int
-                           }):
+                               'stop_sequence': int,
+                                   
+                                # Optional fields
+                                'stop_headsign': str,
+                                'pickup_type': 'Int64',  # Nullable integer enum (0-3)
+                                'drop_off_type': 'Int64',  # Nullable integer enum (0-3)
+                                'continuous_pickup': 'Int64',  # Nullable integer enum (0-3)
+                                'continuous_drop_off': 'Int64',  # Nullable integer enum (0-3)
+                                'shape_dist_traveled': float,  # Non-negative float
+                                'timepoint': 'Int64',  # Nullable integer enum (0-1)
+                                'stop_time_desc': str
+                           }, low_memory=use_low_memory):
         for _, row in chunk.iterrows():
             if row.trip_id not in stop_times_dict:
                 stop_times_dict[row.trip_id] = []
