@@ -93,12 +93,10 @@ async def check_provider_availability(
     if provider:
         return True, True, provider
 
-    # If not found locally, check if it exists in MobilityDB
+    # If not found locally, check if it exists in MobilityDB using get_provider_info
     try:
-        providers = db.get_providers_by_country(
-            "be"
-        )  # TODO: Make this do a check for the actual id
-        if any(p["id"] == provider_id for p in providers):
+        provider_info = db.get_provider_info(provider_id)
+        if provider_info:
             return False, True, None
     except Exception as e:
         logger.error(f"Error checking provider availability in MobilityDB: {str(e)}")
