@@ -857,7 +857,9 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
             'shape_id': str,
             'shape_pt_lat': float,
             'shape_pt_lon': float,
-            'shape_pt_sequence': int
+            'shape_pt_sequence': int,
+                # Optional fields
+    'shape_dist_traveled': float
         })
         # Group by shape_id and sort by sequence
         for shape_id, group in shapes_df.groupby('shape_id'):
@@ -875,7 +877,17 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
         'route_long_name': str,
         'route_short_name': str,
         'route_color': str,
-        'route_text_color': str
+        'route_text_color': str,
+            # Optional fields
+        'agency_id': str,
+        'route_desc': str,
+        'route_url': str,
+        'route_color': str,  # 6-character hex color
+        'route_text_color': str,  # 6-character hex color
+        'route_sort_order': 'Int64',  # Nullable integer for route ordering
+        'continuous_pickup': 'Int64',  # Nullable integer enum (0-3)
+        'continuous_drop_off': 'Int64',  # Nullable integer enum (0-3)
+        'network_id': str,  # Identifies transit network
     })
     
     # Convert routes to dictionary early to free memory
@@ -890,14 +902,22 @@ def load_feed(data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] 
     }
     del routes_df
     logger.info(f"Loaded routes, trips, stop times, and calendar in {time.time() - t0:.2f} seconds")
-    
+    use_low_memory = check_memory_for_file(data_path / "trips.txt")
     # Load trips with correct dtypes
     trips_df = pd.read_csv(data_path / "trips.txt", dtype={
         'route_id': str,
         'service_id': str,
         'trip_id': str,
-        'shape_id': str
-    }, low_memory=False)
+        
+            # Optional fields
+        'trip_headsign': str,
+        'trip_short_name': str,
+        'direction_id': 'Int64',  # Nullable integer (0 or 1)
+        'block_id': str,
+        'shape_id': str,
+        'wheelchair_accessible': 'Int64',  # Nullable integer enum (0-2)
+        'bikes_allowed': 'Int64',  # Nullable integer enum (0-2)
+    }, low_memory=use_low_memory)
     
     # Load stop times in chunks to handle large files
     t0 = time.time()
