@@ -26,6 +26,9 @@ from .models import (
     RouteArrivals,
     RouteMetadata,
     ArrivalInfo,
+    Provider,
+    DatasetInfo,
+    DatasetValidation,
 )
 from .gtfs_loader import FlixbusFeed, load_feed
 
@@ -69,12 +72,12 @@ app.add_middleware(
 # Global variables
 feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
-available_providers: List[Dict] = []
+available_providers: List[Provider] = []
 logger = setup_logging()
 db: Optional[MobilityAPI] = None
 
 
-def find_gtfs_directories() -> List[Dict]:
+def find_gtfs_directories() -> List[Provider]:
     """Find all GTFS data directories in the downloads directory and their metadata."""
     providers = {}
     latest_datasets = {}  # Keep track of the latest dataset for each provider_id
@@ -114,27 +117,44 @@ def find_gtfs_directories() -> List[Dict]:
                         provider_key = f"{sanitized_name}_{provider_id}"
 
                         # Convert to the format expected by the frontend
-                        providers[provider_key] = {
-                            "id": provider_key,  # Use sanitized name with provider_id as ID
-                            "raw_id": provider_id,  # Keep the raw ID for API calls
-                            "provider": dataset_info.get("provider_name"),
-                            "name": dataset_info.get("provider_name"),
-                            "latest_dataset": {
-                                "id": dataset_info.get("dataset_id"),
-                                "downloaded_at": dataset_info.get("download_date"),
-                                "hash": dataset_info.get("file_hash"),
-                                "hosted_url": dataset_info.get("source_url"),
-                                "validation_report": {
-                                    "total_error": 0,  # We don't have this info yet
-                                    "total_warning": 0,
-                                    "total_info": 0,
-                                },
-                            },
-                        }
+                        providers[provider_key] = Provider(
+                            id=provider_key,  # Use sanitized name with provider_id as ID
+                            raw_id=provider_id,  # Keep the raw ID for API calls
+                            provider=dataset_info.get("provider_name"),
+                            name=dataset_info.get("provider_name"),
+                            latest_dataset=DatasetInfo(
+                                id=dataset_info.get("dataset_id"),
+                                downloaded_at=dataset_info.get("download_date"),
+                                hash=dataset_info.get("file_hash"),
+                                hosted_url=dataset_info.get("source_url"),
+                                validation_report=DatasetValidation(
+                                    total_error=0,
+                                    total_warning=0,
+                                    total_info=0,
+                                ),
+                            ),
+                        )
             except Exception as e:
                 logger.error(f"Error reading metadata file {metadata_file}: {str(e)}")
 
     return list(providers.values())
+
+
+def get_provider_by_id(provider_id: str) -> Optional[Provider]:
+    """Get provider by either its long ID or raw ID."""
+    global available_providers
+
+    # Refresh available providers if empty
+    if not available_providers:
+        available_providers = find_gtfs_directories()
+
+    # First try to find by long ID
+    provider = next((p for p in available_providers if p.id == provider_id), None)
+    if provider:
+        return provider
+
+    # If not found, try to find by raw ID
+    return next((p for p in available_providers if p.raw_id == provider_id), None)
 
 
 @app.get("/api/providers/{country_code}", response_model=List[Dict])
@@ -183,7 +203,7 @@ async def get_providers():
     """Get list of available GTFS providers"""
     providers = find_gtfs_directories()
     # Convert to the old format - just return the provider IDs
-    return [p["id"] for p in providers]
+    return [p.id for p in providers]
 
 
 @app.on_event("startup")
@@ -194,57 +214,36 @@ async def startup_event():
     db = MobilityAPI()
 
 
-@app.post("/provider/{provider_name}")
-async def set_provider(provider_name: str):
+@app.post("/provider/{provider_id}")
+async def set_provider(provider_id: str):
     """Set the current GTFS provider and load its data"""
-    global feed, current_provider
+    global feed, current_provider, available_providers
 
-    # Get the current list of available providers
-    providers = find_gtfs_directories()
-    providers_dict = {p["id"]: p for p in providers}  # Create a lookup dictionary
-
-    # Check if the provider exists in the current list
-    if provider_name not in providers_dict:
-        # Check if this might be a race condition with duplicate providers
-        base_name = (
-            provider_name.rsplit("_", 1)[0] if "_" in provider_name else provider_name
-        )
-        matching_providers = [
-            p
-            for p in providers_dict.keys()
-            if p.startswith(base_name + "_") or p == base_name
-        ]
-
-        if len(matching_providers) > 1:
-            # There are now multiple providers with this base name
-            raise HTTPException(
-                status_code=409,  # Conflict
-                detail="Provider list has been updated with multiple providers sharing the same name. Please reload the provider list.",
-            )
+    # Get provider info
+    provider = get_provider_by_id(provider_id)
+    if not provider:
         raise HTTPException(
-            status_code=404, detail=f"Provider {provider_name} not found"
+            status_code=404,
+            detail=f"Provider {provider_id} not found",
         )
 
     # If the requested provider is already loaded, return early
-    if feed is not None and current_provider == provider_name:
-        logger.info(f"Provider {provider_name} already loaded, skipping reload")
+    if feed is not None and current_provider == provider.id:
+        logger.info(f"Provider {provider.id} already loaded, skipping reload")
         return {
             "status": "success",
-            "message": f"Provider {provider_name} already loaded",
+            "message": f"Provider {provider.id} already loaded",
         }
 
     try:
-        logger.info(f"Loading GTFS data for provider {provider_name}")
-
-        # Get the selected provider's info
-        provider_info = providers_dict[provider_name]
+        logger.info(f"Loading GTFS data for provider {provider.id}")
 
         # Find the provider's dataset directory
         metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
         if not metadata_file.exists():
             raise HTTPException(
                 status_code=404,
-                detail=f"No metadata found for provider {provider_name}",
+                detail=f"No metadata found for provider {provider.id}",
             )
 
         with open(metadata_file, "r") as f:
@@ -254,8 +253,8 @@ async def set_provider(provider_name: str):
             dataset_info = None
             for info in metadata.values():
                 if (
-                    info.get("provider_id") == provider_info["raw_id"]
-                    and info.get("dataset_id") == provider_info["latest_dataset"]["id"]
+                    info.get("provider_id") == provider.raw_id
+                    and info.get("dataset_id") == provider.latest_dataset.id
                 ):
                     dataset_info = info
                     break
@@ -263,7 +262,7 @@ async def set_provider(provider_name: str):
             if not dataset_info:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No dataset info found for provider {provider_name}",
+                    detail=f"No dataset info found for provider {provider.id}",
                 )
 
             dataset_dir = Path(dataset_info["download_path"])
@@ -278,16 +277,16 @@ async def set_provider(provider_name: str):
         ):
             raise HTTPException(
                 status_code=404,
-                detail=f"GTFS data not found for provider {provider_name}",
+                detail=f"GTFS data not found for provider {provider.id}",
             )
 
         feed = load_feed(str(dataset_dir))
-        current_provider = provider_name
-        return {"status": "success", "message": f"Loaded GTFS data for {provider_name}"}
+        current_provider = provider.id
+        return {"status": "success", "message": f"Loaded GTFS data for {provider.id}"}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error loading provider {provider_name}: {str(e)}")
+        logger.error(f"Error loading provider {provider.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -617,7 +616,7 @@ async def get_station_routes(
     return routes_info
 
 
-@app.get("/providers_info", response_model=List[Dict])
+@app.get("/providers_info", response_model=List[Provider])
 async def get_providers_info():
     """Get list of available GTFS providers with full metadata"""
     return find_gtfs_directories()
@@ -640,15 +639,23 @@ async def get_waiting_times(
     """Get the next scheduled arrivals at a stop."""
     start_time = time.time()
 
+    # Get provider info and map to long ID if needed
+    provider = get_provider_by_id(provider_id)
+    if not provider:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider {provider_id} not found",
+        )
+
     # Check if feed is loaded
     if not feed:
         raise HTTPException(
             status_code=503,
-            detail="GTFS data not loaded. Please load a provider first using POST /provider/{provider_id}",
+            detail=f"GTFS data not loaded. Please load a provider first using POST /provider/{provider.id}",
         )
 
     # Check if the correct provider is loaded
-    if current_provider != provider_id:
+    if current_provider != provider.id:
         raise HTTPException(
             status_code=409,
             detail=f"Provider {provider_id} not loaded. Current provider is {current_provider}. Please load the correct provider first.",

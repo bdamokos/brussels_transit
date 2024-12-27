@@ -3,6 +3,28 @@ from typing import List, Optional, Dict
 from datetime import time
 
 
+class DatasetValidation(BaseModel):
+    total_error: int
+    total_warning: int
+    total_info: int
+
+
+class DatasetInfo(BaseModel):
+    id: str
+    downloaded_at: str
+    hash: str
+    hosted_url: str
+    validation_report: DatasetValidation
+
+
+class Provider(BaseModel):
+    id: str  # The long ID generated from the provider's name and the dataset_id (raw_id) (e.g. "Budapest_Transport_mdb-990")
+    raw_id: str  # The short ID (e.g. "mdb-990") - the raw ID is the dataset_id in the Mobility Database
+    provider: str  # The provider's name
+    name: str  # The provider's name (same as provider)
+    latest_dataset: DatasetInfo
+
+
 class Location(BaseModel):
     lat: float
     lon: float
