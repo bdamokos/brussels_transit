@@ -5,6 +5,7 @@ from config import get_config
 from logging.config import dictConfig
 import logging
 from copy import deepcopy
+from functools import lru_cache
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
@@ -58,6 +59,7 @@ def register_provider_config(provider_name: str, default_config: Dict[str, Any])
     PROVIDER_DEFAULTS[provider_name] = default_config
     logger.debug(f"Registered default config for {provider_name}")
 
+@lru_cache(maxsize=None)
 def get_provider_config(provider_name: str) -> Dict[str, Any]:
     """Get merged configuration for a provider (following precedence order from least to most important:
     1. Provider defaults (least important)
