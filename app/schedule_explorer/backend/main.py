@@ -622,12 +622,15 @@ async def get_providers_info():
     return find_gtfs_directories()
 
 
-@app.get("/api/{provider_id}/waiting_times", response_model=WaitingTimeInfo)
-@app.get("/api/{provider_id}/waiting_times/{route_id}", response_model=WaitingTimeInfo)
+@app.get(
+    "/api/{provider_id}/stops/{stop_id}/waiting_times", response_model=WaitingTimeInfo
+)
 async def get_waiting_times(
     provider_id: str,
-    route_id: Optional[str] = None,
-    stop_id: Optional[str] = Query(None, description="Stop ID to get arrivals for"),
+    stop_id: str,
+    route_id: Optional[str] = Query(
+        None, description="Optional route ID to filter results"
+    ),
     limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
     time_local: Optional[str] = Query(
         None, description="Time in HH:MM:SS format, assumed to be in local timezone"
@@ -661,8 +664,10 @@ async def get_waiting_times(
             detail=f"Provider {provider_id} not loaded. Current provider is {current_provider}. Please load the correct provider first.",
         )
 
-    if not stop_id:
-        raise HTTPException(status_code=400, detail="stop_id is required")
+    # Get the stop
+    gtfs_stop = feed.stops.get(stop_id)
+    if not gtfs_stop:
+        raise HTTPException(status_code=404, detail=f"Stop {stop_id} not found")
 
     # Parse date or use current time (converted from UTC to local)
     try:
@@ -679,21 +684,25 @@ async def get_waiting_times(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM:SS")
 
-    # Get the stop
-    gtfs_stop = feed.stops.get(stop_id)
-    if not gtfs_stop:
-        raise HTTPException(status_code=404, detail=f"Stop {stop_id} not found")
+    # Get current time in local timezone
+    current_time = (
+        datetime.now(ZoneInfo("UTC"))
+        .astimezone(ZoneInfo("Europe/Brussels"))
+        .strftime("%H:%M:%S")
+    )
 
     # Get all routes serving this stop
     routes_info = await get_station_routes(stop_id)
+    logger.info(f"Found {len(routes_info)} routes serving stop {stop_id}")
 
     # Initialize response structure with proper models
-    next_arrivals: Dict[str, RouteArrivals] = {}
+    next_arrivals: Dict[str, Dict[str, List[ArrivalInfo]]] = {}
 
     # For each route, get the trips to its terminus
     for route_info in routes_info:
         # Skip if route_id is specified and doesn't match
         if route_id and route_id != route_info.route_id:
+            # logger.info(f"Skipping route {route_info.route_id} as it doesn't match {route_id}")
             continue
 
         # Get all trips between our stop and the terminus
@@ -703,16 +712,18 @@ async def get_waiting_times(
             date=None,
             language="default",
         )
+        # logger.info(f"Found {len(routes_response.routes)} trips for route {route_info.route_id}")
 
         # Initialize route in next_arrivals
         if route_info.route_id not in next_arrivals:
-            next_arrivals[route_info.route_id] = RouteArrivals(
-                _metadata=RouteMetadata(
-                    route_desc=route_info.route_name,
-                    route_short_name=route_info.short_name or route_info.route_id,
-                ),
-                destinations={},
-            )
+            next_arrivals[route_info.route_id] = {
+                "_metadata": [
+                    RouteMetadata(
+                        route_desc=route_info.route_name,
+                        route_short_name=route_info.short_name or route_info.route_id,
+                    )
+                ],
+            }
 
         # Process each route's trips
         for route in routes_response.routes:
@@ -723,51 +734,33 @@ async def get_waiting_times(
 
             # Initialize headsign in next_arrivals if needed
             headsign = route_info.last_stop
-            if headsign not in next_arrivals[route_info.route_id].destinations:
-                next_arrivals[route_info.route_id].destinations[headsign] = []
+            if headsign not in next_arrivals[route_info.route_id]:
+                next_arrivals[route_info.route_id][headsign] = []
 
-            # Get current time in local timezone
-            current_time = (
-                datetime.now(ZoneInfo("UTC"))
-                .astimezone(ZoneInfo("Europe/Brussels"))
-                .strftime("%H:%M:%S")
-            )
-
-            # Convert arrival_time string to time object for comparison
-            arrival_time_datetime = parse_time(first_stop.arrival_time)
-            target_datetime = datetime.now().replace(
-                hour=target_time.hour,
-                minute=target_time.minute,
-                second=target_time.second,
-                microsecond=0,
-            )
-            # Skip arrival if it is before the target time
-            if arrival_time_datetime < target_datetime:
-                continue
-
-            # Add arrival
-            arrival_data = ArrivalInfo(
-                is_realtime=False,
-                provider=provider.raw_id,
-                scheduled_time=first_stop.arrival_time,
-                scheduled_minutes=calculate_minutes_until(
-                    first_stop.arrival_time, current_time
-                ),
-            )
-
-            next_arrivals[route_info.route_id].destinations[headsign].append(
-                arrival_data
+            next_arrivals[route_info.route_id][headsign].append(
+                ArrivalInfo(
+                    is_realtime=False,
+                    provider=provider.raw_id,
+                    scheduled_time=first_stop.arrival_time,
+                    scheduled_minutes=calculate_minutes_until(
+                        first_stop.arrival_time, current_time
+                    ),
+                )
             )
 
     # Sort arrivals and limit to requested number
-    for route_id, route_arrivals in next_arrivals.items():
-        for headsign in route_arrivals.destinations:
-            route_arrivals.destinations[headsign].sort(
-                key=lambda x: x.scheduled_minutes
-            )
-            route_arrivals.destinations[headsign] = route_arrivals.destinations[
-                headsign
-            ][:limit]
+    for route_id, route_data in next_arrivals.items():
+        # Skip _metadata field when sorting arrivals
+        for headsign, arrivals in route_data.items():
+            if headsign == "_metadata":
+                continue
+            # Deduplicate arrivals based on scheduled time
+            unique_arrivals = {}
+            for arrival in arrivals:
+                unique_arrivals[arrival.scheduled_time] = arrival
+            route_data[headsign] = sorted(
+                unique_arrivals.values(), key=lambda x: x.scheduled_minutes
+            )[:limit]
 
     # Format response using models
     response = WaitingTimeInfo(
@@ -787,16 +780,20 @@ async def get_waiting_times(
 def parse_time(time_str: str) -> datetime:
     hours, minutes, seconds = map(int, time_str.split(":"))
     base = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Handle times after midnight (e.g. 25:00:00)
+    if hours >= 24:
+        hours = hours - 24
+        base = base + timedelta(days=1)
     return base + timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
 
 def calculate_minutes_until(arrival_time: str, current_time: str) -> str:
     """Calculate minutes until arrival, handling overnight times."""
-
     arrival = parse_time(arrival_time)
     current = parse_time(current_time)
 
-    if arrival < current:  # Handle overnight times
+    # If arrival seems to be before current time, it might be for tomorrow
+    if arrival < current:
         arrival += timedelta(days=1)
 
     diff = arrival - current

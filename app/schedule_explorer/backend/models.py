@@ -104,7 +104,9 @@ class RouteArrivals(BaseModel):
 
 class StopData(BaseModel):
     coordinates: Location
-    lines: Dict[str, RouteArrivals]  # route_id -> RouteArrivals
+    lines: Dict[
+        str, Dict[str, List[ArrivalInfo] | List[RouteMetadata]]
+    ]  # route_id -> {terminus_name: List[ArrivalInfo], "_metadata": List[RouteMetadata]}
     name: str
 
 
