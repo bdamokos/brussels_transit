@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Path
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Tuple, Dict
 from datetime import datetime, timedelta
 import os
-from pathlib import Path
+from pathlib import Path as FilePath
 import pandas as pd
 import logging
 import sys
@@ -33,7 +33,7 @@ from .models import (
 from .gtfs_loader import FlixbusFeed, load_feed
 
 # Configure download directory - hardcoded to project root/downloads
-DOWNLOAD_DIR = Path(__file__).parent.parent.parent.parent / "downloads"
+DOWNLOAD_DIR = FilePath(__file__).parent.parent.parent.parent / "downloads"
 
 
 # Configure logging
@@ -97,7 +97,7 @@ async def check_provider_availability(
     try:
         providers = db.get_providers_by_country(
             "be"
-        )  # TODO: Make country code configurable
+        )  # TODO: Make this do a check for the actual id
         if any(p["id"] == provider_id for p in providers):
             return False, True, None
     except Exception as e:
@@ -161,7 +161,7 @@ async def ensure_provider_loaded(
             if not dataset_info:
                 return False, f"No dataset info found for provider {provider_id}", None
 
-            dataset_dir = Path(dataset_info["download_path"])
+            dataset_dir = FilePath(dataset_info["download_path"])
 
         # Check if the dataset directory exists and contains GTFS files
         required_files = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
@@ -198,7 +198,7 @@ def find_gtfs_directories() -> List[Provider]:
                     for dataset_id, dataset_info in metadata.items():
                         provider_id = dataset_info.get("provider_id")
                         if provider_id:
-                            dataset_dir = Path(dataset_info.get("download_path"))
+                            dataset_dir = FilePath(dataset_info.get("download_path"))
                             if dataset_dir.exists():
                                 # If we haven't seen this provider yet, or if this dataset is newer
                                 if (
@@ -210,7 +210,7 @@ def find_gtfs_directories() -> List[Provider]:
 
                     # Second pass: create provider entries for the latest datasets
                     for provider_id, dataset_info in latest_datasets.items():
-                        dataset_dir = Path(dataset_info.get("download_path"))
+                        dataset_dir = FilePath(dataset_info.get("download_path"))
                         sanitized_name = (
                             dataset_dir.parent.name.split("_", 1)[1]
                             if "_" in dataset_dir.parent.name
@@ -369,7 +369,7 @@ async def set_provider(provider_id: str):
                     detail=f"No dataset info found for provider {provider.id}",
                 )
 
-            dataset_dir = Path(dataset_info["download_path"])
+            dataset_dir = FilePath(dataset_info["download_path"])
 
         # Check if the dataset directory exists and contains GTFS files
         required_files = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
@@ -394,14 +394,38 @@ async def set_provider(provider_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/{provider_id}/stations/search", response_model=List[StationResponse])
+async def search_stations_with_provider(
+    provider_id: str = Path(...),
+    query: str = Query(..., min_length=2),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+):
+    """Search for stations by name with explicit provider"""
+    return await search_stations(
+        query=query, language=language, provider_id=provider_id
+    )
+
+
 @app.get("/stations/search", response_model=List[StationResponse])
 async def search_stations(
     query: str = Query(..., min_length=2),
     language: Optional[str] = Query(
         "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
     ),
+    provider_id: Optional[str] = Query(None, description="Optional provider ID"),
 ):
     """Search for stations by name"""
+    if provider_id:
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
@@ -440,6 +464,26 @@ async def search_stations(
     return matches
 
 
+@app.get("/api/{provider_id}/routes", response_model=RouteResponse)
+async def get_routes_with_provider(
+    provider_id: str = Path(...),
+    from_station: str = Query(..., description="Departure station ID"),
+    to_station: str = Query(..., description="Destination station ID"),
+    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+):
+    """Get all routes between two stations for a specific date with explicit provider"""
+    return await get_routes(
+        from_station=from_station,
+        to_station=to_station,
+        date=date,
+        language=language,
+        provider_id=provider_id,
+    )
+
+
 @app.get("/routes", response_model=RouteResponse)
 async def get_routes(
     from_station: str = Query(..., description="Departure station ID"),
@@ -448,8 +492,18 @@ async def get_routes(
     language: Optional[str] = Query(
         "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
     ),
+    provider_id: Optional[str] = Query(None, description="Optional provider ID"),
 ):
     """Get all routes between two stations for a specific date"""
+    if provider_id:
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
@@ -546,100 +600,42 @@ async def get_routes(
     return RouteResponse(routes=route_responses, total_routes=len(route_responses))
 
 
-@app.get("/stations/destinations/{station_id}", response_model=List[StationResponse])
-async def get_destinations(
-    station_id: str,
-    language: Optional[str] = Query(
-        None, description="Language code (e.g., 'fr', 'nl')"
-    ),
-):
-    """Get all possible destination stations from a given station"""
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
-    if station_id not in feed.stops:
-        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
-
-    # Find all routes that start from this station
-    destinations = set()
-    for route in feed.routes:
-        # Get all stops in this route
-        stops = route.get_stops_between(station_id, None)
-
-        # If this station is in the route
-        if stops and stops[0].stop.id == station_id:
-            # Add all subsequent stops as potential destinations
-            for stop in stops[1:]:
-                destinations.add(stop.stop.id)
-
-    # Convert to response format
-    return [
-        StationResponse(
-            id=stop_id,
-            name=(
-                feed.get_stop_name(stop_id, language)
-                if language
-                else feed.stops[stop_id].name
-            ),
-            location=Location(lat=feed.stops[stop_id].lat, lon=feed.stops[stop_id].lon),
-            translations=feed.stops[stop_id].translations,
-        )
-        for stop_id in destinations
-        if stop_id in feed.stops
-    ]
-
-
-@app.get("/stations/origins/{station_id}", response_model=List[StationResponse])
-async def get_origins(
-    station_id: str,
-    language: Optional[str] = Query(
-        None, description="Language code (e.g., 'fr', 'nl')"
-    ),
-):
-    """Get all possible origin stations that can reach a given station"""
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
-    if station_id not in feed.stops:
-        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
-
-    # Find all routes that end at this station
-    origins = set()
-    for route in feed.routes:
-        # Get all stops in this route
-        stops = route.get_stops_between(None, station_id)
-
-        # If this station is in the route
-        if stops and stops[-1].stop.id == station_id:
-            # Add all previous stops as potential origins
-            for stop in stops[:-1]:
-                origins.add(stop.stop.id)
-
-    # Convert to response format
-    return [
-        StationResponse(
-            id=stop_id,
-            name=(
-                feed.get_stop_name(stop_id, language)
-                if language
-                else feed.stops[stop_id].name
-            ),
-            location=Location(lat=feed.stops[stop_id].lat, lon=feed.stops[stop_id].lon),
-            translations=feed.stops[stop_id].translations,
-        )
-        for stop_id in origins
-        if stop_id in feed.stops
-    ]
-
-
-@app.get("/stations/{station_id}/routes", response_model=List[RouteInfo])
-async def get_station_routes(
-    station_id: str,
+@app.get(
+    "/api/{provider_id}/stations/{station_id}/routes", response_model=List[RouteInfo]
+)
+async def get_station_routes_with_provider(
+    provider_id: str = Path(...),
+    station_id: str = Path(...),
     language: Optional[str] = Query(
         "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
     ),
 ):
+    """Get all routes that serve this station with detailed information with explicit provider"""
+    return await get_station_routes(
+        station_id=station_id,
+        language=language,
+        provider_id=provider_id,
+    )
+
+
+@app.get("/stations/{station_id}/routes", response_model=List[RouteInfo])
+async def get_station_routes(
+    station_id: str = Path(...),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+    provider_id: Optional[str] = Query(None, description="Optional provider ID"),
+):
     """Get all routes that serve this station with detailed information"""
+    if provider_id:
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
@@ -718,6 +714,150 @@ async def get_station_routes(
             )
 
     return routes_info
+
+
+@app.get(
+    "/api/{provider_id}/stations/destinations/{station_id}",
+    response_model=List[StationResponse],
+)
+async def get_destinations_with_provider(
+    provider_id: str = Path(...),
+    station_id: str = Path(...),
+    language: Optional[str] = Query(
+        None, description="Language code (e.g., 'fr', 'nl')"
+    ),
+):
+    """Get all possible destination stations from a given station with explicit provider"""
+    return await get_destinations(
+        station_id=station_id,
+        language=language,
+        provider_id=provider_id,
+    )
+
+
+@app.get("/stations/destinations/{station_id}", response_model=List[StationResponse])
+async def get_destinations(
+    station_id: str = Path(...),
+    language: Optional[str] = Query(
+        None, description="Language code (e.g., 'fr', 'nl')"
+    ),
+    provider_id: Optional[str] = Query(None, description="Optional provider ID"),
+):
+    """Get all possible destination stations from a given station"""
+    if provider_id:
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    if station_id not in feed.stops:
+        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+
+    # Find all routes that start from this station
+    destinations = set()
+    for route in feed.routes:
+        # Get all stops in this route
+        stops = route.get_stops_between(station_id, None)
+
+        # If this station is in the route
+        if stops and stops[0].stop.id == station_id:
+            # Add all subsequent stops as potential destinations
+            for stop in stops[1:]:
+                destinations.add(stop.stop.id)
+
+    # Convert to response format
+    return [
+        StationResponse(
+            id=stop_id,
+            name=(
+                feed.get_stop_name(stop_id, language)
+                if language
+                else feed.stops[stop_id].name
+            ),
+            location=Location(lat=feed.stops[stop_id].lat, lon=feed.stops[stop_id].lon),
+            translations=feed.stops[stop_id].translations,
+        )
+        for stop_id in destinations
+        if stop_id in feed.stops
+    ]
+
+
+@app.get(
+    "/api/{provider_id}/stations/origins/{station_id}",
+    response_model=List[StationResponse],
+)
+async def get_origins_with_provider(
+    provider_id: str = Path(...),
+    station_id: str = Path(...),
+    language: Optional[str] = Query(
+        None, description="Language code (e.g., 'fr', 'nl')"
+    ),
+):
+    """Get all possible origin stations that can reach a given station with explicit provider"""
+    return await get_origins(
+        station_id=station_id,
+        language=language,
+        provider_id=provider_id,
+    )
+
+
+@app.get("/stations/origins/{station_id}", response_model=List[StationResponse])
+async def get_origins(
+    station_id: str = Path(...),
+    language: Optional[str] = Query(
+        None, description="Language code (e.g., 'fr', 'nl')"
+    ),
+    provider_id: Optional[str] = Query(None, description="Optional provider ID"),
+):
+    """Get all possible origin stations that can reach a given station"""
+    if provider_id:
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    if station_id not in feed.stops:
+        raise HTTPException(status_code=404, detail=f"Station {station_id} not found")
+
+    # Find all routes that end at this station
+    origins = set()
+    for route in feed.routes:
+        # Get all stops in this route
+        stops = route.get_stops_between(None, station_id)
+
+        # If this station is in the route
+        if stops and stops[-1].stop.id == station_id:
+            # Add all previous stops as potential origins
+            for stop in stops[:-1]:
+                origins.add(stop.stop.id)
+
+    # Convert to response format
+    return [
+        StationResponse(
+            id=stop_id,
+            name=(
+                feed.get_stop_name(stop_id, language)
+                if language
+                else feed.stops[stop_id].name
+            ),
+            location=Location(lat=feed.stops[stop_id].lat, lon=feed.stops[stop_id].lon),
+            translations=feed.stops[stop_id].translations,
+        )
+        for stop_id in origins
+        if stop_id in feed.stops
+    ]
 
 
 @app.get("/providers_info", response_model=List[Provider])
