@@ -1054,8 +1054,14 @@ async def get_route_colors(
         raise HTTPException(status_code=404, detail=f"Route {route_id} not found")
 
     # Get colors from route, defaulting to black/white if not specified
-    background_color = f"#{route.color}" if hasattr(route, "color") and route.color else "#000000"
-    text_color = f"#{route.text_color}" if hasattr(route, "text_color") and route.text_color else "#FFFFFF"
+    background_color = (
+        f"#{route.color}" if hasattr(route, "color") and route.color else "#000000"
+    )
+    text_color = (
+        f"#{route.text_color}"
+        if hasattr(route, "text_color") and route.text_color
+        else "#FFFFFF"
+    )
 
     # Return the color scheme
     return RouteColors(
@@ -1090,10 +1096,20 @@ async def get_line_info(
 
     # Get route information
     color = f"#{route.color}" if hasattr(route, "color") and route.color else None
-    text_color = f"#{route.text_color}" if hasattr(route, "text_color") and route.text_color else None
-    display_name = route.short_name if hasattr(route, "short_name") and route.short_name else route_id
-    long_name = route.route_name if hasattr(route, "route_name") and route.route_name else ""
-    route_type = route.route_type if hasattr(route, "route_type") else None 
+    text_color = (
+        f"#{route.text_color}"
+        if hasattr(route, "text_color") and route.text_color
+        else None
+    )
+    display_name = (
+        route.short_name
+        if hasattr(route, "short_name") and route.short_name
+        else route_id
+    )
+    long_name = (
+        route.route_name if hasattr(route, "route_name") and route.route_name else ""
+    )
+    route_type = route.route_type if hasattr(route, "route_type") else None
 
     # Return the line info
     return {
