@@ -77,6 +77,110 @@ logger = setup_logging()
 db: Optional[MobilityAPI] = None
 
 
+async def check_provider_availability(
+    provider_id: str,
+) -> Tuple[bool, bool, Optional[Provider]]:
+    """Check if provider is available locally or can be downloaded.
+
+    Returns:
+        Tuple[bool, bool, Optional[Provider]]:
+            - is_available_locally: True if provider data exists locally
+            - can_be_downloaded: True if provider exists in MobilityDB
+            - provider: Provider object if found locally, None otherwise
+    """
+    # First check if provider exists locally
+    provider = get_provider_by_id(provider_id)
+    if provider:
+        return True, True, provider
+
+    # If not found locally, check if it exists in MobilityDB
+    try:
+        providers = db.get_providers_by_country(
+            "be"
+        )  # TODO: Make country code configurable
+        if any(p["id"] == provider_id for p in providers):
+            return False, True, None
+    except Exception as e:
+        logger.error(f"Error checking provider availability in MobilityDB: {str(e)}")
+
+    return False, False, None
+
+
+async def ensure_provider_loaded(
+    provider_id: str,
+) -> Tuple[bool, str, Optional[Provider]]:
+    """Ensure provider is loaded, loading it if available.
+
+    Returns:
+        Tuple[bool, str, Optional[Provider]]:
+            - is_ready: True if provider is loaded and ready
+            - message: Status message explaining the current state
+            - provider: Provider object if found, None otherwise
+    """
+    global feed, current_provider
+
+    # Check provider availability
+    is_local, can_download, provider = await check_provider_availability(provider_id)
+
+    if not is_local and not can_download:
+        return (
+            False,
+            f"Provider {provider_id} is not available. Please check the provider ID or use GET /api/providers/be to list available providers.",
+            None,
+        )
+
+    if not is_local and can_download:
+        return (
+            False,
+            f"Provider {provider_id} needs to be downloaded first. Use POST /api/download/{provider_id} to download it.",
+            None,
+        )
+
+    # At this point, provider exists locally
+    if feed is not None and current_provider == provider.id:
+        return True, "Provider already loaded", provider
+
+    # Try to load the provider
+    try:
+        # Find the provider's dataset directory from metadata
+        metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
+        if not metadata_file.exists():
+            return False, f"No metadata found for provider {provider_id}", None
+
+        with open(metadata_file, "r") as f:
+            metadata = json.load(f)
+            dataset_info = None
+            for info in metadata.values():
+                if (
+                    info.get("provider_id") == provider.raw_id
+                    and info.get("dataset_id") == provider.latest_dataset.id
+                ):
+                    dataset_info = info
+                    break
+
+            if not dataset_info:
+                return False, f"No dataset info found for provider {provider_id}", None
+
+            dataset_dir = Path(dataset_info["download_path"])
+
+        # Check if the dataset directory exists and contains GTFS files
+        required_files = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
+        calendar_files = ["calendar.txt", "calendar_dates.txt"]
+
+        if not dataset_dir.exists() or not (
+            all((dataset_dir / file).exists() for file in required_files)
+            and any((dataset_dir / file).exists() for file in calendar_files)
+        ):
+            return False, f"GTFS data not found for provider {provider_id}", None
+
+        feed = load_feed(str(dataset_dir))
+        current_provider = provider.id
+        return True, f"Loaded GTFS data for {provider_id}", provider
+    except Exception as e:
+        logger.error(f"Error loading provider {provider_id}: {str(e)}")
+        return False, f"Error loading provider {provider_id}: {str(e)}", None
+
+
 def find_gtfs_directories() -> List[Provider]:
     """Find all GTFS data directories in the downloads directory and their metadata."""
     providers = {}
@@ -642,26 +746,12 @@ async def get_waiting_times(
     """Get the next scheduled arrivals at a stop."""
     start_time = time.time()
 
-    # Get provider info and map to long ID if needed
-    provider = get_provider_by_id(provider_id)
-    if not provider:
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
         raise HTTPException(
-            status_code=404,
-            detail=f"Provider {provider_id} not found",
-        )
-
-    # Check if feed is loaded
-    if not feed:
-        raise HTTPException(
-            status_code=503,
-            detail=f"GTFS data not loaded. Please load a provider first using POST /provider/{provider.id}",
-        )
-
-    # Check if the correct provider is loaded
-    if current_provider != provider.id:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Provider {provider_id} not loaded. Current provider is {current_provider}. Please load the correct provider first.",
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
         )
 
     # Get the stop
