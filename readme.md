@@ -26,7 +26,9 @@ Alongside realtime waiting times, it creates a dashboard to browse stops and rou
 
 
 ## Use-case
-See for example this implementation: [Raspberry Pi Waiting Time Display](https://github.com/bdamokos/rpi_waiting_time_display)
+Mainly to power smart home displays that provide transit data (e.g. next train departures, waiting times at nearby bus stops).
+
+Reference implementation: [Raspberry Pi Waiting Time Display](https://github.com/bdamokos/rpi_waiting_time_display)
 
 ## Getting Started
 
@@ -159,7 +161,3 @@ Either:
 ## Known Issues and Limitations
 
 - The De Lijn setup is not yet fully set up for multiple monitored lines.
-- SNCB and TEC are not yet supported.
-- Where the API provides multiple languages, English and French are taken as the default, depending on the API. (E.g. Station names for STIB in French, service messages for STIB in English)
-- Timetables are not yet supported. (This information is available in the GTFS data of both STIB and De Lijn)
-- Initial load is slow because it involves downloading and parsing a large GTFS file.
