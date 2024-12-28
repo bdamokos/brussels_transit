@@ -161,7 +161,10 @@ function getUrlParams() {
         provider: params.get('provider'),
         from: params.get('from'),
         to: params.get('to'),
-        date: params.get('date')
+        date: params.get('date'),
+        show_stop_ids: params.get('show_stop_ids') === 'true',
+        merge_stations: params.get('merge_stations') === 'true',
+        condensed_view: params.get('condensed_view') === 'true'
     };
 }
 
@@ -258,6 +261,12 @@ async function setProvider(providerName) {
 
         // Check for URL parameters and trigger search if specified
         const urlParams = getUrlParams();
+
+        // Set checkbox states from URL parameters
+        document.getElementById('showStopIds').checked = urlParams.show_stop_ids;
+        document.getElementById('mergeSameNameStations').checked = urlParams.merge_stations;
+        document.getElementById('condensedTimetable').checked = urlParams.condensed_view;
+
         if (urlParams.from && urlParams.to) {
             // Fetch station names for the stop_ids
             const fromStation = await fetchStationById(urlParams.from);

@@ -240,13 +240,13 @@ async function loadAllRoutes() {
                                                 ).join(', ')}
                                             </div>
                                             <div class="mt-2">
-                                                <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}"
+                                                <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
                                                    target="_blank" class="btn btn-sm btn-outline-primary me-2">
-                                                    View Waiting Times
+                                                    View waiting times (json)
                                                 </a>
-                                                <a href="index.html?from=${stopId}&to=${route.terminus_stop_id}&provider=${providerSelect.value}"
+                                                <a href="index.html?from=${stopId}&to=${route.terminus_stop_id}&provider=${providerSelect.value}&condensed_view=true&show_stop_ids=true"
                                                    target="_blank" class="btn btn-sm btn-outline-secondary">
-                                                    View Full Route
+                                                    View full route
                                                 </a>
                                             </div>
                                         </div>
