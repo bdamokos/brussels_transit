@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator, field_validator
 from typing import List, Optional, Dict
 from datetime import time, datetime
 
@@ -57,6 +57,22 @@ class Route(BaseModel):
     headsigns: Optional[Dict[str, str]] = None  # direction_id -> headsign
     service_ids: Optional[List[str]] = None  # List of service IDs for debugging
 
+    @field_validator("service_days")
+    @classmethod
+    def sort_service_days(cls, v):
+        day_order = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        # Convert input to title case before sorting
+        v = [day.title() for day in v]
+        return sorted(v, key=lambda x: day_order.index(x))
+
 
 class RouteResponse(BaseModel):
     routes: List[Route]
@@ -92,6 +108,22 @@ class RouteInfo(BaseModel):
     )
     valid_calendar_days: Optional[List[datetime]] = None  # All valid service days
     service_calendar: Optional[str] = None  # Human readable service calendar
+
+    @field_validator("service_days")
+    @classmethod
+    def sort_service_days(cls, v):
+        day_order = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        # Convert input to title case before sorting
+        v = [day.title() for day in v]
+        return sorted(v, key=lambda x: day_order.index(x))
 
 
 class ArrivalInfo(BaseModel):
