@@ -562,6 +562,15 @@ async def get_routes(
         if pd.isna(route_name) or not isinstance(route_name, str):
             route_name = f"Route {route.route_id}"
 
+        # Handle NaN values in color and text_color
+        color = None
+        if hasattr(route, "color") and not pd.isna(route.color):
+            color = route.color
+
+        text_color = None
+        if hasattr(route, "text_color") and not pd.isna(route.text_color):
+            text_color = route.text_color
+
         route_responses.append(
             Route(
                 route_id=route.route_id,
@@ -590,8 +599,8 @@ async def get_routes(
                     else None
                 ),
                 line_number=route.short_name if hasattr(route, "short_name") else "",
-                color=route.color if hasattr(route, "color") else None,
-                text_color=route.text_color if hasattr(route, "text_color") else None,
+                color=color,
+                text_color=text_color,
                 headsigns=route.headsigns,
                 service_ids=route.service_ids,  # Include for debugging
             )
