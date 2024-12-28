@@ -3,7 +3,9 @@ let map = null;
 let stopMarkers = new Map();
 let routeLines = [];
 let selectedLanguage = 'default';
-const API_BASE_URL = 'http://localhost:8000';
+// Get the current server's URL and port
+window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = window.API_BASE_URL;
 const MARKER_COLORS = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00'];
 let colorIndex = 0;
 
@@ -222,8 +224,8 @@ async function loadAllRoutes() {
                     </div>
                     <div class="stop-routes-content">
                         ${routes.length === 0 ?
-                            '<div class="p-3">No routes found for this stop.</div>' :
-                            routes.map(route => `
+                    '<div class="p-3">No routes found for this stop.</div>' :
+                    routes.map(route => `
                                 <div class="route-line" style="border-left-color: #${route.color || '000000'}">
                                     <div class="d-flex align-items-start">
                                         <div class="route-badge" style="background-color: #${route.color || '6c757d'}">
@@ -236,8 +238,8 @@ async function loadAllRoutes() {
                                                 From: ${route.first_stop}<br>
                                                 To: ${route.last_stop}<br>
                                                 Service days: ${route.service_days.map(day =>
-                                                    day.charAt(0).toUpperCase() + day.slice(1)
-                                                ).join(', ')}
+                        day.charAt(0).toUpperCase() + day.slice(1)
+                    ).join(', ')}
                                             </div>
                                             <div class="mt-2">
                                                 <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
@@ -253,7 +255,7 @@ async function loadAllRoutes() {
                                     </div>
                                 </div>
                             `).join('')
-                        }
+                }
                     </div>
                 </div>
             `;

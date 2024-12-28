@@ -11,7 +11,9 @@ function debounce(func, wait) {
 }
 
 // API configuration
-const API_BASE_URL = 'http://localhost:8000';
+// Get the current server's URL and port
+window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = window.API_BASE_URL;
 
 // Function to fetch station details by stop_id
 async function fetchStationById(stopId) {
@@ -98,25 +100,25 @@ function updateAvailableLanguages(stations) {
             Object.keys(station.translations).forEach(lang => availableLanguages.add(lang));
         }
     });
-    
+
     // Update language selector
     languageSelect.innerHTML = '<option value="" selected disabled>Select language</option>';
     languageSelect.innerHTML += '<option value="default">Default (Original)</option>';
-    
+
     Array.from(availableLanguages).sort().forEach(lang => {
         const option = document.createElement('option');
         option.value = lang;
         option.textContent = lang.toUpperCase();
         languageSelect.appendChild(option);
     });
-    
+
     languageSelect.disabled = availableLanguages.size === 0;
 }
 
 // Add language change event listener
 languageSelect.addEventListener('change', (event) => {
     currentLanguage = event.target.value;
-    
+
     // Update displayed station names in inputs
     if (selectedFromStation) {
         fromStationInput.value = getTranslatedName(selectedFromStation);
@@ -124,7 +126,7 @@ languageSelect.addEventListener('change', (event) => {
     if (selectedToStation) {
         toStationInput.value = getTranslatedName(selectedToStation);
     }
-    
+
     // Update station markers on map
     stopMarkers.forEach((markerInfo, key) => {
         const translatedName = getTranslatedName(markerInfo.stop);
@@ -133,7 +135,7 @@ languageSelect.addEventListener('change', (event) => {
             markerInfo.marker.setTooltipContent(translatedName);
         }
     });
-    
+
     // Refresh route display to update station names in the schedule
     if (selectedFromStation && selectedToStation) {
         searchRoutes();
@@ -143,14 +145,14 @@ languageSelect.addEventListener('change', (event) => {
 // Function to detect available languages from station translations
 function detectAvailableLanguages(stations) {
     const languages = new Set();
-    
+
     // Go through each station's translations
     stations.forEach(station => {
         if (station.translations) {
             Object.keys(station.translations).forEach(lang => languages.add(lang));
         }
     });
-    
+
     return languages;
 }
 
@@ -173,17 +175,17 @@ async function loadProviders() {
     try {
         const response = await fetch(`${API_BASE_URL}/providers`);
         const providers = await response.json();
-        
+
         const select = document.getElementById('providerSelect');
         select.innerHTML = '<option value="" selected disabled>Select a provider</option>';
-        select.innerHTML += providers.map(provider => 
+        select.innerHTML += providers.map(provider =>
             `<option value="${provider}">${provider}</option>`
         ).join('');
-        
+
         const languageSelect = document.getElementById('languageSelect');
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
         languageSelect.disabled = true;
-        
+
         select.addEventListener('change', async (event) => {
             currentProvider = event.target.value;
             await setProvider(currentProvider);
@@ -207,15 +209,15 @@ async function setProvider(providerName) {
 
     try {
         updateBackendStatus('loading', `Loading ${providerName} GTFS data...`);
-        
+
         const response = await fetch(`${API_BASE_URL}/provider/${providerName}`, {
             method: 'POST'
         });
-        
+
         if (!response.ok) {
             throw new Error('Failed to set provider');
         }
-        
+
         // Clear existing selections and results
         selectedFromStation = null;
         selectedToStation = null;
@@ -225,11 +227,11 @@ async function setProvider(providerName) {
         toStationInput.value = '';
         document.getElementById('routeResults').innerHTML = '';
         availableLanguages.clear();
-        
+
         // Reset language selector
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
         languageSelect.disabled = true;
-        
+
         // Clear map layers
         if (routeLayer) {
             map.removeLayer(routeLayer);
@@ -241,17 +243,17 @@ async function setProvider(providerName) {
         // Clear cached station data
         availableFromStations = [];
         availableToStations = [];
-        
+
         // Update page title
         document.querySelector('h1').textContent = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} Route Explorer`;
-        
+
         // Enable inputs
         fromStationInput.disabled = false;
         toStationInput.disabled = false;
         dateInput.disabled = false;
-        
+
         updateBackendStatus('ready', 'Ready');
-        
+
         // Load some stations to get available languages
         const response2 = await fetch(`${API_BASE_URL}/stations/search?query=ab`);
         if (response2.ok) {
@@ -305,13 +307,13 @@ providerSelect.addEventListener('change', (event) => {
 function updateBackendStatus(status, message) {
     backendStatus.className = 'backend-status ' + status;
     backendStatus.querySelector('.status-text').textContent = message;
-    
+
     // Enable/disable inputs based on status
     const inputs = [fromStationInput, toStationInput, dateInput];
     inputs.forEach(input => {
         input.disabled = status !== 'ready';
     });
-    
+
     // Initialize dropdowns when backend is ready
     if (status === 'ready') {
         setTimeout(() => {
@@ -330,7 +332,7 @@ async function checkBackendStatus() {
         fromStationInput.disabled = true;
         toStationInput.disabled = true;
         dateInput.disabled = true;
-        
+
         // Load providers first
         await loadProviders();
     } catch (error) {
@@ -348,10 +350,10 @@ function generateRouteColor(index) {
     const hue = 93;  // Green hue
     const saturation = 100;  // Full saturation
     const lightness = 42;  // Base lightness
-    
+
     // Vary the lightness slightly based on the index
     const variedLightness = lightness + (index * 5) % 20 - 10;
-    
+
     return `hsl(${hue}, ${saturation}%, ${variedLightness}%)`;
 }
 
@@ -362,17 +364,17 @@ dateInput.valueAsDate = new Date();
 async function searchStations(query, filterByStations = null, isOrigin = true) {
     try {
         let allStations = new Set();
-        
+
         if (filterByStations) {
             // If we're filtering, fetch destinations/origins for each station
             const endpoint = isOrigin ? 'origins' : 'destinations';
-            const stationIds = Array.isArray(filterByStations) ? 
+            const stationIds = Array.isArray(filterByStations) ?
                 filterByStations.map(s => s.id) : [filterByStations.id];
-            
+
             for (const stationId of stationIds) {
                 const url = `${API_BASE_URL}/stations/${endpoint}/${stationId}`;
                 const response = await fetch(url);
-                
+
                 if (response.status === 503) {
                     updateBackendStatus('loading', 'Loading GTFS data...');
                     continue;
@@ -382,27 +384,27 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
                     console.error(`Failed to fetch stations for ${stationId}:`, error);
                     continue;
                 }
-                
+
                 const stations = await response.json();
                 stations.forEach(station => allStations.add(JSON.stringify(station)));
             }
-            
+
             // Convert back to array and parse JSON
             const stations = Array.from(allStations).map(s => JSON.parse(s));
-            
+
             // Filter by query if provided
             if (query && query.length >= 2) {
-                return stations.filter(station => 
+                return stations.filter(station =>
                     station.name.toLowerCase().includes(query.toLowerCase())
                 );
             }
             return stations;
-            
+
         } else if (query && query.length >= 2) {
             // Regular station search with query
             const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&language=${currentLanguage}`;
             const response = await fetch(url);
-            
+
             if (response.status === 503) {
                 updateBackendStatus('loading', 'Loading GTFS data...');
                 return [];
@@ -411,13 +413,13 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
                 const error = await response.text();
                 throw new Error(error || 'Failed to fetch stations');
             }
-            
+
             return await response.json();
         } else {
             // For empty queries, get all stations and return a subset
             const url = `${API_BASE_URL}/stations/search?query=ab`;  // Get a broad set of stations
             const response = await fetch(url);
-            
+
             if (response.status === 503) {
                 updateBackendStatus('loading', 'Loading GTFS data...');
                 return [];
@@ -426,7 +428,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
                 const error = await response.text();
                 throw new Error(error || 'Failed to fetch stations');
             }
-            
+
             const stations = await response.json();
             // Return first 50 stations sorted by name
             return stations
@@ -448,27 +450,27 @@ async function updateAvailableStations(isFrom = true) {
         let stations;
         if (isFrom && selectedToStation) {
             // Get origins for all selected destination stations
-            stations = await searchStations('', 
-                selectedToStationGroup || selectedToStation, 
+            stations = await searchStations('',
+                selectedToStationGroup || selectedToStation,
                 true
             );
         } else if (!isFrom && selectedFromStation) {
             // Get destinations for all selected origin stations
-            stations = await searchStations('', 
-                selectedFromStationGroup || selectedFromStation, 
+            stations = await searchStations('',
+                selectedFromStationGroup || selectedFromStation,
                 false
             );
         } else {
             // Get all stations
             stations = await searchStations('');
         }
-        
+
         if (isFrom) {
             availableFromStations = stations;
         } else {
             availableToStations = stations;
         }
-        
+
         return stations;
     } catch (error) {
         console.error('Error updating available stations:', error);
@@ -481,7 +483,7 @@ async function updateStationGroup(station, isFrom) {
     if (!document.getElementById('mergeSameNameStations').checked) {
         return null;
     }
-    
+
     try {
         // Get all stations
         const allStations = await searchStations('');
@@ -499,16 +501,16 @@ async function updateStationGroup(station, isFrom) {
 function createStationList(stations, container, input, isFrom) {
     container.innerHTML = '';
     container.classList.add('show');
-    
+
     if (stations.length === 0) {
         container.innerHTML = '<div class="dropdown-item no-results">No stations found</div>';
         return;
     }
-    
+
     // Group stations by name if merging is enabled
     const mergeSameNameStations = document.getElementById('mergeSameNameStations').checked;
     let displayStations = stations;
-    
+
     if (mergeSameNameStations) {
         const stationsByName = new Map();
         stations.forEach(station => {
@@ -523,7 +525,7 @@ function createStationList(stations, container, input, isFrom) {
             group: group
         }));
     }
-    
+
     displayStations.forEach(station => {
         const item = document.createElement('a');
         item.href = '#';
@@ -533,16 +535,16 @@ function createStationList(stations, container, input, isFrom) {
         if (mergeSameNameStations && station.group && station.group.length > 1) {
             item.textContent += ` (${station.group.length} locations)`;
         }
-        
+
         item.onclick = async (e) => {
             e.preventDefault();
             input.value = displayName;  // Use translated name
-            
+
             if (isFrom) {
                 selectedFromStation = station;
                 selectedFromStationGroup = mergeSameNameStations ? station.group : null;
                 console.log('Selected from station group:', selectedFromStationGroup);
-                
+
                 // Update available destinations
                 updateAvailableStations(false).then(() => {
                     // Clear destination if it's no longer valid
@@ -557,7 +559,7 @@ function createStationList(stations, container, input, isFrom) {
                 selectedToStation = station;
                 selectedToStationGroup = mergeSameNameStations ? station.group : null;
                 console.log('Selected to station group:', selectedToStationGroup);
-                
+
                 // Update available origins
                 updateAvailableStations(true).then(() => {
                     // Clear origin if it's no longer valid
@@ -569,7 +571,7 @@ function createStationList(stations, container, input, isFrom) {
                     }
                 });
             }
-            
+
             // Hide dropdown after selection
             container.classList.remove('show');
             searchRoutes();
@@ -605,10 +607,10 @@ toStationInput.addEventListener('click', async () => {
 fromStationInput.addEventListener('input', debounce(async (e) => {
     const query = e.target.value;
     const resultsContainer = document.getElementById('fromStationResults');
-    
+
     // Show dropdown when input is focused
     resultsContainer.classList.add('show');
-    
+
     if (query.length < 2) {
         // Clear selection if input is cleared
         if (!query) {
@@ -624,7 +626,7 @@ fromStationInput.addEventListener('input', debounce(async (e) => {
         }
         return;
     }
-    
+
     try {
         // Filter available stations by query
         const stations = await searchStations(query, selectedToStation, true);
@@ -641,10 +643,10 @@ fromStationInput.addEventListener('input', debounce(async (e) => {
 toStationInput.addEventListener('input', debounce(async (e) => {
     const query = e.target.value;
     const resultsContainer = document.getElementById('toStationResults');
-    
+
     // Show dropdown when input is focused
     resultsContainer.classList.add('show');
-    
+
     if (query.length < 2) {
         // Clear selection if input is cleared
         if (!query) {
@@ -660,7 +662,7 @@ toStationInput.addEventListener('input', debounce(async (e) => {
         }
         return;
     }
-    
+
     try {
         // Filter available stations by query
         const stations = await searchStations(query, selectedFromStation, false);
@@ -678,7 +680,7 @@ toStationInput.addEventListener('input', debounce(async (e) => {
 document.addEventListener('click', (e) => {
     const fromResults = document.getElementById('fromStationResults');
     const toResults = document.getElementById('toStationResults');
-    
+
     // If click is outside the dropdowns and their inputs, hide them
     if (!e.target.closest('#fromStation') && !e.target.closest('#fromStationResults')) {
         fromResults.classList.remove('show');
@@ -703,11 +705,11 @@ async function searchRoutes() {
 
     try {
         const mergeSameNameStations = document.getElementById('mergeSameNameStations').checked;
-        
+
         // Get all station IDs for the search
         let fromStationIds = [selectedFromStation.id];
         let toStationIds = [selectedToStation.id];
-        
+
         // Make a single API call with all station IDs and language parameter
         const response = await fetch(
             `${API_BASE_URL}/routes?` + new URLSearchParams({
@@ -717,14 +719,14 @@ async function searchRoutes() {
                 language: currentLanguage
             })
         );
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
         displayRoutes(data.routes);
-        
+
     } catch (error) {
         console.error('Error searching routes:', error);
         const resultsContainer = document.getElementById('routeResults');
@@ -739,10 +741,10 @@ async function searchRoutes() {
 // Helper function to format time
 function formatTime(timeStr) {
     if (!timeStr) return '';
-    
+
     const [hours, minutes] = timeStr.split(':');
     const h = parseInt(hours);
-    
+
     if (h >= 24) {
         return `${(h - 24).toString().padStart(2, '0')}:${minutes}+1`;
     }
@@ -753,7 +755,7 @@ function formatTime(timeStr) {
 function normalizeTime(timeStr) {
     const [hours, minutes] = timeStr.split(':');
     const h = parseInt(hours);
-    return (h >= 24 ? h - 24 : h) + parseInt(minutes)/60;
+    return (h >= 24 ? h - 24 : h) + parseInt(minutes) / 60;
 }
 
 // Update the displayRoutes function
@@ -762,14 +764,14 @@ let lastDisplayedRoutes = [];  // Store last displayed routes for language switc
 function displayRoutes(routes) {
     lastDisplayedRoutes = routes;  // Store for language switching
     const selectedLanguage = languageSelect.value;
-    
+
     if (!routeLayer) {
         routeLayer = L.layerGroup().addTo(map);
     } else {
         routeLayer.clearLayers();
     }
     stopMarkers.clear();
-    
+
     const resultsContainer = document.getElementById('routeResults');
     if (!routes || routes.length === 0) {
         resultsContainer.innerHTML = `
@@ -779,10 +781,10 @@ function displayRoutes(routes) {
         `;
         return;
     }
-    
+
     const showStopIds = document.getElementById('showStopIds').checked;
     const isCondensedView = document.getElementById('condensedTimetable').checked;
-    
+
     if (isCondensedView) {
         // Group routes by line number/name
         const routeGroups = new Map();
@@ -798,22 +800,22 @@ function displayRoutes(routes) {
             const firstStop = route.stops[0];
             routeGroups.get(key).departures.add(firstStop.departure_time);
         });
-        
+
         // Display condensed view
         resultsContainer.innerHTML = Array.from(routeGroups.entries()).map(([key, data]) => {
             const route = data.route;
             const departures = Array.from(data.departures);
-            
+
             // Calculate duration range for this route
             const durations = routes
                 .filter(r => (r.line_number || r.route_name) === key)
                 .map(r => r.duration_minutes);
             const minDuration = Math.min(...durations);
             const maxDuration = Math.max(...durations);
-            const durationText = minDuration === maxDuration ? 
+            const durationText = minDuration === maxDuration ?
                 `Duration: ${Math.floor(minDuration / 60)}h ${minDuration % 60}m` :
                 `Duration: ${Math.floor(minDuration / 60)}h ${minDuration % 60}m - ${Math.floor(maxDuration / 60)}h ${maxDuration % 60}m`;
-            
+
             // Group departures by hour
             const departuresByHour = new Map();
             departures.forEach(time => {
@@ -824,16 +826,16 @@ function displayRoutes(routes) {
                 }
                 departuresByHour.get(hour).add(time);
             });
-            
-            const routeColorStyle = route.color && route.color !== "" ? 
-                `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` : 
+
+            const routeColorStyle = route.color && route.color !== "" ?
+                `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` :
                 'background-color: #73D700; color: #FFFFFF;';
-            
-            const lineNumberHtml = route.line_number ? 
+
+            const lineNumberHtml = route.line_number ?
                 `<span class="badge bg-light text-dark me-2">${route.line_number}</span>` : '';
-            
+
             const sortedHours = Array.from(departuresByHour.keys()).sort((a, b) => a - b);
-            
+
             return `
                 <div class="card route-card">
                     <div class="card-header" style="${routeColorStyle}">
@@ -844,9 +846,9 @@ function displayRoutes(routes) {
                     </div>
                     <div class="card-body">
                         <p class="mb-2">${durationText}</p>
-                        <p class="mb-2">Service days: ${route.service_days.map(day => 
-                            day.charAt(0).toUpperCase() + day.slice(1)
-                        ).join(', ')}</p>
+                        <p class="mb-2">Service days: ${route.service_days.map(day =>
+                day.charAt(0).toUpperCase() + day.slice(1)
+            ).join(', ')}</p>
                         <div class="table-responsive">
                             <table class="table table-sm timetable">
                                 <thead>
@@ -857,16 +859,16 @@ function displayRoutes(routes) {
                                 </thead>
                                 <tbody>
                                     ${sortedHours.map(hour => {
-                                        const times = Array.from(departuresByHour.get(hour))
-                                            .sort((a, b) => normalizeTime(a) - normalizeTime(b))
-                                            .map(t => formatTime(t).split(':')[1]);
-                                        return `
+                const times = Array.from(departuresByHour.get(hour))
+                    .sort((a, b) => normalizeTime(a) - normalizeTime(b))
+                    .map(t => formatTime(t).split(':')[1]);
+                return `
                                             <tr>
                                                 <td class="hour-cell">${hour.toString().padStart(2, '0')}</td>
                                                 <td class="departures-cell">${times.join(' ')}</td>
                                             </tr>
                                         `;
-                                    }).join('')}
+            }).join('')}
                                 </tbody>
                             </table>
                         </div>
@@ -879,14 +881,14 @@ function displayRoutes(routes) {
         resultsContainer.innerHTML = routes.map(route => {
             const firstStop = route.stops[0];
             const isDepartureNextDay = parseInt(firstStop.departure_time.split(':')[0]) >= 24;
-            
-            const routeColorStyle = route.color && route.color !== "" ? 
-                `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` : 
+
+            const routeColorStyle = route.color && route.color !== "" ?
+                `background-color: #${route.color}; color: #${route.text_color || 'FFFFFF'};` :
                 'background-color: #73D700; color: #FFFFFF;';
-            
-            const lineNumberHtml = route.line_number ? 
+
+            const lineNumberHtml = route.line_number ?
                 `<span class="badge bg-light text-dark me-2">${route.line_number}</span>` : '';
-            
+
             return `
                 <div class="card route-card">
                     <div class="card-header" style="${routeColorStyle}">
@@ -897,12 +899,12 @@ function displayRoutes(routes) {
                     </div>
                     <div class="card-body">
                         <p class="mb-2">Duration: ${Math.floor(route.duration_minutes / 60)}h ${route.duration_minutes % 60}m</p>
-                        <p class="mb-2">Service days: ${route.service_days.map(day => 
-                            day.charAt(0).toUpperCase() + day.slice(1)
-                        ).join(', ')}</p>
-                        ${isDepartureNextDay ? 
-                            '<p class="mb-2 text-info">Note: This trip departs after midnight of the selected date</p>' 
-                            : ''}
+                        <p class="mb-2">Service days: ${route.service_days.map(day =>
+                day.charAt(0).toUpperCase() + day.slice(1)
+            ).join(', ')}</p>
+                        ${isDepartureNextDay ?
+                    '<p class="mb-2 text-info">Note: This trip departs after midnight of the selected date</p>'
+                    : ''}
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <thead>
@@ -930,15 +932,15 @@ function displayRoutes(routes) {
             `;
         }).join('');
     }
-    
+
     // Collect all coordinates for bounds calculation
     let allCoordinates = [];
-    
+
     // Display routes on map
     routes.forEach((route, index) => {
-        const routeColor = route.color && route.color !== "" ? 
+        const routeColor = route.color && route.color !== "" ?
             `#${route.color}` : generateRouteColor(index);
-        
+
         // Get coordinates from route shape or stops
         let coordinates = [];
         if (route.shape && Array.isArray(route.shape.points) && route.shape.points.length > 0) {
@@ -956,19 +958,19 @@ function displayRoutes(routes) {
                 return null;
             }).filter(point => point !== null);
         }
-        
+
         if (coordinates.length < 2) {
             coordinates = route.stops.map(stop => [stop.location.lat, stop.location.lon]);
         }
-        
+
         if (coordinates.length < 2) {
             console.error('Insufficient coordinates for route:', route);
             return;
         }
-        
+
         // Add coordinates to bounds calculation
         allCoordinates.push(...coordinates);
-        
+
         // Draw route line
         const routeLine = L.polyline(coordinates, {
             color: routeColor,
@@ -976,7 +978,7 @@ function displayRoutes(routes) {
             opacity: 0.8,
             pane: 'routesPane'
         }).addTo(routeLayer);
-        
+
         // Add markers for stops
         route.stops.forEach(stop => {
             const markerKey = `${stop.location.lat},${stop.location.lon}`;
@@ -990,22 +992,22 @@ function displayRoutes(routes) {
                     fillOpacity: 0.8,
                     pane: 'stopsPane'
                 });
-                
-                const popupContent = showStopIds ? 
+
+                const popupContent = showStopIds ?
                     `<strong>${getTranslatedName(stop)}</strong><br><small class="text-muted">ID: ${stop.id}</small>` :
                     `<strong>${getTranslatedName(stop)}</strong>`;
-                
+
                 marker.bindPopup(popupContent, {
                     offset: [0, -2],
                     closeButton: true
                 });
-                
+
                 marker.addTo(routeLayer);
                 stopMarkers.set(markerKey, { marker, stop });
             }
         });
     });
-    
+
     // Fit map to show all coordinates
     if (allCoordinates.length > 0) {
         const bounds = L.latLngBounds(allCoordinates);
@@ -1014,7 +1016,7 @@ function displayRoutes(routes) {
 }
 
 // Date change event handler
-dateInput.addEventListener('change', searchRoutes); 
+dateInput.addEventListener('change', searchRoutes);
 
 // Move all styles to the top of the file, after the global variables
 const styles = `
@@ -1060,7 +1062,7 @@ document.head.appendChild(styleSheet);
 function findClosestPointIndex(points, target) {
     let minDist = Infinity;
     let minIndex = 0;
-    
+
     points.forEach((point, index) => {
         const dist = Math.pow(point[0] - target[0], 2) + Math.pow(point[1] - target[1], 2);
         if (dist < minDist) {
@@ -1068,21 +1070,21 @@ function findClosestPointIndex(points, target) {
             minIndex = index;
         }
     });
-    
+
     return minIndex;
-} 
+}
 
 // Update the event listener for the show stop IDs checkbox
 document.getElementById('showStopIds').addEventListener('change', () => {
     // Update all existing marker popups
     stopMarkers.forEach((markerInfo, key) => {
         const showStopIds = document.getElementById('showStopIds').checked;
-        const popupContent = showStopIds ? 
+        const popupContent = showStopIds ?
             `<strong>${getTranslatedName(markerInfo.stop)}</strong><br><small class="text-muted">ID: ${markerInfo.stop.id}</small>` :
             `<strong>${getTranslatedName(markerInfo.stop)}</strong>`;
         markerInfo.marker.setPopupContent(popupContent);
     });
-    
+
     // Refresh the route display
     if (selectedFromStation && selectedToStation) {
         searchRoutes();
@@ -1093,7 +1095,7 @@ document.getElementById('showStopIds').addEventListener('change', () => {
 document.getElementById('mergeSameNameStations').addEventListener('change', async () => {
     const mergingEnabled = document.getElementById('mergeSameNameStations').checked;
     console.log('Merging stations:', mergingEnabled);
-    
+
     if (mergingEnabled) {
         // Update station groups based on current selections
         if (selectedFromStation) {
@@ -1107,19 +1109,19 @@ document.getElementById('mergeSameNameStations').addEventListener('change', asyn
         selectedFromStationGroup = null;
         selectedToStationGroup = null;
     }
-    
+
     // Refresh routes with updated groups
     if (selectedFromStation && selectedToStation) {
         searchRoutes();
     }
-}); 
+});
 
 // Add event listener for the condensed timetable checkbox
 document.getElementById('condensedTimetable').addEventListener('change', () => {
     if (selectedFromStation && selectedToStation) {
         searchRoutes();
     }
-}); 
+});
 
 // Function to enable UI elements
 function enableUI() {

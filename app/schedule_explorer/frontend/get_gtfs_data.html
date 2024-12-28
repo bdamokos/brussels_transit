@@ -147,6 +147,9 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
+        // Get the current server's URL and port
+        window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`; 
+        const API_BASE_URL = window.API_BASE_URL;
         document.addEventListener('DOMContentLoaded', function() {
             const backendStatus = document.getElementById('backendStatus');
             const providersContainer = document.getElementById('providersContainer');
@@ -222,7 +225,7 @@
             async function loadCurrentProviders() {
                 showStatus('Loading current providers...', 'loading');
                 try {
-                    const response = await fetch('http://localhost:8000/providers_info');
+                    const response = await fetch(`${API_BASE_URL}/providers_info`);
                     if (!response.ok) throw new Error('Failed to fetch current providers');
                     const providers = await response.json();
                     displayProviders(providers, currentProvidersContainer, true);
@@ -244,7 +247,7 @@
 
                 showStatus('Searching providers...', 'loading');
                 try {
-                    const response = await fetch(`http://localhost:8000/api/providers/${countryCode}`);
+                    const response = await fetch(`${API_BASE_URL}/api/providers/${countryCode}`);
                     if (!response.ok) throw new Error('Failed to fetch providers');
                     const providers = await response.json();
                     
@@ -273,7 +276,7 @@
                     
                     showStatus('Downloading GTFS data...', 'loading');
                     try {
-                        const response = await fetch(`http://localhost:8000/api/download/${providerId}`, {
+                        const response = await fetch(`${API_BASE_URL}/api/download/${providerId}`, {
                             method: 'POST'
                         });
                         if (!response.ok) throw new Error('Failed to download GTFS data');
