@@ -13,6 +13,24 @@ function debounce(func, wait) {
 // API configuration
 const API_BASE_URL = 'http://localhost:8000';
 
+// Function to fetch station details by stop_id
+async function fetchStationById(stopId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/stations/search?stop_id=${stopId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch station with ID ${stopId}`);
+        }
+        const stations = await response.json();
+        if (stations.length > 0) {
+            return stations[0]; // Return the first station in the array
+        } else {
+            throw new Error(`Station with ID ${stopId} not found`);
+        }
+    } catch (error) {
+        console.error('Error fetching station:', error);
+        return null;
+    }
+}
 // Map initialization
 const map = L.map('map').setView([50.8503, 4.3517], 7);  // Centered on Belgium
 
@@ -240,23 +258,28 @@ async function setProvider(providerName) {
 
         // Check for URL parameters and trigger search if specified
         const urlParams = getUrlParams();
-        if (urlParams.from && urlParams.to && urlParams.date) {
-            fromStationInput.value = urlParams.from;
-            toStationInput.value = urlParams.to;
-            dateInput.value = urlParams.date;
-            await searchStations(urlParams.from, null, true).then(stations => {
-                if (stations.length > 0) {
-                    selectedFromStation = stations[0];
-                    createStationList(stations, fromStationResults, fromStationInput, true);
-                }
-            });
-            await searchStations(urlParams.to, null, false).then(stations => {
-                if (stations.length > 0) {
-                    selectedToStation = stations[0];
-                    createStationList(stations, toStationResults, toStationInput, false);
-                }
-            });
-            searchRoutes();
+        if (urlParams.from && urlParams.to) {
+            // Fetch station names for the stop_ids
+            const fromStation = await fetchStationById(urlParams.from);
+            const toStation = await fetchStationById(urlParams.to);
+
+            if (fromStation && toStation) {
+                // Set the values in the input fields
+                fromStationInput.value = fromStation.name;
+                toStationInput.value = toStation.name;
+
+                // Set the date to today if not provided in the URL
+                dateInput.value = urlParams.date || new Date().toISOString().split('T')[0];
+
+                // Set the selected stations
+                selectedFromStation = fromStation;
+                selectedToStation = toStation;
+
+                // Trigger the search
+                searchRoutes();
+            } else {
+                console.error('Failed to fetch station details for the provided stop_ids');
+            }
         }
     } catch (error) {
         console.error('Error setting provider:', error);
@@ -662,8 +685,10 @@ async function searchRoutes() {
         return;
     }
 
+    // Always use the value from the dateInput field
     const date = document.getElementById('date').value;
     if (!date) {
+        console.error('Date is not set');
         return;
     }
 
@@ -671,18 +696,8 @@ async function searchRoutes() {
         const mergeSameNameStations = document.getElementById('mergeSameNameStations').checked;
         
         // Get all station IDs for the search
-        let fromStationIds = [];
-        let toStationIds = [];
-        
-        if (mergeSameNameStations) {
-            fromStationIds = selectedFromStationGroup ? 
-                selectedFromStationGroup.map(s => s.id) : [selectedFromStation.id];
-            toStationIds = selectedToStationGroup ? 
-                selectedToStationGroup.map(s => s.id) : [selectedToStation.id];
-        } else {
-            fromStationIds = [selectedFromStation.id];
-            toStationIds = [selectedToStation.id];
-        }
+        let fromStationIds = [selectedFromStation.id];
+        let toStationIds = [selectedToStation.id];
         
         // Make a single API call with all station IDs and language parameter
         const response = await fetch(
