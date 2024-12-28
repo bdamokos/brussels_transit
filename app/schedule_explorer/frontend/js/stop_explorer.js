@@ -27,13 +27,13 @@ const searchInput = document.getElementById('searchInput');
 function updateBackendStatus(status, message) {
     backendStatus.className = 'backend-status ' + status;
     backendStatus.querySelector('.status-text').textContent = message;
-    
+
     // Enable/disable inputs based on status
     const inputs = [searchInput];
     inputs.forEach(input => {
         input.disabled = status !== 'ready';
     });
-    
+
     // Initialize dropdowns when backend is ready
     if (status === 'ready') {
         setTimeout(() => {
@@ -67,15 +67,15 @@ async function loadProviders() {
     try {
         const response = await fetch(`${API_BASE_URL}/providers`);
         const providers = await response.json();
-        
+
         const select = document.getElementById('providerSelect');
         select.innerHTML = '<option value="" selected disabled>Select a provider</option>' +
             providers.map(provider => `<option value="${provider}">${provider}</option>`).join('');
-        
+
         const languageSelect = document.getElementById('languageSelect');
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
         languageSelect.disabled = true;
-        
+
         select.disabled = false;
     } catch (error) {
         console.error('Error loading providers:', error);
@@ -89,19 +89,19 @@ async function searchStops(query) {
         document.getElementById('stopSearchResults').innerHTML = '';
         return;
     }
-    
+
     try {
         const response = await fetch(`${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}`);
         const stops = await response.json();
-        
+
         const resultsDiv = document.getElementById('stopSearchResults');
         resultsDiv.classList.add('show');
-        
+
         if (stops.length === 0) {
             resultsDiv.innerHTML = '<div class="search-result-item">No stops found</div>';
             return;
         }
-        
+
         resultsDiv.innerHTML = stops.map(stop => `
             <div class="search-result-item" onclick="addStop('${stop.id}', '${stop.name}', ${stop.location.lat}, ${stop.location.lon})">
                 <div class="stop-name">${stop.name}</div>
@@ -118,10 +118,10 @@ function addStop(stopId, stopName, lat, lon) {
     if (stopMarkers.has(stopId)) {
         return; // Stop already added
     }
-    
+
     const color = MARKER_COLORS[colorIndex % MARKER_COLORS.length];
     colorIndex++;
-    
+
     // Add marker to map
     const marker = L.marker([lat, lon], {
         icon: L.divIcon({
@@ -132,7 +132,7 @@ function addStop(stopId, stopName, lat, lon) {
         })
     }).addTo(map);
     stopMarkers.set(stopId, { marker, color });
-    
+
     // Add to selected stops table
     const table = document.getElementById('selectedStopsTable');
     const row = document.createElement('div');
@@ -147,15 +147,15 @@ function addStop(stopId, stopName, lat, lon) {
         <button class="remove-stop" onclick="removeStop('${stopId}')">&times;</button>
     `;
     table.appendChild(row);
-    
+
     // Update map bounds
     const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
     map.fitBounds(bounds, { padding: [50, 50] });
-    
+
     // Hide search results
     document.getElementById('stopSearchResults').classList.remove('show');
     document.getElementById('stopSearch').value = '';
-    
+
     // Load routes
     loadAllRoutes();
 }
@@ -165,22 +165,22 @@ function removeStop(stopId) {
     if (!stopMarkers.has(stopId)) {
         return;
     }
-    
+
     // Remove marker from map
     const { marker } = stopMarkers.get(stopId);
     map.removeLayer(marker);
     stopMarkers.delete(stopId);
-    
+
     // Remove from table
     const row = document.getElementById(`stop-row-${stopId}`);
     row.remove();
-    
+
     // Update map bounds if there are still markers
     if (stopMarkers.size > 0) {
         const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
         map.fitBounds(bounds, { padding: [50, 50] });
     }
-    
+
     // Reload routes
     loadAllRoutes();
 }
@@ -188,27 +188,27 @@ function removeStop(stopId) {
 // Load routes for all selected stops
 async function loadAllRoutes() {
     const routesContainer = document.getElementById('routesContainer');
-    
+
     if (stopMarkers.size === 0) {
         routesContainer.innerHTML = '<div class="alert alert-info">Select stops to see their routes.</div>';
         return;
     }
-    
+
     try {
         // Load routes for each stop
-        const routePromises = Array.from(stopMarkers.keys()).map(stopId => 
+        const routePromises = Array.from(stopMarkers.keys()).map(stopId =>
             fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
                 .then(response => response.json())
                 .then(routes => ({ stopId, routes }))
         );
-        
+
         const results = await Promise.all(routePromises);
-        
+
         // Group routes by stop
         routesContainer.innerHTML = results.map(({ stopId, routes }) => {
             const { color } = stopMarkers.get(stopId);
             const stopName = escapeHtml(document.querySelector(`#stop-row-${stopId} .stop-name`).textContent);
-            
+
             return `
                 <div class="stop-routes-group">
                     <div class="stop-routes-header">
@@ -221,7 +221,7 @@ async function loadAllRoutes() {
                         </div>
                     </div>
                     <div class="stop-routes-content">
-                        ${routes.length === 0 ? 
+                        ${routes.length === 0 ?
                             '<div class="p-3">No routes found for this stop.</div>' :
                             routes.map(route => `
                                 <div class="route-line" style="border-left-color: #${route.color || '000000'}">
@@ -235,9 +235,19 @@ async function loadAllRoutes() {
                                                 ${route.route_name}<br>
                                                 From: ${route.first_stop}<br>
                                                 To: ${route.last_stop}<br>
-                                                Service days: ${route.service_days.map(day => 
+                                                Service days: ${route.service_days.map(day =>
                                                     day.charAt(0).toUpperCase() + day.slice(1)
                                                 ).join(', ')}
+                                            </div>
+                                            <div class="mt-2">
+                                                <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}"
+                                                   target="_blank" class="btn btn-sm btn-outline-primary me-2">
+                                                    View Waiting Times
+                                                </a>
+                                                <a href="index.html?from=${stopId}&to=${route.terminus_stop_id}&provider=${providerSelect.value}"
+                                                   target="_blank" class="btn btn-sm btn-outline-secondary">
+                                                    View Full Route
+                                                </a>
                                             </div>
                                         </div>
                                     </div>
@@ -248,7 +258,7 @@ async function loadAllRoutes() {
                 </div>
             `;
         }).join('');
-        
+
     } catch (error) {
         console.error('Error loading routes:', error);
         routesContainer.innerHTML = '<div class="alert alert-danger">Failed to load routes.</div>';
@@ -265,7 +275,7 @@ function setupEventListeners() {
         try {
             const response = await fetch(`${API_BASE_URL}/provider/${provider}`, { method: 'POST' });
             const result = await response.json();
-            
+
             if (result.status === 'success') {
                 document.getElementById('stopSearch').disabled = false;
                 showSuccess('GTFS data loaded successfully');
@@ -280,7 +290,7 @@ function setupEventListeners() {
             showError('Failed to load GTFS data');
         }
     });
-    
+
     // Language selection
     document.getElementById('languageSelect').addEventListener('change', (e) => {
         selectedLanguage = e.target.value;
@@ -288,14 +298,14 @@ function setupEventListeners() {
             loadAllRoutes();
         }
     });
-    
+
     // Stop search
     let searchTimeout;
     document.getElementById('stopSearch').addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => searchStops(e.target.value), 300);
     });
-    
+
     // Close search results when clicking outside
     document.addEventListener('click', (e) => {
         const searchResults = document.getElementById('stopSearchResults');
@@ -337,13 +347,13 @@ async function loadLanguages() {
         // Get a sample of stations to detect available languages
         const response = await fetch(`${API_BASE_URL}/stations/search?query=ab`);
         const data = await response.json();
-        
+
         // Extract unique languages from station translations
         const languages = new Set();
-        
+
         // Add default language
         languages.add('default');
-        
+
         // Check if we have stations and they have translations
         if (Array.isArray(data)) {
             data.forEach(station => {
@@ -352,14 +362,14 @@ async function loadLanguages() {
                 }
             });
         }
-        
+
         const select = document.getElementById('languageSelect');
-        select.innerHTML = Array.from(languages).sort().map(lang => 
-            lang === 'default' 
+        select.innerHTML = Array.from(languages).sort().map(lang =>
+            lang === 'default'
                 ? '<option value="default">Default (Original)</option>'
                 : `<option value="${lang}">${lang.toUpperCase()}</option>`
         ).join('');
-        
+
         // Enable the select and set default
         select.disabled = false;
         selectedLanguage = 'default';
