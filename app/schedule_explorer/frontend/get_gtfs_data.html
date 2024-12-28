@@ -114,30 +114,54 @@
 
         <!-- Search Form -->
         <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="input-group">
-                    <input type="text" class="form-control" id="countrySearch" placeholder="Search by country code (e.g. BE)">
-                    <button class="btn btn-primary" id="searchBtn">Search Providers</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Current Providers -->
-        <div class="mb-4">
-            <h2>Current Providers</h2>
-            <div id="currentProvidersContainer">
-                <div class="alert alert-info">
-                    Loading current providers...
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Search Providers</h5>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="countrySearch" class="form-label">Country Code</label>
+                                    <input type="text" class="form-control" id="countrySearch" placeholder="e.g. BE">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="nameSearch" class="form-label">Provider Name</label>
+                                    <input type="text" class="form-control" id="nameSearch" placeholder="e.g. Budapest">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="providerIdSearch" class="form-label">Provider ID</label>
+                                    <input type="text" class="form-control" id="providerIdSearch" placeholder="e.g. mdb-990">
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <button class="btn btn-primary" id="searchBtn">Search Providers</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Available Providers -->
-        <div>
+        <div class="mb-4">
             <h2>Available Providers</h2>
             <div id="providersContainer">
                 <div class="alert alert-info">
-                    Enter a country code to search for GTFS data providers.
+                    Enter search criteria to find GTFS data providers.
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Providers -->
+        <div>
+            <h2>Current Providers</h2>
+            <div id="currentProvidersContainer">
+                <div class="alert alert-info">
+                    Loading current providers...
                 </div>
             </div>
         </div>
@@ -156,6 +180,8 @@
             const currentProvidersContainer = document.getElementById('currentProvidersContainer');
             const searchBtn = document.getElementById('searchBtn');
             const countrySearch = document.getElementById('countrySearch');
+            const nameSearch = document.getElementById('nameSearch');
+            const providerIdSearch = document.getElementById('providerIdSearch');
 
             function showStatus(message, type) {
                 backendStatus.className = `backend-status ${type}`;
@@ -240,14 +266,23 @@
 
             searchBtn.addEventListener('click', async () => {
                 const countryCode = countrySearch.value.trim().toUpperCase();
-                if (!countryCode) {
-                    showStatus('Please enter a country code', 'error');
+                const name = nameSearch.value.trim();
+                const providerId = providerIdSearch.value.trim();
+
+                if (!countryCode && !name && !providerId) {
+                    showStatus('Please enter at least one search criteria', 'error');
                     return;
                 }
 
                 showStatus('Searching providers...', 'loading');
                 try {
-                    const response = await fetch(`${API_BASE_URL}/api/providers/${countryCode}`);
+                    // Build query parameters
+                    const params = new URLSearchParams();
+                    if (countryCode) params.append('country_code', countryCode);
+                    if (name) params.append('name', name);
+                    if (providerId) params.append('provider_id', providerId);
+
+                    const response = await fetch(`${API_BASE_URL}/api/providers/${countryCode || 'search'}?${params.toString()}`);
                     if (!response.ok) throw new Error('Failed to fetch providers');
                     const providers = await response.json();
                     

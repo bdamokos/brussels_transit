@@ -273,16 +273,45 @@ def get_provider_by_id(provider_id: str) -> Optional[Provider]:
 
 
 @app.get("/api/providers/{country_code}", response_model=List[Dict])
-async def get_providers_by_country(country_code: str):
-    """Get list of available GTFS providers for a specific country"""
+async def get_providers_by_country(
+    country_code: Optional[str] = Path(None),
+    name: Optional[str] = Query(None),
+    provider_id: Optional[str] = Query(None),
+):
+    """Get list of available GTFS providers based on search criteria.
+
+    At least one of country_code, name, or provider_id must be provided.
+    """
     try:
-        providers = db.get_providers_by_country(country_code)
+        if not any([country_code, name, provider_id]):
+            raise HTTPException(
+                status_code=400,
+                detail="At least one search criteria must be provided (country_code, name, or provider_id)",
+            )
+
+        providers = []
+        if provider_id:
+            # Search by ID
+            provider = db.get_provider_info(provider_id=provider_id)
+            if provider:
+                providers = [provider]
+        elif name:
+            # Search by name
+            providers = db.get_provider_info(name=name)
+        else:
+            # Search by country
+            providers = db.get_provider_info(country_code=country_code)
+
         logger.debug(f"Got {len(providers)} providers from MobilityAPI")
+
+        # Convert to list if single provider returned
+        if isinstance(providers, dict):
+            providers = [providers]
+        elif providers is None:
+            providers = []
+
         # Add sanitized names and map fields from the MobilityAPI response
         for provider in providers:
-            # logger.debug(f"Processing provider: {provider.get('provider', '')}")
-            # logger.debug(f"Latest dataset: {provider.get('latest_dataset', {})}")
-
             provider["sanitized_name"] = db._sanitize_provider_name(
                 provider.get("provider", "")
             )
@@ -297,7 +326,6 @@ async def get_providers_by_country(country_code: str):
                     "max_lon": bbox.get("maximum_longitude", 0),
                 }
             else:
-                # logger.debug("No bounding box found in latest_dataset")
                 provider["bounding_box"] = {
                     "min_lat": 0,
                     "max_lat": 0,
@@ -330,7 +358,7 @@ async def get_providers_by_country(country_code: str):
             }
         return providers
     except Exception as e:
-        logger.error(f"Error getting providers for country {country_code}: {str(e)}")
+        logger.error(f"Error getting providers: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1304,3 +1332,12 @@ async def get_line_info(
             ),
         )
     }
+
+
+@app.get("/api/providers/search", response_model=List[Dict])
+async def search_providers(
+    name: Optional[str] = Query(None),
+    provider_id: Optional[str] = Query(None),
+):
+    """Search for providers by name or ID."""
+    return await get_providers_by_country(None, name, provider_id)
