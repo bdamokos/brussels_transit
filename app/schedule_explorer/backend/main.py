@@ -1337,3 +1337,52 @@ async def get_line_info(
             ),
         )
     }
+
+
+@app.delete("/api/datasets/{provider_id}/{dataset_id}")
+async def delete_dataset(
+    provider_id: str = Path(..., description="Provider ID"),
+    dataset_id: str = Path(..., description="Dataset ID"),
+):
+    """Delete a specific dataset for a provider."""
+    try:
+        db.delete_dataset(provider_id, dataset_id)
+        return {
+            "status": "success",
+            "message": f"Deleted dataset {dataset_id} for provider {provider_id}",
+        }
+    except Exception as e:
+        logger.error(
+            f"Error deleting dataset {dataset_id} for provider {provider_id}: {str(e)}"
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/datasets/{provider_id}")
+async def delete_provider_datasets(
+    provider_id: str = Path(..., description="Provider ID"),
+):
+    """Delete all datasets for a specific provider."""
+    try:
+        db.delete_provider_datasets(provider_id)
+        return {
+            "status": "success",
+            "message": f"Deleted all datasets for provider {provider_id}",
+        }
+    except Exception as e:
+        logger.error(f"Error deleting datasets for provider {provider_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/datasets")
+async def delete_all_datasets():
+    """Delete all downloaded datasets."""
+    try:
+        db.delete_all_datasets()
+        return {
+            "status": "success",
+            "message": "Deleted all datasets",
+        }
+    except Exception as e:
+        logger.error(f"Error deleting all datasets: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

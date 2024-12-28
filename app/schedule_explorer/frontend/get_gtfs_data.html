@@ -203,6 +203,18 @@
                     return;
                 }
 
+                if (isCurrentProvider) {
+                    // Add delete all button at the top
+                    const deleteAllBtn = document.createElement('div');
+                    deleteAllBtn.className = 'mb-3';
+                    deleteAllBtn.innerHTML = `
+                        <button class="btn btn-danger" onclick="deleteAllDatasets()">
+                            Delete All Datasets
+                        </button>
+                    `;
+                    container.appendChild(deleteAllBtn);
+                }
+
                 providers.forEach(provider => {
                     const card = document.createElement('div');
                     card.className = 'card provider-card';
@@ -228,6 +240,20 @@
                         </div>
                     `;
 
+                    // Add buttons based on whether it's a current or available provider
+                    const buttons = isCurrentProvider ? `
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-success" disabled>Already Downloaded</button>
+                            <button class="btn btn-danger delete-btn" data-provider-id="${provider.raw_id}" data-dataset-id="${provider.latest_dataset?.id}">
+                                Delete Dataset
+                            </button>
+                        </div>
+                    ` : `
+                        <button class="btn btn-primary download-btn" data-provider-id="${provider.id}">
+                            Download GTFS Data
+                        </button>
+                    `;
+
                     card.innerHTML = `
                         <div class="card-body">
                             <h5 class="card-title">${provider.provider || provider.name}</h5>
@@ -235,12 +261,7 @@
                                 ${providerInfo}
                                 ${validationHtml}
                             </p>
-                            ${isCurrentProvider ? 
-                                `<button class="btn btn-success" disabled>Already Downloaded</button>` :
-                                `<button class="btn btn-primary download-btn" data-provider-id="${provider.id}">
-                                    Download GTFS Data
-                                </button>`
-                            }
+                            ${buttons}
                         </div>
                     `;
                     container.appendChild(card);
@@ -327,6 +348,56 @@
                         e.target.disabled = false;
                         e.target.textContent = 'Retry Download';
                     }
+                }
+            });
+
+            // Add delete functionality
+            async function deleteDataset(providerId, datasetId) {
+                if (!confirm('Are you sure you want to delete this dataset?')) {
+                    return;
+                }
+
+                showStatus('Deleting dataset...', 'loading');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/datasets/${providerId}/${datasetId}`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) throw new Error('Failed to delete dataset');
+                    
+                    showStatus('Dataset deleted successfully', 'ready');
+                    await loadCurrentProviders(); // Refresh the list
+                } catch (error) {
+                    showStatus('Error deleting dataset', 'error');
+                    console.error('Error:', error);
+                }
+            }
+
+            async function deleteAllDatasets() {
+                if (!confirm('Are you sure you want to delete ALL datasets? This cannot be undone!')) {
+                    return;
+                }
+
+                showStatus('Deleting all datasets...', 'loading');
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/datasets`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) throw new Error('Failed to delete all datasets');
+                    
+                    showStatus('All datasets deleted successfully', 'ready');
+                    await loadCurrentProviders(); // Refresh the list
+                } catch (error) {
+                    showStatus('Error deleting datasets', 'error');
+                    console.error('Error:', error);
+                }
+            }
+
+            // Add event listener for delete buttons
+            currentProvidersContainer.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const providerId = e.target.dataset.providerId;
+                    const datasetId = e.target.dataset.datasetId;
+                    await deleteDataset(providerId, datasetId);
                 }
             });
         });
