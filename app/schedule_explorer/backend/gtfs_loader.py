@@ -8,7 +8,7 @@ import pickle
 import hashlib
 from multiprocessing import Pool, cpu_count
 import logging
-from .logging_config import setup_logging
+from .logging_config import setup_logging, bytes_to_mb
 import msgpack
 import lzma
 import psutil
@@ -1100,7 +1100,7 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
     """Serialize GTFS feed data using msgpack and lzma compression."""
     try:
         logger.info("Starting GTFS feed serialization")
-
+        t00 = time.time()
         # Create a custom dictionary without _feed references
         data = {
             "stops": {stop_id: asdict(stop) for stop_id, stop in feed.stops.items()},
@@ -1175,18 +1175,26 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
 
         # Pack with msgpack
         logger.info("Packing data with msgpack")
+        t0 = time.time()
         packed_data = msgpack.packb(data, use_bin_type=True)
-        logger.info(f"Packed data size: {len(packed_data)} bytes")
+        logger.info(
+            f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s"
+        )
 
         # Compress with lzma
         logger.info("Compressing data with lzma")
+        t0 = time.time()
         compressed_data = lzma.compress(
             packed_data,
             format=lzma.FORMAT_XZ,
             filters=[{"id": lzma.FILTER_LZMA2, "preset": 6}],
         )
-        logger.info(f"Compressed data size: {len(compressed_data)} bytes")
-        logger.info("GTFS feed serialization completed successfully")
+        logger.info(
+            f"Compressed data size:{bytes_to_mb(len(packed_data))} MB --> {bytes_to_mb(len(compressed_data))} MB in {time.time() - t0:.2f}s"
+        )
+        logger.info(
+            f"GTFS feed serialization completed successfully in {time.time() - t00:.2f}s"
+        )
 
         return compressed_data
     except Exception as e:
@@ -1201,11 +1209,11 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         logger.info("Starting GTFS feed deserialization")
 
         # Decompress with lzma
-        logger.info(f"Decompressing data (size: {len(data)} bytes)")
         t0 = time.time()
         decompressed_data = lzma.decompress(data)
-        logger.info(f"LZMA decompression took {time.time() - t0:.2f} seconds")
-        logger.info(f"Decompressed data size: {len(decompressed_data)} bytes")
+        logger.info(
+            f"LZMA decompression: {bytes_to_mb(len(data))} MB -> {bytes_to_mb(len(decompressed_data))} MB in {time.time() - t0:.2f}s"
+        )
 
         # Unpack with msgpack
         logger.info("Unpacking data with msgpack")
@@ -1705,9 +1713,9 @@ def load_feed(
                         exception_type=exception_type,
                     )
                 )
-                logger.info(
-                    f"Exception for service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-                )
+                # logger.info(
+                #     f"Exception for service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
+                # )
             del calendar_dates_df
             logger.info(
                 f"Loaded calendar_dates.txt for exceptions with {len(calendar_dates)} entries in {time.time() - t0:.2f} seconds"

@@ -40,3 +40,8 @@ def setup_logging():
         logger.addHandler(console_handler)
 
     return logger
+
+
+def bytes_to_mb(bytes: int, precision: int = 2) -> int:
+    """Convert bytes to megabytes."""
+    return round(bytes / (1024 * 1024), precision)
