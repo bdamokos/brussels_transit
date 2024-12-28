@@ -710,6 +710,31 @@ async def get_station_routes(
                     service_days=route.service_days,
                     parent_station_id=parent_station_id,
                     terminus_stop_id=route.stops[-1].stop.id,
+                    service_days_explicit=(
+                        route.service_days_explicit
+                        if hasattr(route, "service_days_explicit")
+                        else None
+                    ),
+                    calendar_dates_additions=(
+                        route.calendar_dates_additions
+                        if hasattr(route, "calendar_dates_additions")
+                        else None
+                    ),
+                    calendar_dates_removals=(
+                        route.calendar_dates_removals
+                        if hasattr(route, "calendar_dates_removals")
+                        else None
+                    ),
+                    valid_calendar_days=(
+                        route.valid_calendar_days
+                        if hasattr(route, "valid_calendar_days")
+                        else None
+                    ),
+                    service_calendar=(
+                        route.service_calendar
+                        if hasattr(route, "service_calendar")
+                        else None
+                    ),
                 )
             )
 

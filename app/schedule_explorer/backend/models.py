@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from datetime import time
+from datetime import time, datetime
 
 
 class DatasetValidation(BaseModel):
@@ -83,6 +83,15 @@ class RouteInfo(BaseModel):
     service_days: List[str]
     parent_station_id: Optional[str] = (None,)
     terminus_stop_id: Optional[str] = None
+    service_days_explicit: Optional[List[str]] = None  # Days from calendar.txt
+    calendar_dates_additions: Optional[List[datetime]] = (
+        None  # Days added via exceptions
+    )
+    calendar_dates_removals: Optional[List[datetime]] = (
+        None  # Days removed via exceptions
+    )
+    valid_calendar_days: Optional[List[datetime]] = None  # All valid service days
+    service_calendar: Optional[str] = None  # Human readable service calendar
 
 
 class ArrivalInfo(BaseModel):

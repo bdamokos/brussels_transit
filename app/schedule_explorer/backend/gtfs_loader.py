@@ -154,8 +154,8 @@ class Route:
     route_id: str
     route_name: str
     trip_id: str
-    service_days: List[str]
     stops: List[RouteStop]
+    service_days: List[str]
     shape: Optional[Shape] = None
     short_name: Optional[str] = None
     long_name: Optional[str] = None
@@ -173,13 +173,341 @@ class Route:
     route_sort_order: Optional[int] = None  # Order in which routes should be displayed
     continuous_pickup: Optional[int] = None  # Flag stop behavior for pickup (0-3)
     continuous_drop_off: Optional[int] = None  # Flag stop behavior for drop-off (0-3)
+    trips: List[Trip] = field(default_factory=list)  # List of trips for this route
     _feed: Optional["FlixbusFeed"] = field(
         default=None, repr=False, compare=False, hash=False
     )
+    # New debug and service calendar fields
+    service_days_explicit: List[str] = field(
+        default_factory=list
+    )  # Days from calendar.txt
+    calendar_dates_additions: List[datetime] = field(
+        default_factory=list
+    )  # Days added via exceptions
+    calendar_dates_removals: List[datetime] = field(
+        default_factory=list
+    )  # Days removed via exceptions
+    valid_calendar_days: List[datetime] = field(
+        default_factory=list
+    )  # All valid service days
+    service_calendar: Optional[str] = None  # Human readable service calendar
+
+    def __post_init__(self):
+        """Calculate service days after initialization"""
+        if not self.service_days and self.trips and self._feed:
+            self.calculate_service_info()
+
+    @property
+    def computed_service_days(self) -> List[str]:
+        """DEPRECATED: Use calculate_service_info() instead"""
+        logger.warning(
+            f"Route {self.route_id}: Using deprecated computed_service_days property, should use calculate_service_info() instead"
+        )
+        if not self.trips or not self._feed:
+            return []
+
+        # Get unique service IDs from all trips
+        service_ids = {trip.service_id for trip in self.trips}
+
+        # Get days from both regular calendars and calendar dates
+        days = set()
+
+        # First check calendar_dates for type 1 exceptions (added service)
+        # Create a map of service_id -> set of weekdays it operates on
+        service_days = {}
+        for cal_date in self._feed.calendar_dates:
+            if cal_date.service_id in service_ids:
+                weekday = cal_date.date.strftime("%A").lower()
+                if cal_date.service_id not in service_days:
+                    service_days[cal_date.service_id] = set()
+                if cal_date.exception_type == 1:  # Service added
+                    service_days[cal_date.service_id].add(weekday)
+
+        # Add all days from calendar exceptions
+        for weekdays in service_days.values():
+            days.update(weekdays)
+
+        # Then check regular calendars if they exist
+        has_regular_calendar = False
+        for service_id in service_ids:
+            if service_id in self._feed.calendars:
+                calendar = self._feed.calendars[service_id]
+                # Only consider this calendar if it has at least one day set to 1
+                if any(
+                    getattr(calendar, day)
+                    for day in [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ]
+                ):
+                    has_regular_calendar = True
+                    for day in [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ]:
+                        if getattr(calendar, day):
+                            days.add(day)
+
+        if has_regular_calendar:
+            # If we have regular calendars, check for type 2 exceptions (removals)
+            # Group exceptions by weekday to see if any day is completely removed
+            removals_by_day = {}
+            for cal_date in self._feed.calendar_dates:
+                if cal_date.service_id in service_ids and cal_date.exception_type == 2:
+                    weekday = cal_date.date.strftime("%A").lower()
+                    if weekday not in removals_by_day:
+                        removals_by_day[weekday] = set()
+                    removals_by_day[weekday].add(cal_date.service_id)
+
+            # Remove days that are completely excluded by type 2 exceptions
+            for day, removed_services in removals_by_day.items():
+                if (
+                    removed_services == service_ids
+                ):  # All services have this day removed
+                    days.discard(day)
+
+        return sorted(list(days))
+
+    def calculate_service_info(self) -> None:
+        """Calculate service calendar information"""
+        logger.info(
+            f"=== Starting service calendar calculation for route {self.route_id} ==="
+        )
+
+        if not self.trips or not self._feed:
+            logger.error(f"Route {self.route_id}: No trips or feed available")
+            return
+
+        # Get unique service IDs from all trips
+        service_ids = {trip.service_id for trip in self.trips}
+        logger.info(f"Route {self.route_id}: Found service IDs: {service_ids}")
+
+        # Log the actual service IDs we found in calendar.txt and calendar_dates.txt
+        calendar_service_ids = set(self._feed.calendars.keys())
+        calendar_dates_service_ids = {cd.service_id for cd in self._feed.calendar_dates}
+        logger.info(
+            f"Route {self.route_id}: Service IDs in calendar.txt: {calendar_service_ids}"
+        )
+        logger.info(
+            f"Route {self.route_id}: Service IDs in calendar_dates.txt: {calendar_dates_service_ids}"
+        )
+
+        # Calculate how many of our service IDs are in each file
+        calendar_matches = service_ids & calendar_service_ids
+        calendar_dates_matches = service_ids & calendar_dates_service_ids
+        logger.info(
+            f"Route {self.route_id}: Found {len(calendar_matches)}/{len(service_ids)} service IDs in calendar.txt"
+        )
+        logger.info(
+            f"Route {self.route_id}: Found {len(calendar_dates_matches)}/{len(service_ids)} service IDs in calendar_dates.txt"
+        )
+
+        # Calculate service_days_explicit from calendar.txt
+        self.service_days_explicit = []
+        has_regular_calendar = False
+        has_calendar_entries = False
+        for service_id in service_ids:
+            if service_id in self._feed.calendars:
+                has_calendar_entries = True
+                calendar = self._feed.calendars[service_id]
+                logger.info(
+                    f"Route {self.route_id}: Service {service_id} found in calendar.txt"
+                )
+                # Only consider this calendar if it has at least one day set to 1
+                active_days = []
+                for day in [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday",
+                ]:
+                    if getattr(calendar, day):
+                        active_days.append(day)
+                if active_days:
+                    has_regular_calendar = True
+                    for day in active_days:
+                        self.service_days_explicit.append(day.capitalize())
+                    logger.info(
+                        f"Route {self.route_id}: Service {service_id} active on: {', '.join(active_days)}"
+                    )
+                else:
+                    logger.info(
+                        f"Route {self.route_id}: Service {service_id} has no active days in calendar.txt"
+                    )
+            else:
+                logger.info(
+                    f"Route {self.route_id}: Service {service_id} not found in calendar.txt"
+                )
+        self.service_days_explicit = sorted(list(set(self.service_days_explicit)))
+        logger.info(
+            f"Route {self.route_id}: Final service_days_explicit: {self.service_days_explicit}"
+        )
+
+        # Calculate calendar_dates_additions and calendar_dates_removals
+        self.calendar_dates_additions = []
+        self.calendar_dates_removals = []
+        additions_by_service = {}  # service_id -> list of dates
+        removals_by_service = {}  # service_id -> list of dates
+        for cal_date in self._feed.calendar_dates:
+            if cal_date.service_id in service_ids:
+                if cal_date.exception_type == 1:  # Service added
+                    self.calendar_dates_additions.append(cal_date.date)
+                    if cal_date.service_id not in additions_by_service:
+                        additions_by_service[cal_date.service_id] = []
+                    additions_by_service[cal_date.service_id].append(cal_date.date)
+                elif cal_date.exception_type == 2:  # Service removed
+                    self.calendar_dates_removals.append(cal_date.date)
+                    if cal_date.service_id not in removals_by_service:
+                        removals_by_service[cal_date.service_id] = []
+                    removals_by_service[cal_date.service_id].append(cal_date.date)
+
+        # Log additions and removals by service ID
+        for service_id in service_ids:
+            additions = additions_by_service.get(service_id, [])
+            removals = removals_by_service.get(service_id, [])
+            logger.info(
+                f"Route {self.route_id}: Service {service_id} has {len(additions)} additions and {len(removals)} removals"
+            )
+            if additions:
+                logger.info(
+                    f"Route {self.route_id}: Service {service_id} additions: {[d.strftime('%Y-%m-%d') for d in additions]}"
+                )
+            if removals:
+                logger.info(
+                    f"Route {self.route_id}: Service {service_id} removals: {[d.strftime('%Y-%m-%d') for d in removals]}"
+                )
+
+        # Calculate valid_calendar_days
+        self.valid_calendar_days = []
+        if has_regular_calendar:
+            logger.info(
+                f"Route {self.route_id}: Using regular calendar (has_regular_calendar=True)"
+            )
+            # Get the feed's validity window from calendar.txt
+            start_dates = []
+            end_dates = []
+            for service_id in service_ids:
+                if service_id in self._feed.calendars:
+                    calendar = self._feed.calendars[service_id]
+                    start_dates.append(calendar.start_date)
+                    end_dates.append(calendar.end_date)
+                    logger.info(
+                        f"Route {self.route_id}: Service {service_id} validity: {calendar.start_date.strftime('%Y-%m-%d')} to {calendar.end_date.strftime('%Y-%m-%d')}"
+                    )
+
+            if start_dates and end_dates:
+                start_date = min(start_dates)
+                end_date = max(end_dates)
+                logger.info(
+                    f"Route {self.route_id}: Calendar window: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+                )
+
+                # For each day in the window, check if the route operates
+                current_date = start_date
+                while current_date <= end_date:
+                    if self.operates_on(current_date):
+                        self.valid_calendar_days.append(current_date)
+                        logger.info(
+                            f"Route {self.route_id}: Service operates on {current_date.strftime('%Y-%m-%d')}"
+                        )
+                    current_date += timedelta(days=1)
+            else:
+                logger.error(
+                    f"Route {self.route_id}: No valid dates found in calendar.txt despite has_regular_calendar=True"
+                )
+        else:
+            logger.info(
+                f"Route {self.route_id}: Using calendar_dates.txt (has_regular_calendar=False)"
+            )
+            if self.calendar_dates_additions:
+                self.valid_calendar_days = sorted(self.calendar_dates_additions)
+                logger.info(
+                    f"Route {self.route_id}: Valid calendar days from additions: {[d.strftime('%Y-%m-%d') for d in self.valid_calendar_days]}"
+                )
+            else:
+                logger.error(
+                    f"Route {self.route_id}: No calendar_dates_additions found despite using calendar_dates.txt"
+                )
+
+        # Create human-readable service calendar
+        if self.valid_calendar_days:
+            # Group consecutive dates
+            date_ranges = []
+            current_range = [self.valid_calendar_days[0]]
+            for date in self.valid_calendar_days[1:]:
+                if date - current_range[-1] == timedelta(days=1):
+                    current_range.append(date)
+                else:
+                    date_ranges.append(current_range)
+                    current_range = [date]
+            date_ranges.append(current_range)
+
+            # Format date ranges
+            formatted_ranges = []
+            for date_range in date_ranges:
+                if len(date_range) == 1:
+                    formatted_ranges.append(date_range[0].strftime("%Y-%m-%d"))
+                else:
+                    formatted_ranges.append(
+                        f"{date_range[0].strftime('%Y-%m-%d')} to {date_range[-1].strftime('%Y-%m-%d')}"
+                    )
+
+            self.service_calendar = "; ".join(formatted_ranges)
+            logger.info(
+                f"Route {self.route_id}: Service calendar: {self.service_calendar}"
+            )
+        else:
+            self.service_calendar = None
+            logger.error(
+                f"Route {self.route_id}: No service calendar (no valid calendar days)"
+            )
+
+        # Update service_days based on valid_calendar_days
+        if self.valid_calendar_days:
+            weekdays = {d.strftime("%A").lower() for d in self.valid_calendar_days}
+            self.service_days = sorted(list(weekdays))
+            logger.info(
+                f"Route {self.route_id}: Final service_days: {self.service_days}"
+            )
+        else:
+            logger.error(
+                f"Route {self.route_id}: No service_days (no valid calendar days)"
+            )
+
+        # If we have calendar_dates_additions but no service_days yet, calculate them from the additions
+        if not self.service_days and self.calendar_dates_additions:
+            weekdays = {d.strftime("%A").lower() for d in self.calendar_dates_additions}
+            self.service_days = sorted(list(weekdays))
+            logger.info(
+                f"Route {self.route_id}: Service days calculated from calendar_dates_additions: {self.service_days}"
+            )
+
+        logger.info(
+            f"=== Completed service calendar calculation for route {self.route_id} ==="
+        )
+        logger.info(
+            f"Final state: service_days={self.service_days}, service_calendar={self.service_calendar}, valid_calendar_days={len(self.valid_calendar_days)} days"
+        )
 
     def operates_on(self, date: datetime) -> bool:
         """Check if this route operates on a specific date"""
         if not self._feed:
+            logger.info(
+                f"Route {self.route_id}: No feed available for operates_on check"
+            )
             return False
 
         # Check each service ID for this route
@@ -196,12 +524,18 @@ class Route:
                     has_exception = True
                     if cal_date.exception_type == 1:  # Service added
                         operates = True
+                        logger.info(
+                            f"Route {self.route_id}: Service {service_id} added on {date.strftime('%Y-%m-%d')} via exception"
+                        )
                         break
                     elif cal_date.exception_type == 2:  # Service removed
                         operates = False
+                        logger.info(
+                            f"Route {self.route_id}: Service {service_id} removed on {date.strftime('%Y-%m-%d')} via exception"
+                        )
                         break
 
-            # If no exception found, check regular calendar
+            # If no exception found and we have a regular calendar, check it
             if not has_exception and service_id in self._feed.calendars:
                 calendar = self._feed.calendars[service_id]
                 if (
@@ -211,11 +545,28 @@ class Route:
                 ):
                     weekday = date.strftime("%A").lower()
                     operates = getattr(calendar, weekday)
+                    if operates:
+                        logger.info(
+                            f"Route {self.route_id}: Service {service_id} operates on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
+                        )
+                    else:
+                        logger.info(
+                            f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
+                        )
+            elif not has_exception and not self._feed.calendars:
+                # If we only have calendar_dates.txt, treat no exception as not operating
+                operates = False
+                logger.info(
+                    f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} (no calendar.txt and no exception)"
+                )
 
             # If any service ID operates on this date, the route operates
             if operates:
                 return True
 
+        logger.info(
+            f"Route {self.route_id}: No service operates on {date.strftime('%Y-%m-%d')}"
+        )
         return False
 
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
@@ -375,6 +726,8 @@ class FlixbusFeed:
                                     direction_id=(
                                         "1" if route.direction_id == "0" else "0"
                                     ),
+                                    trips=route.trips,  # Copy trips list
+                                    _feed=route._feed,  # Copy feed reference
                                 )
                                 routes.append(reversed_route)
                                 break
@@ -486,6 +839,14 @@ class FlixbusFeed:
                         service_days.add("saturday")
                     if calendar.sunday:
                         service_days.add("sunday")
+                else:
+                    # If no regular calendar, get service days from calendar_dates
+                    for cal_date in self.calendar_dates:
+                        if (
+                            cal_date.service_id == service_id
+                            and cal_date.exception_type == 1
+                        ):
+                            service_days.add(cal_date.date.strftime("%A").lower())
 
                 # Create a new route object with this trip's specific times
                 route = Route(
@@ -502,9 +863,15 @@ class FlixbusFeed:
                     text_color=base_route.text_color,
                     agency_id=base_route.agency_id,
                     headsigns=base_route.headsigns,
-                    service_ids=[trip.service_id],
+                    service_ids=[
+                        trip.service_id
+                    ],  # Set service_ids to this trip's service_id
                     direction_id=trip.direction_id,
+                    trips=[trip],  # Add the trip to the trips list
+                    _feed=self,  # Set feed reference to self
                 )
+                # Calculate service days after initialization
+                route.calculate_service_info()
                 routes.append(route)
 
         return routes
@@ -717,7 +1084,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "2.8"
+CACHE_VERSION = "2.8.8.3"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -766,6 +1133,12 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
                 "headsigns": route.headsigns,
                 "service_ids": route.service_ids,
                 "direction_id": route.direction_id,
+                "route_desc": route.route_desc,
+                "route_url": route.route_url,
+                "route_sort_order": route.route_sort_order,
+                "continuous_pickup": route.continuous_pickup,
+                "continuous_drop_off": route.continuous_drop_off,
+                "trip_ids": [trip.id for trip in route.trips],  # Store only trip IDs
             }
             data["routes"].append(route_dict)
 
@@ -780,18 +1153,18 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
                 cal_date["date"] = cal_date["date"].isoformat()
 
         # Pack with msgpack
-        logger.debug("Packing data with msgpack")
+        logger.info("Packing data with msgpack")
         packed_data = msgpack.packb(data, use_bin_type=True)
-        logger.debug(f"Packed data size: {len(packed_data)} bytes")
+        logger.info(f"Packed data size: {len(packed_data)} bytes")
 
         # Compress with lzma
-        logger.debug("Compressing data with lzma")
+        logger.info("Compressing data with lzma")
         compressed_data = lzma.compress(
             packed_data,
             format=lzma.FORMAT_XZ,
             filters=[{"id": lzma.FILTER_LZMA2, "preset": 6}],
         )
-        logger.debug(f"Compressed data size: {len(compressed_data)} bytes")
+        logger.info(f"Compressed data size: {len(compressed_data)} bytes")
         logger.info("GTFS feed serialization completed successfully")
 
         return compressed_data
@@ -807,20 +1180,20 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         logger.info("Starting GTFS feed deserialization")
 
         # Decompress with lzma
-        logger.debug(f"Decompressing data (size: {len(data)} bytes)")
+        logger.info(f"Decompressing data (size: {len(data)} bytes)")
         t0 = time.time()
         decompressed_data = lzma.decompress(data)
         logger.info(f"LZMA decompression took {time.time() - t0:.2f} seconds")
-        logger.debug(f"Decompressed data size: {len(decompressed_data)} bytes")
+        logger.info(f"Decompressed data size: {len(decompressed_data)} bytes")
 
         # Unpack with msgpack
-        logger.debug("Unpacking data with msgpack")
+        logger.info("Unpacking data with msgpack")
         t0 = time.time()
         raw_data = msgpack.unpackb(decompressed_data, raw=False)
         logger.info(f"Msgpack unpacking took {time.time() - t0:.2f} seconds")
 
         # Convert back to objects
-        logger.debug("Converting back to objects")
+        logger.info("Converting back to objects")
         t0 = time.time()
 
         # Convert stops
@@ -879,6 +1252,16 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
             # Convert shape if present
             if route_data.get("shape"):
                 route_data["shape"] = Shape(**route_data["shape"])
+
+            # Add trips to route
+            route_trips = []
+            for trip_id in route_data.get("trip_ids", []):
+                if trip_id in trips:
+                    route_trips.append(trips[trip_id])
+            route_data["trips"] = route_trips
+
+            # Remove trip_ids as it's not a field in the Route class
+            route_data.pop("trip_ids", None)
 
             routes.append(Route(**route_data))
 
@@ -1029,10 +1412,10 @@ def load_feed(
                 translations=translations.get(str(row["stop_id"]), {}),
             )
             stops[stop.id] = stop
-            if stop.translations:
-                logger.debug(
-                    f"Stop {stop.id} ({stop.name}) has translations: {stop.translations}"
-                )
+            # if stop.translations:
+            #     logger.info(
+            #         f"Stop {stop.id} ({stop.name}) has translations: {stop.translations}"
+            #     )
     logger.info(f"Loaded {len(stops)} stops in {time.time() - t0:.2f} seconds")
 
     # Load shapes if available
@@ -1212,6 +1595,7 @@ def load_feed(
         )
         use_calendar_dates = False
         calendars = {}
+        logger.info(f"Found {len(calendar_df)} entries in calendar.txt")
         for _, row in calendar_df.iterrows():
             service_id = str(row["service_id"])
             calendars[service_id] = Calendar(
@@ -1226,8 +1610,13 @@ def load_feed(
                 start_date=datetime.strptime(str(row["start_date"]), "%Y%m%d"),
                 end_date=datetime.strptime(str(row["end_date"]), "%Y%m%d"),
             )
+            logger.info(
+                f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
+            )
         del calendar_df
-        logger.info(f"Loaded calendar.txt in {time.time() - t0:.2f} seconds")
+        logger.info(
+            f"Loaded calendar.txt with {len(calendars)} services in {time.time() - t0:.2f} seconds"
+        )
     except FileNotFoundError:
         logger.info("calendar.txt not found, trying calendar_dates.txt...")
         calendar_df = pd.read_csv(
@@ -1237,16 +1626,25 @@ def load_feed(
         use_calendar_dates = True
         calendars = {}
         calendar_dates = []
+        logger.info(f"Found {len(calendar_df)} entries in calendar_dates.txt")
         for _, row in calendar_df.iterrows():
+            service_id = str(row["service_id"])
+            date = datetime.strptime(str(row["date"]), "%Y%m%d")
+            exception_type = int(row["exception_type"])
             calendar_dates.append(
                 CalendarDate(
-                    service_id=str(row["service_id"]),
-                    date=datetime.strptime(str(row["date"]), "%Y%m%d"),
-                    exception_type=int(row["exception_type"]),
+                    service_id=service_id,
+                    date=date,
+                    exception_type=exception_type,
                 )
             )
+            logger.info(
+                f"Service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
+            )
         del calendar_df
-        logger.info(f"Loaded calendar_dates.txt in {time.time() - t0:.2f} seconds")
+        logger.info(
+            f"Loaded calendar_dates.txt with {len(calendar_dates)} exceptions in {time.time() - t0:.2f} seconds"
+        )
 
     # Load calendar_dates.txt for exceptions if we have regular calendars
     if not use_calendar_dates:
@@ -1258,17 +1656,24 @@ def load_feed(
                 dtype={"service_id": str, "date": str, "exception_type": int},
             )
             calendar_dates = []
+            logger.info(f"Found {len(calendar_dates_df)} exception entries")
             for _, row in calendar_dates_df.iterrows():
+                service_id = str(row["service_id"])
+                date = datetime.strptime(str(row["date"]), "%Y%m%d")
+                exception_type = int(row["exception_type"])
                 calendar_dates.append(
                     CalendarDate(
-                        service_id=str(row["service_id"]),
-                        date=datetime.strptime(str(row["date"]), "%Y%m%d"),
-                        exception_type=int(row["exception_type"]),
+                        service_id=service_id,
+                        date=date,
+                        exception_type=exception_type,
                     )
+                )
+                logger.info(
+                    f"Exception for service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
                 )
             del calendar_dates_df
             logger.info(
-                f"Loaded calendar_dates.txt for exceptions in {time.time() - t0:.2f} seconds"
+                f"Loaded calendar_dates.txt for exceptions with {len(calendar_dates)} entries in {time.time() - t0:.2f} seconds"
             )
         except FileNotFoundError:
             logger.info("No calendar_dates.txt found")
@@ -1418,6 +1823,7 @@ def load_feed(
                 route_sort_order=route_info["route_sort_order"],
                 continuous_pickup=route_info["continuous_pickup"],
                 continuous_drop_off=route_info["continuous_drop_off"],
+                trips=direction_trips,  # Add all trips for this direction
             )
             routes.append(route)
 
@@ -1432,8 +1838,18 @@ def load_feed(
         calendar_dates=calendar_dates,
         trips=trips,
         stop_times_dict=stop_times_dict,
+        agencies=agencies,
     )
     logger.info(f"Created feed object in {time.time() - t0:.2f} seconds")
+
+    # Calculate service info for all routes
+    t0 = time.time()
+    logger.info("Calculating service info for all routes...")
+    for route in feed.routes:
+        route.calculate_service_info()
+    logger.info(
+        f"Calculated service info for {len(feed.routes)} routes in {time.time() - t0:.2f} seconds"
+    )
 
     # Save to cache
     t0 = time.time()
