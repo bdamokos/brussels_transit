@@ -410,13 +410,16 @@ async def search_stations_with_provider(
 
 @app.get("/stations/search", response_model=List[StationResponse])
 async def search_stations(
-    query: str = Query(..., min_length=2),
+    query: Optional[str] = Query(
+        None, min_length=2, description="Search query for station name"
+    ),
+    stop_id: Optional[str] = Query(None, description="Stop ID to search for"),
     language: Optional[str] = Query(
         "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
     ),
     provider_id: Optional[str] = Query(None, description="Optional provider ID"),
 ):
-    """Search for stations by name"""
+    """Search for stations by name or stop_id"""
     if provider_id:
         # Check provider availability and load if needed
         is_ready, message, provider = await ensure_provider_loaded(provider_id)
@@ -429,19 +432,23 @@ async def search_stations(
     if not feed:
         raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-    logger.info(f"Searching for stations with query: {query}, language: {language}")
+    if not query and not stop_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'query' or 'stop_id' parameter must be provided",
+        )
 
-    # Case-insensitive search in both default names and translations
+    logger.info(
+        f"Searching for stations with query: {query}, stop_id: {stop_id}, language: {language}"
+    )
+
+    # Initialize matches list
     matches = []
-    for stop_id, stop in feed.stops.items():
-        # Search in default name and translations
-        searchable_names = [stop.name.lower()]
-        if stop.translations:
-            searchable_names.extend(
-                trans.lower() for trans in stop.translations.values()
-            )
 
-        if any(query.lower() in name for name in searchable_names):
+    # Search by stop_id if provided
+    if stop_id:
+        if stop_id in feed.stops:
+            stop = feed.stops[stop_id]
             # Get the appropriate name based on language
             display_name = stop.name  # Default name
             if (
@@ -459,6 +466,38 @@ async def search_stations(
                     translations=stop.translations,
                 )
             )
+
+    # Search by name if query is provided
+    if query:
+        # Case-insensitive search in both default names and translations
+        for stop_id, stop in feed.stops.items():
+            # Search in default name and translations
+            searchable_names = [stop.name.lower()]
+            if stop.translations:
+                searchable_names.extend(
+                    trans.lower() for trans in stop.translations.values()
+                )
+
+            if any(query.lower() in name for name in searchable_names):
+                # Get the appropriate name based on language
+                display_name = stop.name  # Default name
+                if (
+                    language != "default"
+                    and stop.translations
+                    and language in stop.translations
+                ):
+                    display_name = stop.translations[language]
+
+                # Only add if not already added by stop_id search
+                if not any(m.id == stop_id for m in matches):
+                    matches.append(
+                        StationResponse(
+                            id=stop_id,
+                            name=display_name,
+                            location=Location(lat=stop.lat, lon=stop.lon),
+                            translations=stop.translations,
+                        )
+                    )
 
     logger.info(f"Found {len(matches)} matches")
     return matches
