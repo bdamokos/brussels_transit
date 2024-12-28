@@ -554,28 +554,28 @@ class Route:
                 ):
                     weekday = date.strftime("%A").lower()
                     operates = getattr(calendar, weekday)
-                    if operates:
-                        logger.info(
-                            f"Route {self.route_id}: Service {service_id} operates on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
-                        )
-                    else:
-                        logger.info(
-                            f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
-                        )
+                    # if operates:
+                    #     logger.info(
+                    #         f"Route {self.route_id}: Service {service_id} operates on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
+                    #     )
+                    # else:
+                    #     logger.info(
+                    #         f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} ({weekday}) via regular calendar"
+                    #     )
             elif not has_exception and not self._feed.calendars:
                 # If we only have calendar_dates.txt, treat no exception as not operating
                 operates = False
-                logger.info(
-                    f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} (no calendar.txt and no exception)"
-                )
+                # logger.info(
+                #     f"Route {self.route_id}: Service {service_id} does not operate on {date.strftime('%Y-%m-%d')} (no calendar.txt and no exception)"
+                # )
 
             # If any service ID operates on this date, the route operates
             if operates:
                 return True
 
-        logger.info(
-            f"Route {self.route_id}: No service operates on {date.strftime('%Y-%m-%d')}"
-        )
+        # logger.info(
+        #     f"Route {self.route_id}: No service operates on {date.strftime('%Y-%m-%d')}"
+        # )
         return False
 
     def get_stop_by_id(self, stop_id: str) -> Optional[RouteStop]:
