@@ -282,7 +282,7 @@
                     if (name) params.append('name', name);
                     if (providerId) params.append('provider_id', providerId);
 
-                    const response = await fetch(`${API_BASE_URL}/api/providers/${countryCode || 'search'}?${params.toString()}`);
+                    const response = await fetch(`${API_BASE_URL}/api/providers/search?${params.toString()}`);
                     if (!response.ok) throw new Error('Failed to fetch providers');
                     const providers = await response.json();
                     

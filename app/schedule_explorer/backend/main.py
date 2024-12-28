@@ -272,15 +272,20 @@ def get_provider_by_id(provider_id: str) -> Optional[Provider]:
     return next((p for p in available_providers if p.raw_id == provider_id), None)
 
 
-@app.get("/api/providers/{country_code}", response_model=List[Dict])
-async def get_providers_by_country(
-    country_code: Optional[str] = Path(None),
+@app.get("/api/providers/search", response_model=List[Dict])
+async def search_providers(
+    country_code: Optional[str] = Query(None),
     name: Optional[str] = Query(None),
     provider_id: Optional[str] = Query(None),
 ):
-    """Get list of available GTFS providers based on search criteria.
+    """Search for providers using any combination of criteria.
 
-    At least one of country_code, name, or provider_id must be provided.
+    Args:
+        country_code: Two-letter ISO country code (e.g., "BE")
+        name: Provider name to search for
+        provider_id: Provider ID to search for
+
+    At least one parameter must be provided.
     """
     try:
         if not any([country_code, name, provider_id]):
@@ -298,7 +303,7 @@ async def get_providers_by_country(
         elif name:
             # Search by name
             providers = db.get_provider_info(name=name)
-        else:
+        elif country_code:
             # Search by country
             providers = db.get_provider_info(country_code=country_code)
 
@@ -358,7 +363,7 @@ async def get_providers_by_country(
             }
         return providers
     except Exception as e:
-        logger.error(f"Error getting providers: {str(e)}")
+        logger.error(f"Error searching providers: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1332,12 +1337,3 @@ async def get_line_info(
             ),
         )
     }
-
-
-@app.get("/api/providers/search", response_model=List[Dict])
-async def search_providers(
-    name: Optional[str] = Query(None),
-    provider_id: Optional[str] = Query(None),
-):
-    """Search for providers by name or ID."""
-    return await get_providers_by_country(None, name, provider_id)
