@@ -504,9 +504,9 @@ class Route:
             #     f"Route {self.route_id}: Service days calculated from calendar_dates_additions: {self.service_days}"
             # )
 
-        logger.info(
-            f"=== Completed service calendar calculation for route {self.route_id} ==="
-        )
+        # logger.info(
+        #     f"=== Completed service calendar calculation for route {self.route_id} ==="
+        # )
         # logger.info(
         #     f"Final state: service_days={self.service_days}, service_calendar={self.service_calendar}, valid_calendar_days={len(self.valid_calendar_days)} days"
         # )
@@ -1093,7 +1093,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "2.8.8.5"
+CACHE_VERSION = "3.0.0.0"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -1148,6 +1148,18 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
                 "continuous_pickup": route.continuous_pickup,
                 "continuous_drop_off": route.continuous_drop_off,
                 "trip_ids": [trip.id for trip in route.trips],  # Store only trip IDs
+                # Add service calendar fields
+                "service_days_explicit": route.service_days_explicit,
+                "calendar_dates_additions": [
+                    d.isoformat() for d in route.calendar_dates_additions
+                ],
+                "calendar_dates_removals": [
+                    d.isoformat() for d in route.calendar_dates_removals
+                ],
+                "valid_calendar_days": [
+                    d.isoformat() for d in route.valid_calendar_days
+                ],
+                "service_calendar": route.service_calendar,
             }
             data["routes"].append(route_dict)
 
@@ -1271,6 +1283,22 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
 
             # Remove trip_ids as it's not a field in the Route class
             route_data.pop("trip_ids", None)
+
+            # Convert datetime fields back from ISO format
+            if "calendar_dates_additions" in route_data:
+                route_data["calendar_dates_additions"] = [
+                    datetime.fromisoformat(d)
+                    for d in route_data["calendar_dates_additions"]
+                ]
+            if "calendar_dates_removals" in route_data:
+                route_data["calendar_dates_removals"] = [
+                    datetime.fromisoformat(d)
+                    for d in route_data["calendar_dates_removals"]
+                ]
+            if "valid_calendar_days" in route_data:
+                route_data["valid_calendar_days"] = [
+                    datetime.fromisoformat(d) for d in route_data["valid_calendar_days"]
+                ]
 
             routes.append(Route(**route_data))
 
