@@ -5,15 +5,16 @@ Creates a dashboard showing waiting times for implemented public transport compa
 
 The aim is for a modular design that allows for easy addition of new transit providers, including in other countries.
 
-Currently supported:
+Currently supported real-time waiting times:
 - Belgium: STIB, De Lijn
 - Hungary: BKK
+
+Schedule based waiting times: supported in 70 countries covered by the Mobility Database.
 
 Alongside realtime waiting times, it creates a dashboard to browse stops and routes from static GTFS data that it can dynamically download from the Mobility Database.
 
 ## Features
-- Real-time waiting times for STIB/MIVB buses, trams and metros
-- Real-time waiting times for De Lijn buses
+- Real-time waiting times for  buses, trams and metros
 - Configurable display of multiple stops
 - Auto-refresh of waiting times
 - API that can be used by other applications (e.g. a Raspberry Pi display)
@@ -23,13 +24,9 @@ Alongside realtime waiting times, it creates a dashboard to browse stops and rou
 
 ![Screenshot of the web portal the application creates](docs/images/webportal.png)
 
-## Potential features
-- Frontend search for stops, configuration options
-- Timetables
 
 ## Use-case
 See for example this implementation: [Raspberry Pi Waiting Time Display](https://github.com/bdamokos/rpi_waiting_time_display)
-
 
 ## Getting Started
 
