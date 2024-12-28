@@ -280,18 +280,16 @@ async def get_providers_by_country(country_code: str):
         logger.debug(f"Got {len(providers)} providers from MobilityAPI")
         # Add sanitized names and map fields from the MobilityAPI response
         for provider in providers:
-            logger.debug(f"Processing provider: {provider.get('provider')}")
-            logger.debug(f"Latest dataset: {provider.get('latest_dataset')}")
+            # logger.debug(f"Processing provider: {provider.get('provider', '')}")
+            # logger.debug(f"Latest dataset: {provider.get('latest_dataset', {})}")
 
             provider["sanitized_name"] = db._sanitize_provider_name(
-                provider["provider"]
+                provider.get("provider", "")
             )
             # Map bounding box from latest_dataset
-            if "latest_dataset" in provider and provider["latest_dataset"].get(
-                "bounding_box"
-            ):
-                bbox = provider["latest_dataset"]["bounding_box"]
-                logger.debug(f"Found bounding box: {bbox}")
+            latest_dataset = provider.get("latest_dataset")
+            if latest_dataset is not None and latest_dataset.get("bounding_box"):
+                bbox = latest_dataset.get("bounding_box", {})
                 provider["bounding_box"] = {
                     "min_lat": bbox.get("minimum_latitude", 0),
                     "max_lat": bbox.get("maximum_latitude", 0),
@@ -299,7 +297,7 @@ async def get_providers_by_country(country_code: str):
                     "max_lon": bbox.get("maximum_longitude", 0),
                 }
             else:
-                logger.debug("No bounding box found in latest_dataset")
+                # logger.debug("No bounding box found in latest_dataset")
                 provider["bounding_box"] = {
                     "min_lat": 0,
                     "max_lat": 0,
@@ -308,24 +306,28 @@ async def get_providers_by_country(country_code: str):
                 }
 
             # Map downloaded_at from latest_dataset
-            provider["downloaded_at"] = provider.get("latest_dataset", {}).get(
-                "downloaded_at"
+            provider["downloaded_at"] = (
+                None
+                if latest_dataset is None
+                else latest_dataset.get("downloaded_at", None)
             )
-            logger.debug(f"Mapped downloaded_at: {provider['downloaded_at']}")
 
             # Map hash from latest_dataset
-            provider["hash"] = provider.get("latest_dataset", {}).get("hash")
-            logger.debug(f"Mapped hash: {provider['hash']}")
+            provider["hash"] = (
+                None if latest_dataset is None else latest_dataset.get("hash", None)
+            )
 
             # Map validation_report from latest_dataset
-            validation = provider.get("latest_dataset", {}).get("validation_report", {})
-            logger.debug(f"Found validation report: {validation}")
+            validation = (
+                {}
+                if latest_dataset is None
+                else latest_dataset.get("validation_report", {})
+            )
             provider["validation_report"] = {
                 "total_error": validation.get("total_error", 0),
                 "total_warning": validation.get("total_warning", 0),
                 "total_info": validation.get("total_info", 0),
             }
-            logger.debug(f"Final provider data: {provider}")
         return providers
     except Exception as e:
         logger.error(f"Error getting providers for country {country_code}: {str(e)}")
