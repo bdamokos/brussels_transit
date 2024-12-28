@@ -136,6 +136,17 @@ function detectAvailableLanguages(stations) {
     return languages;
 }
 
+// Function to parse URL parameters
+function getUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+        provider: params.get('provider'),
+        from: params.get('from'),
+        to: params.get('to'),
+        date: params.get('date')
+    };
+}
+
 // Provider handling
 async function loadProviders() {
     try {
@@ -143,58 +154,26 @@ async function loadProviders() {
         const providers = await response.json();
         
         const select = document.getElementById('providerSelect');
-        // Add a disabled default option
         select.innerHTML = '<option value="" selected disabled>Select a provider</option>';
-        // Add the providers
         select.innerHTML += providers.map(provider => 
             `<option value="${provider}">${provider}</option>`
         ).join('');
         
-        // Reset and disable the language select
         const languageSelect = document.getElementById('languageSelect');
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
         languageSelect.disabled = true;
         
         select.addEventListener('change', async (event) => {
             currentProvider = event.target.value;
-            const response = await fetch(`${API_BASE_URL}/provider/${currentProvider}`, {
-                method: 'POST'
-            });
-            
-            if (response.ok) {
-                enableUI();
-                // Clear existing markers and routes
-                stopMarkers.forEach(markerInfo => markerInfo.marker.remove());
-                stopMarkers.clear();
-                if (routeLayer) {
-                    routeLayer.remove();
-                    routeLayer = null;
-                }
-                
-                // Get a sample of stations to detect available languages
-                const stationsResponse = await fetch(`${API_BASE_URL}/stations/search?query=ab`);
-                if (stationsResponse.ok) {
-                    const stations = await stationsResponse.json();
-                    const availableLanguages = detectAvailableLanguages(stations);
-                    
-                    // Update language dropdown based on available languages
-                    if (availableLanguages.size > 0) {
-                        languageSelect.innerHTML = '<option value="" selected disabled>Select language</option>';
-                        languageSelect.innerHTML += '<option value="default">Default (Original)</option>';
-                        
-                        // Add detected languages
-                        Array.from(availableLanguages).sort().forEach(lang => {
-                            languageSelect.innerHTML += `<option value="${lang}">${lang.toUpperCase()}</option>`;
-                        });
-                        
-                        languageSelect.disabled = false;
-                    } else {
-                        languageSelect.innerHTML = '<option value="" selected disabled>No translations available</option>';
-                        languageSelect.disabled = true;
-                    }
-                }
-            }
+            await setProvider(currentProvider);
         });
+
+        // Check for URL parameters and set the provider if specified
+        const urlParams = getUrlParams();
+        if (urlParams.provider) {
+            select.value = urlParams.provider;
+            await setProvider(urlParams.provider);
+        }
     } catch (error) {
         console.error('Error loading providers:', error);
     }
@@ -257,6 +236,27 @@ async function setProvider(providerName) {
         if (response2.ok) {
             const stations = await response2.json();
             updateAvailableLanguages(stations);
+        }
+
+        // Check for URL parameters and trigger search if specified
+        const urlParams = getUrlParams();
+        if (urlParams.from && urlParams.to && urlParams.date) {
+            fromStationInput.value = urlParams.from;
+            toStationInput.value = urlParams.to;
+            dateInput.value = urlParams.date;
+            await searchStations(urlParams.from, null, true).then(stations => {
+                if (stations.length > 0) {
+                    selectedFromStation = stations[0];
+                    createStationList(stations, fromStationResults, fromStationInput, true);
+                }
+            });
+            await searchStations(urlParams.to, null, false).then(stations => {
+                if (stations.length > 0) {
+                    selectedToStation = stations[0];
+                    createStationList(stations, toStationResults, toStationInput, false);
+                }
+            });
+            searchRoutes();
         }
     } catch (error) {
         console.error('Error setting provider:', error);
