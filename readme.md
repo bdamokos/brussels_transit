@@ -1,4 +1,3 @@
-
 # Public Transport Waiting Times
 
 Creates a dashboard showing waiting times for implemented public transport companies' stops, ordered by distance from a given point (map centre or user's current location).
