@@ -48,13 +48,24 @@ def setup_logging():
         },
         "handlers": {
             "default": {
-                "level": "INFO",
+                "level": "DEBUG",
                 "formatter": "standard",
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
             },
+            "file": {
+                "level": "DEBUG",
+                "formatter": "standard",
+                "class": "logging.FileHandler",
+                "filename": str(
+                    FilePath(__file__).parent.parent / "logs" / "schedule_explorer.log"
+                ),
+                "mode": "a",
+            },
         },
-        "loggers": {"": {"handlers": ["default"], "level": "INFO", "propagate": True}},
+        "loggers": {
+            "": {"handlers": ["default", "file"], "level": "DEBUG", "propagate": True}
+        },
     }
     logging.config.dictConfig(logging_config)
     return logging.getLogger(__name__)
@@ -266,11 +277,55 @@ async def get_providers_by_country(country_code: str):
     """Get list of available GTFS providers for a specific country"""
     try:
         providers = db.get_providers_by_country(country_code)
-        # Add sanitized names to the providers
+        logger.debug(f"Got {len(providers)} providers from MobilityAPI")
+        # Add sanitized names and map fields from the MobilityAPI response
         for provider in providers:
+            logger.debug(f"Processing provider: {provider.get('provider')}")
+            logger.debug(f"Latest dataset: {provider.get('latest_dataset')}")
+
             provider["sanitized_name"] = db._sanitize_provider_name(
                 provider["provider"]
             )
+            # Map bounding box from latest_dataset
+            if "latest_dataset" in provider and provider["latest_dataset"].get(
+                "bounding_box"
+            ):
+                bbox = provider["latest_dataset"]["bounding_box"]
+                logger.debug(f"Found bounding box: {bbox}")
+                provider["bounding_box"] = {
+                    "min_lat": bbox.get("minimum_latitude", 0),
+                    "max_lat": bbox.get("maximum_latitude", 0),
+                    "min_lon": bbox.get("minimum_longitude", 0),
+                    "max_lon": bbox.get("maximum_longitude", 0),
+                }
+            else:
+                logger.debug("No bounding box found in latest_dataset")
+                provider["bounding_box"] = {
+                    "min_lat": 0,
+                    "max_lat": 0,
+                    "min_lon": 0,
+                    "max_lon": 0,
+                }
+
+            # Map downloaded_at from latest_dataset
+            provider["downloaded_at"] = provider.get("latest_dataset", {}).get(
+                "downloaded_at"
+            )
+            logger.debug(f"Mapped downloaded_at: {provider['downloaded_at']}")
+
+            # Map hash from latest_dataset
+            provider["hash"] = provider.get("latest_dataset", {}).get("hash")
+            logger.debug(f"Mapped hash: {provider['hash']}")
+
+            # Map validation_report from latest_dataset
+            validation = provider.get("latest_dataset", {}).get("validation_report", {})
+            logger.debug(f"Found validation report: {validation}")
+            provider["validation_report"] = {
+                "total_error": validation.get("total_error", 0),
+                "total_warning": validation.get("total_warning", 0),
+                "total_info": validation.get("total_info", 0),
+            }
+            logger.debug(f"Final provider data: {provider}")
         return providers
     except Exception as e:
         logger.error(f"Error getting providers for country {country_code}: {str(e)}")
