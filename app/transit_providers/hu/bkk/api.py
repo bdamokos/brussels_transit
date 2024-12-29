@@ -294,10 +294,29 @@ class GTFSManager:
 
         # Ensure we're comparing timezone-aware datetimes
         now = datetime.now(timezone.utc)
+        if not dataset.download_date:
+            return True
+
+        # Convert download_date to datetime if needed
+        if isinstance(dataset.download_date, str):
+            try:
+                download_date = datetime.fromisoformat(dataset.download_date)
+            except ValueError:
+                return True
+        else:
+            download_date = dataset.download_date
+
+        if not download_date.tzinfo:
+            download_date = download_date.replace(tzinfo=timezone.utc)
+
+        # Update if dataset is at least 4 days old
+        days_since_download = (now - download_date).days
+        if days_since_download >= 4:
+            return True
+
+        # Also check if we're close to feed expiry as a safety measure
         if not end_date.tzinfo:
             end_date = end_date.replace(tzinfo=timezone.utc)
-
-        # Update if less than 7 days until expiry
         days_until_expiry = (end_date - now).days
         return days_until_expiry < 7
 
