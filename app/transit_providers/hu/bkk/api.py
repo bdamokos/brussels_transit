@@ -117,7 +117,7 @@ _stops_cache_update = None
 _routes_cache_update = None
 
 # Add after other global variables
-_last_waiting_times_result = None
+_last_waiting_times_result = {"stops_data": {}, "_metadata": {}}
 _last_waiting_times_update = None
 _WAITING_TIMES_CACHE_DURATION = 2.0  # seconds
 
@@ -131,10 +131,14 @@ _caches_initialized = False
 _trips_cache = {}  # Format: {trip_id: {'headsign': str, 'route_id': str}}
 _trips_cache_update = None
 
+# Add this near the top with other global variables
+_trips_lru_cache = {}
+_trips_lru_cache_max_size = 100000
+
 
 def _load_trips_cache() -> None:
-    """Load trip information from GTFS data into cache, only for monitored lines."""
-    global _trips_cache, _trips_cache_update
+    """Load trip information from GTFS data into cache, including non-monitored stops with LRU caching."""
+    global _trips_cache, _trips_cache_update, _trips_lru_cache
 
     try:
         gtfs_path = _get_current_gtfs_path()
@@ -166,18 +170,32 @@ def _load_trips_cache() -> None:
                     trip_id_index, trip_headsign_index, route_id_index
                 ):
                     route_id = fields[route_id_index].strip('"')
-                    # Only cache trips for monitored lines
+                    trip_id = fields[trip_id_index].strip('"')
+                    headsign = fields[trip_headsign_index].strip('"')
+
+                    trip_data = {
+                        "headsign": headsign,
+                        "route_id": route_id,
+                    }
+
+                    # Always cache monitored lines
                     if not monitored_lines or route_id in monitored_lines:
-                        trip_id = fields[trip_id_index].strip('"')
-                        headsign = fields[trip_headsign_index].strip('"')
-                        new_cache[trip_id] = {
-                            "headsign": headsign,
-                            "route_id": route_id,
-                        }
+                        new_cache[trip_id] = trip_data
+                    # For non-monitored lines, use LRU cache
+                    elif trip_id in _trips_lru_cache:
+                        new_cache[trip_id] = _trips_lru_cache[trip_id]
+                    else:
+                        # Add to LRU cache if there's space or remove oldest entry
+                        if len(_trips_lru_cache) >= _trips_lru_cache_max_size:
+                            # Remove oldest entry (first key in dict)
+                            _trips_lru_cache.pop(next(iter(_trips_lru_cache)))
+                        _trips_lru_cache[trip_id] = trip_data
+                        new_cache[trip_id] = trip_data
 
         _trips_cache = new_cache
         _trips_cache_update = datetime.now(timezone.utc)
         logger.info(f"Updated trips cache with {len(_trips_cache)} entries")
+        logger.debug(f"LRU cache size: {len(_trips_lru_cache)} entries")
 
     except Exception as e:
         logger.error(f"Error loading trips cache: {e}")
@@ -185,7 +203,7 @@ def _load_trips_cache() -> None:
 
 async def _initialize_caches():
     """Initialize all caches at module load."""
-    global _caches_initialized
+    global _caches_initialized, _last_waiting_times_result, _last_waiting_times_update
     if _caches_initialized:
         return
 
@@ -207,6 +225,11 @@ async def _initialize_caches():
             _load_trips_cache()  # Add trips cache initialization
         except Exception as e:
             logger.error(f"Failed to initialize trips cache: {e}", exc_info=True)
+
+        # Initialize waiting times cache
+        _last_waiting_times_result = {"stops_data": {}, "_metadata": {}}
+        _last_waiting_times_update = time.time()
+
         _caches_initialized = True
         logger.info("BKK provider caches initialized successfully")
     except Exception as e:
@@ -701,6 +724,8 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
     Returns:
         Dict containing waiting times data for the requested stops.
     """
+    global _last_waiting_times_result, _last_waiting_times_update
+
     start_time = time.time()
     perf_data = {
         "cached": False,
@@ -743,12 +768,18 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             and _last_waiting_times_update is not None
             and now - _last_waiting_times_update < _WAITING_TIMES_CACHE_DURATION
         ):
-            perf_data["cached"] = True
-            perf_data["total_time"] = time.time() - start_time
-            if "_metadata" not in _last_waiting_times_result:
-                _last_waiting_times_result["_metadata"] = {}
-            _last_waiting_times_result["_metadata"]["performance"] = perf_data
-            return _last_waiting_times_result
+            # For non-monitored stops, check if they're in the cache
+            if stop_id and not all(
+                s in _last_waiting_times_result["stops_data"] for s in stop_ids
+            ):
+                logger.debug("Cache miss for non-monitored stops")
+            else:
+                perf_data["cached"] = True
+                perf_data["total_time"] = time.time() - start_time
+                if "_metadata" not in _last_waiting_times_result:
+                    _last_waiting_times_result["_metadata"] = {}
+                _last_waiting_times_result["_metadata"]["performance"] = perf_data
+                return _last_waiting_times_result
         perf_data["cache_check_time"] = time.time() - cache_check_start
 
         async with lock:
@@ -758,6 +789,12 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 _last_waiting_times_result is not None
                 and _last_waiting_times_update is not None
                 and now - _last_waiting_times_update < _WAITING_TIMES_CACHE_DURATION
+                and (
+                    not stop_id
+                    or all(
+                        s in _last_waiting_times_result["stops_data"] for s in stop_ids
+                    )
+                )
             ):
                 perf_data["cached"] = True
                 perf_data["total_time"] = time.time() - start_time
@@ -774,7 +811,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             stops_init_start = time.time()
             formatted_data = {"stops_data": {}, "_metadata": {}}
 
-            # Add all monitored stops to the response, even if there are no waiting times
+            # Add all requested stops to the response, even if there are no waiting times
             for stop_id in stop_ids:
                 stop_info = _get_stop_info(stop_id)  # This now uses cached data
                 logger.debug(f"Processing stop {stop_id}, got info: {stop_info}")
@@ -830,7 +867,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
 
                 trip = entity.trip_update
                 line_id = _get_line_id_from_trip(trip.trip.route_id)
-                if monitored_lines and line_id not in monitored_lines:
+
+                # Only filter by monitored lines if we're querying monitored stops
+                if not stop_id and monitored_lines and line_id not in monitored_lines:
                     continue
 
                 # Collect stop sequence for this trip
