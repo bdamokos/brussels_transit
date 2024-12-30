@@ -32,6 +32,7 @@ from .models import (
     DatasetValidation,
     RouteColors,
     LineInfo,
+    BoundingBox,
 )
 from .gtfs_loader import FlixbusFeed, load_feed
 
@@ -1399,3 +1400,62 @@ async def delete_all_datasets():
     except Exception as e:
         logger.error(f"Error deleting all datasets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/{provider_id}/stops/bbox", response_model=List[StationResponse])
+async def get_stops_in_bbox(
+    provider_id: str = Path(...),
+    min_lat: float = Query(..., description="Minimum latitude of bounding box"),
+    min_lon: float = Query(..., description="Minimum longitude of bounding box"),
+    max_lat: float = Query(..., description="Maximum latitude of bounding box"),
+    max_lon: float = Query(..., description="Maximum longitude of bounding box"),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+):
+    """Get all stops within a bounding box for a specific provider."""
+    # Validate bounding box
+    try:
+        bbox = BoundingBox(
+            min_lat=min_lat,
+            min_lon=min_lon,
+            max_lat=max_lat,
+            max_lon=max_lon,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
+        raise HTTPException(
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
+        )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    # Filter stops within the bounding box
+    stops_in_bbox = []
+    for stop_id, stop in feed.stops.items():
+        if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
+            bbox.min_lon <= stop.lon <= bbox.max_lon
+        ):
+            # Get translated name if available
+            name = feed.get_stop_name(stop_id, language)
+            if not name:
+                name = stop.name
+
+            # Create response object
+            station = StationResponse(
+                id=stop_id,
+                name=name,
+                location=Location(lat=stop.lat, lon=stop.lon),
+                translations=(
+                    stop.translations if hasattr(stop, "translations") else None
+                ),
+            )
+            stops_in_bbox.append(station)
+
+    return stops_in_bbox
