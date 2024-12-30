@@ -43,49 +43,6 @@ class Stop(BaseModel):
     departure_time: str
 
 
-class Route(BaseModel):
-    route_id: str
-    route_name: str
-    trip_id: str
-    service_days: List[str]
-    duration_minutes: int
-    stops: List[Stop]
-    shape: Optional[Shape] = None
-    line_number: Optional[str] = None
-    color: Optional[str] = None
-    text_color: Optional[str] = None
-    headsigns: Optional[Dict[str, str]] = None  # direction_id -> headsign
-    service_ids: Optional[List[str]] = None  # List of service IDs for debugging
-
-    @field_validator("service_days")
-    @classmethod
-    def sort_service_days(cls, v):
-        day_order = [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ]
-        # Convert input to title case before sorting
-        v = [day.title() for day in v]
-        return sorted(v, key=lambda x: day_order.index(x))
-
-
-class RouteResponse(BaseModel):
-    routes: List[Route]
-    total_routes: int
-
-
-class StationResponse(BaseModel):
-    id: str
-    name: str
-    location: Location
-    translations: Optional[dict[str, str]] = None
-
-
 class RouteInfo(BaseModel):
     route_id: str
     route_name: str
@@ -124,6 +81,50 @@ class RouteInfo(BaseModel):
         # Convert input to title case before sorting
         v = [day.title() for day in v]
         return sorted(v, key=lambda x: day_order.index(x))
+
+
+class StationResponse(BaseModel):
+    id: str
+    name: str
+    location: Location
+    translations: Optional[dict[str, str]] = None
+    routes: Optional[List[RouteInfo]] = None  # List of routes serving this stop
+
+
+class Route(BaseModel):
+    route_id: str
+    route_name: str
+    trip_id: str
+    service_days: List[str]
+    duration_minutes: int
+    stops: List[Stop]
+    shape: Optional[Shape] = None
+    line_number: Optional[str] = None
+    color: Optional[str] = None
+    text_color: Optional[str] = None
+    headsigns: Optional[Dict[str, str]] = None  # direction_id -> headsign
+    service_ids: Optional[List[str]] = None  # List of service IDs for debugging
+
+    @field_validator("service_days")
+    @classmethod
+    def sort_service_days(cls, v):
+        day_order = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        # Convert input to title case before sorting
+        v = [day.title() for day in v]
+        return sorted(v, key=lambda x: day_order.index(x))
+
+
+class RouteResponse(BaseModel):
+    routes: List[Route]
+    total_routes: int
 
 
 class ArrivalInfo(BaseModel):
@@ -177,3 +178,36 @@ class LineInfo(BaseModel):
     route_sort_order: Optional[int] = None  # Order in which routes should be displayed
     continuous_pickup: Optional[int] = None  # Flag stop behavior for pickup (0-3)
     continuous_drop_off: Optional[int] = None  # Flag stop behavior for drop-off (0-3)
+
+
+class BoundingBox(BaseModel):
+    """A geographical bounding box defined by its corners."""
+
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
+
+    @field_validator("min_lat", "max_lat")
+    def validate_latitude(cls, v):
+        if not -90 <= v <= 90:
+            raise ValueError("Latitude must be between -90 and 90 degrees")
+        return v
+
+    @field_validator("min_lon", "max_lon")
+    def validate_longitude(cls, v):
+        if not -180 <= v <= 180:
+            raise ValueError("Longitude must be between -180 and 180 degrees")
+        return v
+
+    @field_validator("max_lat")
+    def validate_lat_bounds(cls, v, values):
+        if "min_lat" in values.data and v < values.data["min_lat"]:
+            raise ValueError("max_lat must be greater than min_lat")
+        return v
+
+    @field_validator("max_lon")
+    def validate_lon_bounds(cls, v, values):
+        if "min_lon" in values.data and v < values.data["min_lon"]:
+            raise ValueError("max_lon must be greater than min_lon")
+        return v
