@@ -8,7 +8,7 @@ import pickle
 import hashlib
 from multiprocessing import Pool, cpu_count
 import logging
-from .logging_config import setup_logging, bytes_to_mb
+from config import get_config
 import msgpack
 import lzma
 import psutil
@@ -16,7 +16,20 @@ import time
 import csv
 from .memory_util import check_memory_for_file
 
-# Set up logging
+
+def setup_logging():
+    """Configure logging for GTFS loader"""
+    logging_config = get_config("LOGGING_CONFIG")
+    logging_config["log_dir"].mkdir(exist_ok=True)
+    logging.config.dictConfig(logging_config)
+    return logging.getLogger("schedule_explorer.gtfs")
+
+
+def bytes_to_mb(bytes: int, precision: int = 2) -> int:
+    """Convert bytes to megabytes."""
+    return round(bytes / (1024 * 1024), precision)
+
+
 logger = setup_logging()
 
 
