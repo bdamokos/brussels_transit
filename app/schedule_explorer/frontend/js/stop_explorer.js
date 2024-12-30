@@ -1,3 +1,6 @@
+// Import colors
+import { colors } from './colors.js';
+
 // Global variables
 let map = null;
 let stopMarkers = new Map();
@@ -6,8 +9,21 @@ let selectedLanguage = 'default';
 // Get the current server's URL and port
 window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = window.API_BASE_URL;
-const MARKER_COLORS = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00'];
-let colorIndex = 0;
+
+// Function to get a consistent color for a stop ID
+function getStopColor(stopId) {
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < stopId.length; i++) {
+        hash = ((hash << 5) - hash) + stopId.charCodeAt(i);
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    // Make sure hash is positive
+    hash = Math.abs(hash);
+    // Get color from predefined list
+    const colorRGB = colors[hash % colors.length];
+    return `rgb(${colorRGB[0]}, ${colorRGB[1]}, ${colorRGB[2]})`;
+}
 
 // Function to escape HTML special characters
 function escapeHtml(unsafe) {
@@ -63,6 +79,10 @@ function initMap() {
                 title: "Show me where I am"
             }
         }).addTo(map);
+
+        // Add event listeners for map movement
+        map.on('moveend', debounceLoadStops);
+        map.on('zoomend', debounceLoadStops);
     }
     return map;
 }
@@ -109,6 +129,9 @@ export function setupProviderSelection() {
 
             // Load languages
             await loadLanguages();
+
+            // Load initial stops based on current map bounds
+            await loadStopsInView();
 
             // Fade out success message after 2 seconds
             setTimeout(() => {
@@ -228,8 +251,7 @@ function addStop(stopId, stopName, lat, lon) {
         return; // Stop already added
     }
 
-    const color = MARKER_COLORS[colorIndex % MARKER_COLORS.length];
-    colorIndex++;
+    const color = getStopColor(stopId);
 
     // Add marker to map
     const marker = L.marker([lat, lon], {
@@ -240,7 +262,7 @@ function addStop(stopId, stopName, lat, lon) {
             iconAnchor: [15, 42]
         })
     }).addTo(map);
-    stopMarkers.set(stopId, { marker, color });
+    stopMarkers.set(stopId, { marker, color, name: stopName });
 
     // Add to selected stops table
     const table = document.getElementById('selectedStopsTable');
@@ -305,18 +327,19 @@ async function loadAllRoutes() {
 
     try {
         // Load routes for each stop
-        const routePromises = Array.from(stopMarkers.keys()).map(stopId =>
-            fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
+        const routePromises = Array.from(stopMarkers.keys()).map(stopId => {
+            const stopName = stopMarkers.get(stopId).name || '';
+            
+            return fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
                 .then(response => response.json())
-                .then(routes => ({ stopId, routes }))
-        );
+                .then(routes => ({ stopId, stopName, routes }));
+        });
 
         const results = await Promise.all(routePromises);
 
         // Group routes by stop
-        routesContainer.innerHTML = results.map(({ stopId, routes }) => {
+        routesContainer.innerHTML = results.map(({ stopId, stopName, routes }) => {
             const { color } = stopMarkers.get(stopId);
-            const stopName = escapeHtml(document.querySelector(`#stop-row-${stopId} .stop-name`).textContent);
 
             return `
                 <div class="stop-routes-group">
@@ -331,8 +354,8 @@ async function loadAllRoutes() {
                     </div>
                     <div class="stop-routes-content">
                         ${routes.length === 0 ?
-                    '<div class="p-3">No routes found for this stop.</div>' :
-                    routes.map(route => `
+                            '<div class="p-3">No routes found for this stop.</div>' :
+                            routes.map(route => `
                                 <div class="route-line" style="border-left-color: #${route.color || '000000'}">
                                     <div class="d-flex align-items-start">
                                         <div class="route-badge" style="background-color: #${route.color || '6c757d'}">
@@ -345,8 +368,8 @@ async function loadAllRoutes() {
                                                 From: ${route.first_stop}<br>
                                                 To: ${route.last_stop}<br>
                                                 Service days: ${route.service_days.map(day =>
-                        day.charAt(0).toUpperCase() + day.slice(1)
-                    ).join(', ')}
+                                                    day.charAt(0).toUpperCase() + day.slice(1)
+                                                ).join(', ')}
                                             </div>
                                             <div class="mt-2">
                                                 <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
@@ -362,7 +385,7 @@ async function loadAllRoutes() {
                                     </div>
                                 </div>
                             `).join('')
-                }
+                        }
                     </div>
                 </div>
             `;
@@ -374,6 +397,22 @@ async function loadAllRoutes() {
     }
 }
 
+// Function to generate distinct colors
+function generateDistinctColors(count) {
+    // Generate a palette of RGB colors
+    const colors = [];
+    for (let r = 0; r <= 255; r += 32) {
+        for (let g = 0; g <= 255; g += 32) {
+            for (let b = 0; b <= 255; b += 32) {
+                colors.push([r, g, b]);
+            }
+        }
+    }
+
+    // Use simulated annealing to select distinct colors
+    const result = simulatedAnnealing(colors, count);
+    return result.colors.map(rgb => rgbToHex(rgb));
+}
 
 // Setup event listeners
 function setupEventListeners() {
@@ -498,3 +537,83 @@ document.addEventListener('DOMContentLoaded', init);
 // Make functions available globally
 window.addStop = addStop;
 window.removeStop = removeStop;
+
+// Load stops in current map view
+async function loadStopsInView() {
+    const bounds = map.getBounds();
+    const providerId = providerSelect.value;
+    if (!providerId) return;
+
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+            `min_lat=${bounds.getSouth()}&max_lat=${bounds.getNorth()}&` +
+            `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}`
+        );
+        
+        if (!response.ok) throw new Error('Failed to fetch stops');
+        
+        const stops = await response.json();
+        updateStopsOnMap(stops);
+    } catch (error) {
+        console.error('Error loading stops:', error);
+    }
+}
+
+// Update stops displayed on the map
+function updateStopsOnMap(stops) {
+    // Clear existing markers
+    stopMarkers.forEach(marker => map.removeLayer(marker));
+    stopMarkers.clear();
+
+    // Add new markers
+    stops.forEach(stop => {
+        const color = getStopColor(stop.id);
+
+        const marker = L.marker([stop.location.lat, stop.location.lon], {
+            icon: L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color: ${color};" class="marker-pin"></div>`,
+                iconSize: [30, 42],
+                iconAnchor: [15, 42]
+            })
+        });
+
+        // Create popup content
+        const popupContent = document.createElement('div');
+        popupContent.className = 'stop-popup';
+        popupContent.innerHTML = `
+            <h5>${escapeHtml(stop.name)}</h5>
+            <div class="stop-id">${stop.id}</div>
+            ${stop.routes ? `
+                <div class="routes-list">
+                    <h6>Routes:</h6>
+                    ${stop.routes.map(route => `
+                        <div class="route-item" style="border-left-color: #${route.color || '000000'}">
+                            <span class="route-badge" style="background-color: #${route.color || '6c757d'}">
+                                ${route.short_name || route.route_id}
+                            </span>
+                            <span class="route-name">${route.route_name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+            <button class="btn btn-sm btn-primary mt-2" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon})">
+                Add to selection
+            </button>
+        `;
+
+        marker.bindPopup(popupContent);
+        marker.addTo(map);
+        stopMarkers.set(stop.id, { marker, color, name: stop.name });
+    });
+}
+
+// Debounce the loadStopsInView function
+let debounceTimer = null;
+function debounceLoadStops() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(loadStopsInView, 300);
+}

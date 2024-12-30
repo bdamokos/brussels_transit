@@ -16,12 +16,11 @@ html, body {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+    background: rgba(255, 255, 255, 0.8);
     display: none;
     justify-content: center;
     align-items: center;
     z-index: 2000;
-    flex-direction: column;
 }
 
 .loading-spinner {
@@ -34,9 +33,8 @@ html, body {
 }
 
 .loading-text {
-    color: white;
     margin-top: 10px;
-    font-size: 1.2em;
+    font-weight: bold;
 }
 
 @keyframes spin {
@@ -48,80 +46,61 @@ html, body {
 .error-message {
     position: fixed;
     top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: #ff4444;
+    right: 20px;
+    background: #dc3545;
     color: white;
-    padding: 10px 20px;
-    border-radius: 5px;
+    padding: 10px 15px;
+    border-radius: 4px;
     display: none;
     z-index: 2000;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 /* Stop popup styles */
 .stop-popup {
-    padding: 10px;
     min-width: 200px;
+    max-width: 300px;
 }
 
-.stop-name {
-    font-size: 1.2em;
-    font-weight: bold;
-    margin-bottom: 10px;
+.stop-popup h5 {
+    margin: 0 0 5px 0;
+    font-size: 1.1em;
 }
 
-.stop-routes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-bottom: 10px;
-}
-
-.route-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-weight: bold;
+.stop-popup .stop-id {
+    color: #6c757d;
     font-size: 0.9em;
-    cursor: help;
+    margin-bottom: 10px;
 }
 
-.waiting-times {
+.stop-popup .routes-list {
     margin-top: 10px;
 }
 
-.waiting-time {
-    display: flex;
-    justify-content: space-between;
-    margin: 5px 0;
+.stop-popup .routes-list h6 {
+    margin: 0 0 5px 0;
+    font-size: 1em;
+}
+
+.stop-popup .route-item {
     padding: 5px;
-    background-color: #f5f5f5;
+    margin: 5px 0;
+    border-left: 4px solid;
+    background: #f8f9fa;
+    border-radius: 2px;
+}
+
+.stop-popup .route-badge {
+    font-size: 0.9em;
+    padding: 2px 6px;
     border-radius: 3px;
-}
-
-.waiting-time-route {
-    font-weight: bold;
-}
-
-.waiting-time-info {
-    text-align: right;
-}
-
-.view-times-btn {
-    display: block;
-    width: 100%;
-    padding: 8px;
-    margin-top: 10px;
-    background-color: #4CAF50;
     color: white;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
+    display: inline-block;
+    min-width: 35px;
     text-align: center;
-    text-decoration: none;
+    margin-right: 5px;
 }
 
-.view-times-btn:hover {
-    background-color: #45a049;
+.stop-popup .route-name {
+    font-size: 0.9em;
+    color: #495057;
 } 
