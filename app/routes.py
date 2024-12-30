@@ -13,7 +13,6 @@ from logging.config import dictConfig
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
-logging_config['log_dir'].mkdir(exist_ok=True)
 dictConfig(logging_config)
 
 # Get logger

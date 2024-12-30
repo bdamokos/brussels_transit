@@ -7,7 +7,7 @@ from config import get_config
 def setup_logging():
     """Configure logging for memory util"""
     logging_config = get_config("LOGGING_CONFIG")
-    logging_config["log_dir"].mkdir(exist_ok=True)
+    # logging_config["log_dir"].mkdir(exist_ok=True)  # Removed: already created in start.py
     logging.config.dictConfig(logging_config)
     return logging.getLogger("schedule_explorer.memory")
 

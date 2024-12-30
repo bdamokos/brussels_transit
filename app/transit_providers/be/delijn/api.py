@@ -35,7 +35,6 @@ import hashlib
 
 # Setup logging using configuration
 logging_config = get_config("LOGGING_CONFIG")
-logging_config["log_dir"].mkdir(exist_ok=True)  # Create logs directory
 dictConfig(logging_config)
 
 # Get logger

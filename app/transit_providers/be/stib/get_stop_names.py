@@ -36,7 +36,6 @@ BATCH_SIZE = 10  # Number of stops to fetch in a single API call
 
 # Setup logging using configuration
 logging_config = get_config('LOGGING_CONFIG')
-logging_config['log_dir'].mkdir(exist_ok=True)
 dictConfig(logging_config)
 language_precedence = get_config('LANGUAGE_PRECEDENCE')
 # Get logger

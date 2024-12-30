@@ -8,7 +8,6 @@ from logging.config import dictConfig
 if __name__ != "__main__" and not any(p.endswith('test_language_utils.py') for p in __import__('sys').argv):
     # Setup logging using configuration
     logging_config = get_config('LOGGING_CONFIG')
-    logging_config['log_dir'].mkdir(exist_ok=True)
     dictConfig(logging_config)
 
 # Get logger

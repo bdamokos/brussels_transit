@@ -16,29 +16,6 @@ from google.transit import gtfs_realtime_pb2
 
 # Setup logging
 logging_config = get_config('LOGGING_CONFIG')
-logging_config['log_dir'].mkdir(exist_ok=True)
-
-# Add handler for performance testing
-if 'handlers' not in logging_config:
-    logging_config['handlers'] = {}
-if 'loggers' not in logging_config:
-    logging_config['loggers'] = {}
-
-logging_config['handlers']['perf_file'] = {
-    'class': 'logging.handlers.RotatingFileHandler',
-    'filename': str(Path('logs/performance.log').absolute()),
-    'maxBytes': 1024 * 1024,  # 1MB
-    'backupCount': 3,
-    'formatter': 'standard',
-    'level': 'DEBUG'
-}
-
-logging_config['loggers']['performance'] = {
-    'handlers': ['perf_file', 'file'],
-    'level': 'DEBUG',
-    'propagate': True
-}
-
 dictConfig(logging_config)
 logger = logging.getLogger('performance')
 

@@ -43,7 +43,6 @@ DOWNLOAD_DIR = FilePath(__file__).parent.parent.parent.parent / "downloads"
 def setup_logging():
     """Configure logging for the schedule explorer backend"""
     logging_config = get_config("LOGGING_CONFIG")
-    logging_config["log_dir"].mkdir(exist_ok=True)
     logging.config.dictConfig(logging_config)
     return logging.getLogger("schedule_explorer")
 

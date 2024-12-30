@@ -32,12 +32,8 @@ from functools import wraps
 from transit_providers.config import get_provider_config
 from functools import lru_cache
 
-# Ensure logs directory exists
-Path("logs").mkdir(exist_ok=True)
-
 # Setup logging using configuration
-logging_config = get_config("LOGGING_CONFIG")
-logging_config["log_dir"].mkdir(exist_ok=True)  # Create logs directory
+logging_config = get_config('LOGGING_CONFIG')
 dictConfig(logging_config)
 
 # Get loggers
