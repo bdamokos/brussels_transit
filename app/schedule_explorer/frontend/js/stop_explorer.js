@@ -3,7 +3,8 @@ import { colors } from './colors.js';
 
 // Global variables
 let map = null;
-let stopMarkers = new Map();
+let mapMarkers = new Map(); // For all stops visible on the map
+let selectedStops = new Map(); // For stops that are selected
 let routeLines = [];
 let selectedLanguage = 'default';
 // Get the current server's URL and port
@@ -247,13 +248,20 @@ window.addStop = addStop;
 
 // Add a stop to the selection
 function addStop(stopId, stopName, lat, lon) {
-    if (stopMarkers.has(stopId)) {
+    if (selectedStops.has(stopId)) {
         return; // Stop already added
     }
 
     const color = getStopColor(stopId);
 
-    // Add marker to map
+    // Remove from map markers if it exists
+    if (mapMarkers.has(stopId)) {
+        const { marker } = mapMarkers.get(stopId);
+        map.removeLayer(marker);
+        mapMarkers.delete(stopId);
+    }
+
+    // Add marker to map for the selected stop
     const marker = L.marker([lat, lon], {
         icon: L.divIcon({
             className: 'custom-div-icon',
@@ -262,25 +270,10 @@ function addStop(stopId, stopName, lat, lon) {
             iconAnchor: [15, 42]
         })
     }).addTo(map);
-    stopMarkers.set(stopId, { marker, color, name: stopName });
+    selectedStops.set(stopId, { marker, color, name: stopName });
 
-    // Add to selected stops table
-    const table = document.getElementById('selectedStopsTable');
-    const row = document.createElement('div');
-    row.className = 'selected-stop-row';
-    row.id = `stop-row-${stopId}`;
-    row.innerHTML = `
-        <div class="stop-color-indicator" style="background-color: ${color};"></div>
-        <div class="stop-info">
-            <div class="stop-name">${stopName}</div>
-            <div class="stop-id">${stopId}</div>
-        </div>
-        <button class="remove-stop" onclick="removeStop('${stopId}')">&times;</button>
-    `;
-    table.appendChild(row);
-
-    // Update map bounds
-    const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
+    // Update map bounds to include all selected stops
+    const bounds = L.latLngBounds(Array.from(selectedStops.values()).map(m => m.marker.getLatLng()));
     map.fitBounds(bounds, { padding: [50, 50] });
 
     // Hide search results
@@ -293,42 +286,28 @@ function addStop(stopId, stopName, lat, lon) {
 
 // Remove a stop from the selection
 function removeStop(stopId) {
-    if (!stopMarkers.has(stopId)) {
-        return;
-    }
-
-    // Remove marker from map
-    const { marker } = stopMarkers.get(stopId);
+    const { marker } = selectedStops.get(stopId);
     map.removeLayer(marker);
-    stopMarkers.delete(stopId);
-
-    // Remove from table
-    const row = document.getElementById(`stop-row-${stopId}`);
-    row.remove();
-
-    // Update map bounds if there are still markers
-    if (stopMarkers.size > 0) {
-        const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
-        map.fitBounds(bounds, { padding: [50, 50] });
-    }
-
-    // Reload routes
+    selectedStops.delete(stopId);
     loadAllRoutes();
+    
+    // Refresh map markers to show the removed stop if it's in the current view
+    loadStopsInView();
 }
 
 // Load routes for all selected stops
 async function loadAllRoutes() {
     const routesContainer = document.getElementById('routesContainer');
 
-    if (stopMarkers.size === 0) {
+    if (selectedStops.size === 0) {
         routesContainer.innerHTML = '<div class="alert alert-info">Select stops to see their routes.</div>';
         return;
     }
 
     try {
         // Load routes for each stop
-        const routePromises = Array.from(stopMarkers.keys()).map(stopId => {
-            const stopName = stopMarkers.get(stopId).name || '';
+        const routePromises = Array.from(selectedStops.keys()).map(stopId => {
+            const stopName = selectedStops.get(stopId).name || '';
             
             return fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
                 .then(response => response.json())
@@ -339,17 +318,20 @@ async function loadAllRoutes() {
 
         // Group routes by stop
         routesContainer.innerHTML = results.map(({ stopId, stopName, routes }) => {
-            const { color } = stopMarkers.get(stopId);
+            const { color } = selectedStops.get(stopId);
 
             return `
                 <div class="stop-routes-group">
                     <div class="stop-routes-header">
-                        <div class="d-flex align-items-center">
-                            <div class="stop-color-indicator" style="background-color: ${color};"></div>
-                            <div class="ms-2">
-                                <strong>${stopName}</strong>
-                                <div class="text-muted">Stop ID: ${stopId}</div>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center">
+                                <div class="stop-color-indicator" style="background-color: ${color};"></div>
+                                <div class="ms-2">
+                                    <strong>${stopName}</strong>
+                                    <div class="text-muted">Stop ID: ${stopId}</div>
+                                </div>
                             </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="removeStop('${stopId}')">Remove</button>
                         </div>
                     </div>
                     <div class="stop-routes-content">
@@ -442,7 +424,7 @@ function setupEventListeners() {
     // Language selection
     document.getElementById('languageSelect').addEventListener('change', (e) => {
         selectedLanguage = e.target.value;
-        if (stopMarkers.size > 0) {
+        if (selectedStops.size > 0) {
             loadAllRoutes();
         }
     });
@@ -563,11 +545,14 @@ async function loadStopsInView() {
 // Update stops displayed on the map
 function updateStopsOnMap(stops) {
     // Clear existing markers
-    stopMarkers.forEach(marker => map.removeLayer(marker));
-    stopMarkers.clear();
+    mapMarkers.forEach(marker => map.removeLayer(marker));
+    mapMarkers.clear();
 
     // Add new markers
     stops.forEach(stop => {
+        // Skip if this stop is already selected
+        if (selectedStops.has(stop.id)) return;
+
         const color = getStopColor(stop.id);
 
         const marker = L.marker([stop.location.lat, stop.location.lon], {
@@ -582,7 +567,10 @@ function updateStopsOnMap(stops) {
         // Create popup content
         const popupContent = document.createElement('div');
         popupContent.className = 'stop-popup';
-        popupContent.innerHTML = `
+        
+        // Create the content elements
+        const content = document.createElement('div');
+        content.innerHTML = `
             <h5>${escapeHtml(stop.name)}</h5>
             <div class="stop-id">${stop.id}</div>
             ${stop.routes ? `
@@ -598,14 +586,22 @@ function updateStopsOnMap(stops) {
                     `).join('')}
                 </div>
             ` : ''}
-            <button class="btn btn-sm btn-primary mt-2" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon})">
-                Add to selection
-            </button>
         `;
+        popupContent.appendChild(content);
+
+        // Create and append the button with a direct event listener
+        const addButton = document.createElement('button');
+        addButton.className = 'btn btn-sm btn-primary mt-2';
+        addButton.textContent = 'Add to selection';
+        addButton.addEventListener('click', () => {
+            addStop(stop.id, stop.name, stop.location.lat, stop.location.lon);
+            marker.closePopup();
+        });
+        popupContent.appendChild(addButton);
 
         marker.bindPopup(popupContent);
         marker.addTo(map);
-        stopMarkers.set(stop.id, { marker, color, name: stop.name });
+        mapMarkers.set(stop.id, { marker, color, name: stop.name });
     });
 }
 
