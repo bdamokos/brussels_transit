@@ -82,7 +82,7 @@ STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
 CACHE_DURATION = get_config("CACHE_DURATION")
 
 # Create cache directory if it doesn't exist
-CACHE_DIR.mkdir(exist_ok=True)
+# CACHE_DIR.mkdir(exist_ok=True)
 
 PORT = get_config("PORT")
 

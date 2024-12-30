@@ -21,8 +21,6 @@ logger = logging.getLogger('stib.routes')
 # Create cache directories for shapefiles and stops
 SHAPES_CACHE_DIR = get_config('CACHE_DIR') / "shapes"
 STOPS_CACHE_DIR = get_config('CACHE_DIR') / "stops"
-SHAPES_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-STOPS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 CACHE_DURATION = get_config('CACHE_DURATION')
 API_KEY = get_config('STIB_API_KEY')

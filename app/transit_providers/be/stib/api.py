@@ -53,21 +53,12 @@ logger.debug(f"MESSAGES_API_URL: {MESSAGES_API_URL}")
 WAITING_TIMES_API_URL = provider_config.get("STIB_WAITING_TIME_API_URL", "")
 logger.debug(f"WAITING_TIMES_API_URL: {WAITING_TIMES_API_URL}")
 GTFS_URL = provider_config.get("GTFS_URL", "")
-GTFS_DIR = provider_config.get("GTFS_DIR")
-if GTFS_DIR:
-    GTFS_DIR.mkdir(parents=True, exist_ok=True)
-else:
-    logger.error("GTFS_DIR is not set in provider configuration")
-    logger.debug(f"Provider config: {provider_config}")
-CACHE_DIR = provider_config.get("CACHE_DIR")
-if CACHE_DIR:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-else:
-    logger.error("CACHE_DIR is not set in provider configuration")
-    logger.debug(f"Provider config: {provider_config}")
-logger.debug(f"GTFS_DIR: {GTFS_DIR}, CACHE_DIR: {CACHE_DIR}")
-GTFS_CACHE_DURATION = provider_config.get("GTFS_CACHE_DURATION")
-BASE_URL = provider_config.get("API_URL")
+GTFS_DIR = get_config('GTFS_DIR')
+CACHE_DIR = get_config('CACHE_DIR')
+SHAPES_CACHE_DIR = CACHE_DIR / "shapes"
+
+# Initialize caches
+_last_waiting_times_result = None
 
 # API keys
 API_KEY = provider_config.get("API_KEY")

@@ -50,14 +50,9 @@ GTFS_URL = provider_config.get("GTFS_URL")
 
 
 GTFS_DIR = provider_config.get("GTFS_DIR")
-
-GTFS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = provider_config.get("CACHE_DIR")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-try:
-    CACHE_DIR.chmod(0o755)
-except Exception as e:
-    logger.warning(f"Could not set cache directory permissions: {e}")
+SHAPES_CACHE_DIR = CACHE_DIR / "shapes"
+
 logger.debug(f"GTFS_DIR: {GTFS_DIR}, CACHE_DIR: {CACHE_DIR}")
 RATE_LIMIT_DELAY = provider_config.get("RATE_LIMIT_DELAY")
 GTFS_CACHE_DURATION = provider_config.get("GTFS_CACHE_DURATION")
@@ -73,6 +68,10 @@ DELIJN_GTFS_REALTIME_API_KEY = provider_config.get("GTFS_REALTIME_API_KEY")
 STOP_ID = provider_config.get("STOP_IDS")
 MONITORED_LINES = provider_config.get("MONITORED_LINES")
 TIMEZONE = pytz.timezone(get_config("TIMEZONE"))
+
+# Initialize caches
+_last_waiting_times_result = None
+
 # Cache configuration
 CACHE_DIR = get_config("CACHE_DIR") / "delijn"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)

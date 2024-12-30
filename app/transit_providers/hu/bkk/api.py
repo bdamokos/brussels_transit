@@ -83,18 +83,13 @@ logger = logging.getLogger("bkk")
 provider_config = get_provider_config("bkk")
 
 # Constants from config
-CACHE_DIR = provider_config.get("CACHE_DIR")
-GTFS_DIR = provider_config.get("GTFS_DIR")
+CACHE_DIR = get_config('CACHE_DIR')
+GTFS_DIR = get_config('GTFS_DIR')
 API_KEY = provider_config.get("API_KEY")
 PROVIDER_ID = provider_config.get("PROVIDER_ID", "mdb-990")  # BKK's ID in Mobility DB
 MONITORED_LINES = provider_config.get("MONITORED_LINES", [])
 STOP_IDS = provider_config.get("STOP_IDS", [])
-
-# Create necessary directories
-if CACHE_DIR:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-if GTFS_DIR:
-    GTFS_DIR.mkdir(parents=True, exist_ok=True)
+GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES", [])
 
 # GTFS-realtime endpoints
 VEHICLE_POSITIONS_URL = (
@@ -250,11 +245,14 @@ class GTFSManager:
     async def ensure_gtfs_data(self) -> Optional[Path]:
         """Ensure GTFS data is downloaded and up to date"""
         try:
-            # Create GTFS directory if it doesn't exist
-            if GTFS_DIR:
-                GTFS_DIR.mkdir(parents=True, exist_ok=True)
-            else:
-                logger.error("GTFS_DIR is not set in provider configuration")
+            if not GTFS_DIR:
+                logger.error("GTFS_DIR is not set")
+                return None
+
+            # Check if GTFS data exists and is recent enough
+            gtfs_files = [GTFS_DIR / f for f in GTFS_USED_FILES]
+            if not gtfs_files:
+                logger.error("GTFS_USED_FILES is not set")
                 return None
 
             # Check if we need to download new data

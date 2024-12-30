@@ -23,9 +23,6 @@ dictConfig(logging_config)
 # Get logger
 logger = logging.getLogger('stops')
 
-# Create cache directory if it doesn't exist
-CACHE_DIR.mkdir(exist_ok=True)
-
 def load_cached_stops():
     """Load stop names from cache file"""
     if STOPS_CACHE_FILE.exists():

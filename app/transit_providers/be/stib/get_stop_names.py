@@ -41,9 +41,6 @@ language_precedence = get_config('LANGUAGE_PRECEDENCE')
 # Get logger
 logger = logging.getLogger('stib.get_stop_names')
 
-# Create cache directory if it doesn't exist
-CACHE_DIR.mkdir(exist_ok=True)
-
 # Add GTFS translation cache
 _translations_cache = None
 _stops_trans_id_cache = None
