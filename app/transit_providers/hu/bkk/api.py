@@ -83,8 +83,8 @@ logger = logging.getLogger("bkk")
 provider_config = get_provider_config("bkk")
 
 # Constants from config
-CACHE_DIR = get_config('CACHE_DIR')
-GTFS_DIR = get_config('GTFS_DIR')
+CACHE_DIR = provider_config.get("CACHE_DIR")
+GTFS_DIR = provider_config.get("GTFS_DIR")
 API_KEY = provider_config.get("API_KEY")
 PROVIDER_ID = provider_config.get("PROVIDER_ID", "mdb-990")  # BKK's ID in Mobility DB
 MONITORED_LINES = provider_config.get("MONITORED_LINES", [])
