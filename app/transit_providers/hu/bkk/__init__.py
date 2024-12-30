@@ -8,7 +8,8 @@ from typing import Dict, Any, Callable, Awaitable, List
 from transit_providers.config import get_provider_config
 from config import get_config
 import logging
-from transit_providers import TransitProvider, register_provider
+from transit_providers import TransitProvider, register_provider, PROVIDERS
+from flask import request
 import asyncio
 
 
@@ -75,8 +76,8 @@ class BKKProvider(TransitProvider):
         return await get_waiting_times(stop_id)
 
 
-# Only create and register provider if it's enabled
-if "bkk" in get_config("ENABLED_PROVIDERS", []):
+# Only create and register provider if it's enabled and not already registered
+if "bkk" in get_config("ENABLED_PROVIDERS", []) and "bkk" not in PROVIDERS:
     try:
         provider = BKKProvider()
         register_provider("bkk", provider)
@@ -85,9 +86,7 @@ if "bkk" in get_config("ENABLED_PROVIDERS", []):
         logger.error(f"Failed to register BKK provider: {e}")
         import traceback
 
-        logger.error(f"Traceback: {traceback.format_exc()}")
-else:
-    logger.warning("BKK provider is not enabled in configuration")
+        logger.error(traceback.format_exc())
 
 __all__ = [
     "bkk_config",

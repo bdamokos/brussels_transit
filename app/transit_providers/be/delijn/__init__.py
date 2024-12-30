@@ -8,13 +8,15 @@ from typing import Dict, Any, Callable, Awaitable, List
 from transit_providers.config import get_provider_config
 from config import get_config
 import logging
+from transit_providers import TransitProvider, register_provider, PROVIDERS
+from flask import request
+import asyncio
 from transit_providers.nearest_stop import (
     get_stop_by_name as generic_get_stop_by_name,
     get_cached_stops,
 )
 from dataclasses import asdict
 from pathlib import Path
-from transit_providers import TransitProvider, register_provider
 
 
 # Get logger
@@ -174,8 +176,8 @@ class DelijnProvider(TransitProvider):
             return []
 
 
-# Only create and register provider if it's enabled
-if "delijn" in get_config("ENABLED_PROVIDERS", []):
+# Only create and register provider if it's enabled and not already registered
+if "delijn" in get_config("ENABLED_PROVIDERS", []) and "delijn" not in PROVIDERS:
     try:
         provider = DelijnProvider()
         register_provider("delijn", provider)
@@ -184,6 +186,6 @@ if "delijn" in get_config("ENABLED_PROVIDERS", []):
         logger.error(f"Failed to register De Lijn provider: {e}")
         import traceback
 
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
 else:
     logger.warning("De Lijn provider is not enabled in configuration")
