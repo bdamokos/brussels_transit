@@ -307,7 +307,9 @@ async def search_providers(
             # Search by country
             providers = db.get_provider_info(country_code=country_code)
 
-        logger.debug(f"Got {len(providers)} providers from MobilityAPI")
+        logger.debug(
+            f"Got {len(providers) if providers else 0} providers from MobilityAPI"
+        )
 
         # Convert to list if single provider returned
         if isinstance(providers, dict):
@@ -316,22 +318,45 @@ async def search_providers(
             providers = []
 
         # Add sanitized names and map fields from the MobilityAPI response
+        result_providers = []
         for provider in providers:
-            provider["sanitized_name"] = db._sanitize_provider_name(
-                provider.get("provider", "")
-            )
-            # Map bounding box from latest_dataset
-            latest_dataset = provider.get("latest_dataset")
-            if latest_dataset is not None and latest_dataset.get("bounding_box"):
-                bbox = latest_dataset.get("bounding_box", {})
-                provider["bounding_box"] = {
-                    "min_lat": bbox.get("minimum_latitude", 0),
-                    "max_lat": bbox.get("maximum_latitude", 0),
-                    "min_lon": bbox.get("minimum_longitude", 0),
-                    "max_lon": bbox.get("maximum_longitude", 0),
-                }
+            if not isinstance(provider, dict):
+                continue
+
+            result_provider = {}
+
+            # Copy all existing fields
+            result_provider.update(provider)
+
+            # Add sanitized name
+            provider_name = provider.get("provider", "")
+            if provider_name and hasattr(db, "_sanitize_provider_name"):
+                result_provider["sanitized_name"] = db._sanitize_provider_name(
+                    provider_name
+                )
             else:
-                provider["bounding_box"] = {
+                result_provider["sanitized_name"] = ""
+
+            # Map bounding box from latest_dataset
+            latest_dataset = provider.get("latest_dataset", {})
+            if latest_dataset and isinstance(latest_dataset, dict):
+                bbox = latest_dataset.get("bounding_box", {})
+                if isinstance(bbox, dict):
+                    result_provider["bounding_box"] = {
+                        "min_lat": bbox.get("minimum_latitude", 0),
+                        "max_lat": bbox.get("maximum_latitude", 0),
+                        "min_lon": bbox.get("minimum_longitude", 0),
+                        "max_lon": bbox.get("maximum_longitude", 0),
+                    }
+                else:
+                    result_provider["bounding_box"] = {
+                        "min_lat": 0,
+                        "max_lat": 0,
+                        "min_lon": 0,
+                        "max_lon": 0,
+                    }
+            else:
+                result_provider["bounding_box"] = {
                     "min_lat": 0,
                     "max_lat": 0,
                     "min_lon": 0,
@@ -339,29 +364,41 @@ async def search_providers(
                 }
 
             # Map downloaded_at from latest_dataset
-            provider["downloaded_at"] = (
-                None
-                if latest_dataset is None
-                else latest_dataset.get("downloaded_at", None)
+            result_provider["downloaded_at"] = (
+                latest_dataset.get("downloaded_at", None)
+                if isinstance(latest_dataset, dict)
+                else None
             )
 
             # Map hash from latest_dataset
-            provider["hash"] = (
-                None if latest_dataset is None else latest_dataset.get("hash", None)
+            result_provider["hash"] = (
+                latest_dataset.get("hash", None)
+                if isinstance(latest_dataset, dict)
+                else None
             )
 
             # Map validation_report from latest_dataset
             validation = (
-                {}
-                if latest_dataset is None
-                else latest_dataset.get("validation_report", {})
+                latest_dataset.get("validation_report", {})
+                if isinstance(latest_dataset, dict)
+                else {}
             )
-            provider["validation_report"] = {
-                "total_error": validation.get("total_error", 0),
-                "total_warning": validation.get("total_warning", 0),
-                "total_info": validation.get("total_info", 0),
-            }
-        return providers
+            if isinstance(validation, dict):
+                result_provider["validation_report"] = {
+                    "total_error": validation.get("total_error", 0),
+                    "total_warning": validation.get("total_warning", 0),
+                    "total_info": validation.get("total_info", 0),
+                }
+            else:
+                result_provider["validation_report"] = {
+                    "total_error": 0,
+                    "total_warning": 0,
+                    "total_info": 0,
+                }
+
+            result_providers.append(result_provider)
+
+        return result_providers
     except Exception as e:
         logger.error(f"Error searching providers: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
