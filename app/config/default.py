@@ -132,7 +132,7 @@ PROVIDER_CONFIG = {
             "PROVIDER_ID": "mdb-990",  # BKK's ID in Mobility DB
             "API_KEY": os.getenv("BKK_API_KEY"),
             "CACHE_DIR": CACHE_DIR / "bkk",
-            "GTFS_DIR": CACHE_DIR / "bkk/gtfs",
+            "GTFS_DIR": PROJECT_ROOT / "downloads",
             "RATE_LIMIT_DELAY": 0.5,  # 500ms between API calls
             "GTFS_CACHE_DURATION": 7 * 24 * 60 * 60,  # 7 days in seconds
         },

@@ -14,25 +14,20 @@ DELIJN_GTFS_REALTIME_API_KEY = "your-delijn-gtfs-realtime-key"
 
 # Override any default settings here
 MAP_CONFIG = {
-    "center": {
-        "lat": 50.845539,  # Change to your preferred center
-        "lon": 4.357179
-    },
+    "center": {"lat": 50.845539, "lon": 4.357179},  # Change to your preferred center
     "zoom": 13,  # Change to your preferred zoom level
     "min_zoom": 11,
-    "max_zoom": 19
+    "max_zoom": 19,
 }
 
 # Your monitored stops
 STIB = {
-    'STIB_STOPS': [
+    "STIB_STOPS": [
         {
-            'id': '5659',
-        'name': 'Trois Couleurs',
-        'lines': {
-            '44': ['Montgomery']
-        },
-        "direction": "City"
+            "id": "5659",
+            "name": "Trois Couleurs",
+            "lines": {"44": ["Montgomery"]},
+            "direction": "City",
         }
     ]
 }
@@ -42,11 +37,7 @@ TIMEZONE = "Europe/Brussels"
 
 
 # List of enabled providers
-ENABLED_PROVIDERS = [
-    'delijn',
-    'stib',
-    'bkk'
-]
+ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]
 
 # Language Configuration
 # Override the default language precedence order
@@ -58,18 +49,14 @@ ENABLED_PROVIDERS = [
 
 # Provider-specific configuration
 PROVIDER_CONFIG = {
-    'bkk': {
-        'STOP_IDS': [
-            
-            'F01111',  # Wesselényi utca / Erzsébet körút
+    "bkk": {
+        "STOP_IDS": [
+            "F01111",  # Wesselényi utca / Erzsébet körút
         ],
-        'MONITORED_LINES': [
-            '3040', # tram line 4
-             
+        "MONITORED_LINES": [
+            "3040",  # tram line 4
         ],
-        'CACHE_DIR': Path('cache/bkk'),
-        'GTFS_DIR': Path('cache/bkk/gtfs'),
     }
-} 
+}
 
 # Add any other overrides here

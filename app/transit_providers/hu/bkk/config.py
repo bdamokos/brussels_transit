@@ -9,15 +9,17 @@ APP_DIR = Path(__file__).parent.parent.parent.parent
 
 # Default configuration
 DEFAULT_CONFIG = {
-    'PROVIDER_ID': 'mdb-990',  # BKK's ID in Mobility Database
-    'API_KEY': os.getenv('BKK_API_KEY'),
-    'CACHE_DIR': APP_DIR / 'cache' / 'bkk',
-    'GTFS_DIR': APP_DIR / 'cache' / 'bkk' / 'gtfs',
-    'STOP_IDS': ["F01110-config.py"],  # Should be set in local config - F01110 is a test stop
-    'MONITORED_LINES': [],  # Should be set in local config
-    'RATE_LIMIT_DELAY': 0.5,  # seconds between API calls
-    'GTFS_CACHE_DURATION': 86400 * 7,  # 7 days in seconds
+    "PROVIDER_ID": "mdb-990",  # BKK's ID in Mobility Database
+    "API_KEY": os.getenv("BKK_API_KEY"),
+    "CACHE_DIR": APP_DIR / "cache" / "bkk",
+    "GTFS_DIR": APP_DIR / "downloads",
+    "STOP_IDS": [
+        "F01110-config.py"
+    ],  # Should be set in local config - F01110 is a test stop
+    "MONITORED_LINES": [],  # Should be set in local config
+    "RATE_LIMIT_DELAY": 0.5,  # seconds between API calls
+    "GTFS_CACHE_DURATION": 86400 * 7,  # 7 days in seconds
 }
 
 # Register configuration
-register_provider_config('bkk', DEFAULT_CONFIG) 
+register_provider_config("bkk", DEFAULT_CONFIG)
