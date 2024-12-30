@@ -206,32 +206,58 @@ async def _initialize_caches():
         logger.info("Initializing BKK provider caches...")
 
         # First ensure GTFS data is available
-        if gtfs_manager:
-            logger.info("Ensuring GTFS data is available...")
-            gtfs_path = await gtfs_manager.ensure_gtfs_data()
-            if not gtfs_path:
-                logger.error("Failed to ensure GTFS data")
-            else:
-                logger.info(f"GTFS data available at {gtfs_path}")
-        else:
+        if not gtfs_manager:
             logger.error("GTFSManager not initialized")
+            return
 
+        logger.info("Ensuring GTFS data is available...")
+        gtfs_path = await gtfs_manager.ensure_gtfs_data()
+        if not gtfs_path:
+            logger.error("Failed to ensure GTFS data")
+            return
+
+        # Wait for the GTFS file to exist and be non-empty
+        max_retries = 120
+        retry_delay = 1  # seconds
+        for i in range(max_retries):
+            if gtfs_path.exists() and gtfs_path.stat().st_size > 0:
+                logger.info(
+                    f"GTFS data available at {gtfs_path} (size: {gtfs_path.stat().st_size} bytes)"
+                )
+                break
+            if i < max_retries - 1:
+                logger.warning(
+                    f"GTFS file not ready yet, retrying in {retry_delay} seconds... ({i + 1}/{max_retries})"
+                )
+                await asyncio.sleep(retry_delay)
+        else:
+            logger.error(f"GTFS file not available after {max_retries} retries")
+            return
+
+        # Now that we have GTFS data, load the caches
         try:
             _load_stops_cache()
         except Exception as e:
             logger.error(f"Failed to initialize stops cache: {e}", exc_info=True)
+            return
+
         try:
             _load_routes_cache()
         except Exception as e:
             logger.error(f"Failed to initialize routes cache: {e}", exc_info=True)
+            return
+
         try:
             _load_stop_times_cache()
         except Exception as e:
             logger.error(f"Failed to initialize stop times cache: {e}", exc_info=True)
+            return
+
         try:
-            _load_trips_cache()  # Add trips cache initialization
+            _load_trips_cache()
         except Exception as e:
             logger.error(f"Failed to initialize trips cache: {e}", exc_info=True)
+            return
 
         # Initialize waiting times cache
         _last_waiting_times_result = {"stops_data": {}, "_metadata": {}}
@@ -241,6 +267,7 @@ async def _initialize_caches():
         logger.info("BKK provider caches initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing BKK provider caches: {e}")
+        _caches_initialized = False
 
 
 class GTFSManager:
