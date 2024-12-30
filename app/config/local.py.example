@@ -51,7 +51,7 @@ ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]
 PROVIDER_CONFIG = {
     "bkk": {
         "STOP_IDS": [
-            "F01111",  # Wesselényi utca / Erzsébet körút
+            "F01111-local.py",  # Wesselényi utca / Erzsébet körút
         ],
         "MONITORED_LINES": [
             "3040",  # tram line 4

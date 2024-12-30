@@ -4,15 +4,15 @@ import os
 from pathlib import Path
 from transit_providers.config import register_provider_config
 
-# Get the app directory (two levels up from this file)
-APP_DIR = Path(__file__).parent.parent.parent.parent
+# Get the project root from environment variable (set by start.py)
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
 # Default configuration
 DEFAULT_CONFIG = {
     "PROVIDER_ID": "mdb-990",  # BKK's ID in Mobility Database
     "API_KEY": os.getenv("BKK_API_KEY"),
-    "CACHE_DIR": APP_DIR / "cache" / "bkk",
-    "GTFS_DIR": APP_DIR / "downloads",
+    "CACHE_DIR": PROJECT_ROOT / "cache" / "bkk",
+    "GTFS_DIR": PROJECT_ROOT / "downloads",
     "STOP_IDS": [
         "F01110-config.py"
     ],  # Should be set in local config - F01110 is a test stop
