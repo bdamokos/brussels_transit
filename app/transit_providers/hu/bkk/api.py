@@ -618,6 +618,7 @@ async def get_vehicle_positions(line=None, direction=None):
     Returns:
         list: List of vehicle position dictionaries.
     """
+    await _ensure_caches_initialized()
     async with httpx.AsyncClient() as client:
         response = await client.get(VEHICLE_POSITIONS_URL, params={"key": API_KEY})
         feed = gtfs_realtime_pb2.FeedMessage()
@@ -780,6 +781,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
     Returns:
         Dict containing waiting times data for the requested stops.
     """
+    await _ensure_caches_initialized()
     global _last_waiting_times_result, _last_waiting_times_update
 
     start_time = time.time()
@@ -1269,6 +1271,7 @@ def parse_realcity_extension(alert_bytes: bytes) -> Dict:
 
 async def get_service_alerts() -> Dict:
     """Get current service alerts."""
+    await _ensure_caches_initialized()
     try:
         # Get latest config
         config = get_provider_config("bkk")
@@ -1516,6 +1519,7 @@ async def get_static_data() -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Static data including line info and route shapes
     """
+    await _ensure_caches_initialized()
     try:
         # Get line information for monitored lines
         line_info = await get_line_info()
@@ -1557,6 +1561,7 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dict[str, Dict[str, Any]]: Dictionary mapping route_ids to their information
     """
+    await _ensure_caches_initialized()
     try:
         gtfs_path = _get_current_gtfs_path()
         if not gtfs_path:
@@ -1646,6 +1651,7 @@ async def get_route_shapes() -> Dict[str, List[Dict[str, float]]]:
     Returns:
         Dict[str, List[Dict[str, float]]]: Dictionary mapping route_ids to their shape coordinates
     """
+    await _ensure_caches_initialized()
     try:
         gtfs_path = _get_current_gtfs_path()
         if not gtfs_path:
@@ -1727,7 +1733,7 @@ async def get_route_shapes() -> Dict[str, List[Dict[str, float]]]:
         return {}
 
 
-async def get_route_variants_api(route_id: str) -> Dict:
+async def get_route_variants_api(route_id: str) -> Dict[str, Any]:
     """Get route variants for a specific route.
 
     Args:
@@ -1736,6 +1742,7 @@ async def get_route_variants_api(route_id: str) -> Dict:
     Returns:
         Dict: Dictionary containing route variants with their shapes and stops
     """
+    await _ensure_caches_initialized()
     try:
         # Get fresh GTFS data if needed
         gtfs_manager = GTFSManager()
@@ -1823,6 +1830,7 @@ async def get_line_colors(
             "background_border": "#RRGGBB"
         }
     """
+    await _ensure_caches_initialized()
     try:
         gtfs_path = _get_current_gtfs_path()
         if not gtfs_path:
@@ -1900,11 +1908,21 @@ async def get_line_colors(
         return {}
 
 
-# Initialize caches at module load
-try:
-    import asyncio
+# Initialize GTFSManager
+gtfs_manager = GTFSManager()
 
+
+# Initialize caches at module load
+async def _ensure_caches_initialized():
+    """Ensure caches are initialized"""
+    if not _caches_initialized:
+        await _initialize_caches()
+
+
+# Create event loop and run initialization
+try:
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(_initialize_caches())
-except Exception as e:
-    logger.error(f"Failed to initialize caches at module load: {e}")
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+loop.run_until_complete(_ensure_caches_initialized())
