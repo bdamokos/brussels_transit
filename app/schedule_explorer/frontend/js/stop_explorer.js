@@ -1,13 +1,33 @@
+// Import colors
+import { colors } from './colors.js';
+
 // Global variables
 let map = null;
-let stopMarkers = new Map();
+let mapMarkers = new Map(); // For all stops visible on the map
+let selectedStops = new Map(); // For stops that are selected
 let routeLines = [];
 let selectedLanguage = 'default';
 // Get the current server's URL and port
 window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = window.API_BASE_URL;
-const MARKER_COLORS = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00'];
-let colorIndex = 0;
+
+// Track the last loaded bounds
+let lastLoadedBounds = null;
+
+// Function to get a consistent color for a stop ID
+function getStopColor(stopId) {
+    // More chaotic hash function that spreads consecutive IDs across the color space
+    let hash = 0;
+    for (let i = 0; i < stopId.length; i++) {
+        // Use prime numbers and bit operations for more chaos
+        hash = Math.imul(hash ^ stopId.charCodeAt(i), 1597); // Prime number
+        hash = hash ^ (hash >>> 7);  // Right shift and XOR
+        hash = Math.imul(hash, 367); // Another prime
+    }
+    // Make sure hash is positive and well-distributed
+    hash = Math.abs(hash ^ (hash >>> 16));
+    return `rgb(${colors[hash % colors.length].join(', ')})`;
+}
 
 // Function to escape HTML special characters
 function escapeHtml(unsafe) {
@@ -49,11 +69,26 @@ function updateBackendStatus(status, message) {
 
 // Initialize the map
 function initMap() {
-    map = L.map('map').setView([50.8503, 4.3517], 13);  // Brussels center
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    if (!map) {  // Only initialize if not already initialized
+        map = L.map('map').setView([50.8503, 4.3517], 13);  // Brussels center
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Add locate control
+        L.control.locate({
+            position: 'topleft',
+            strings: {
+                title: "Show me where I am"
+            }
+        }).addTo(map);
+
+        // Add event listeners for map movement
+        map.on('moveend', debounceLoadStops);
+        map.on('zoomend', debounceLoadStops);
+    }
+    return map;
 }
 
 // Initialize the page
@@ -64,25 +99,121 @@ async function init() {
     // Initial search moved to after provider loading
 }
 
+// Function to setup provider selection
+export function setupProviderSelection() {
+    const providerSelect = document.getElementById('providerSelect');
+    const languageSelect = document.getElementById('languageSelect');
+    const stopSearch = document.getElementById('stopSearch');
+    const backendStatus = document.getElementById('backendStatus');
+    const statusText = backendStatus.querySelector('.status-text');
+
+    // Load available providers
+    loadProviders();
+
+    // Handle provider selection
+    providerSelect.addEventListener('change', async () => {
+        const providerId = providerSelect.value;
+        if (!providerId) return;
+
+        try {
+            // Show loading status
+            backendStatus.className = 'backend-status loading';
+            statusText.textContent = 'Loading provider data...';
+
+            // Load the provider
+            await loadProvider(providerId);
+
+            // Show success status
+            backendStatus.className = 'backend-status ready';
+            statusText.textContent = 'Provider loaded successfully';
+
+            // Enable language selection and stop search
+            languageSelect.disabled = false;
+            stopSearch.disabled = false;
+
+            // Load languages
+            await loadLanguages();
+
+            // Load initial stops based on current map bounds
+            await loadStopsInView();
+
+            // Fade out success message after 2 seconds
+            setTimeout(() => {
+                backendStatus.classList.add('fade-out');
+                setTimeout(() => {
+                    backendStatus.style.display = 'none';
+                    backendStatus.classList.remove('fade-out');
+                }, 2000);
+            }, 2000);
+
+        } catch (error) {
+            console.error('Error loading provider:', error);
+            backendStatus.className = 'backend-status error';
+            statusText.textContent = 'Failed to load provider';
+        }
+    });
+}
+
 // Load available providers
 async function loadProviders() {
+    const providerSelect = document.getElementById('providerSelect');
+    const backendStatus = document.getElementById('backendStatus');
+    const statusText = backendStatus.querySelector('.status-text');
+
     try {
-        const response = await fetch(`${API_BASE_URL}/providers`);
+        backendStatus.className = 'backend-status loading';
+        statusText.textContent = 'Loading providers...';
+
+        const response = await fetch('http://localhost:8000/providers_info');
+        if (!response.ok) throw new Error('Failed to fetch providers');
+        
         const providers = await response.json();
+        
+        // Clear existing options except the placeholder
+        while (providerSelect.options.length > 1) {
+            providerSelect.remove(1);
+        }
+        
+        // Add provider options
+        for (const provider of providers) {
+            const option = document.createElement('option');
+            option.value = provider.id;
+            option.textContent = provider.name || provider.id;
+            providerSelect.appendChild(option);
+        }
 
-        const select = document.getElementById('providerSelect');
-        select.innerHTML = '<option value="" selected disabled>Select a provider</option>' +
-            providers.map(provider => `<option value="${provider}">${provider}</option>`).join('');
+        // Enable provider selection
+        providerSelect.disabled = false;
 
-        const languageSelect = document.getElementById('languageSelect');
-        languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
-        languageSelect.disabled = true;
+        // Show success status briefly
+        backendStatus.className = 'backend-status ready';
+        statusText.textContent = 'Providers loaded successfully';
+        setTimeout(() => {
+            backendStatus.classList.add('fade-out');
+            setTimeout(() => {
+                backendStatus.style.display = 'none';
+                backendStatus.classList.remove('fade-out');
+            }, 2000);
+        }, 2000);
 
-        select.disabled = false;
     } catch (error) {
         console.error('Error loading providers:', error);
-        showError('Failed to load providers');
+        backendStatus.className = 'backend-status error';
+        statusText.textContent = 'Failed to load providers';
     }
+}
+
+// Load a specific provider
+async function loadProvider(providerId) {
+    const response = await fetch(`http://localhost:8000/provider/${providerId}`, {
+        method: 'POST'
+    });
+    
+    if (!response.ok) {
+        throw new Error('Failed to load provider');
+    }
+    
+    return response.json();
 }
 
 // Search for stops
@@ -93,38 +224,50 @@ async function searchStops(query) {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&provider_id=${providerSelect.value}`);
         const stops = await response.json();
-
+        
         const resultsDiv = document.getElementById('stopSearchResults');
         resultsDiv.classList.add('show');
 
-        if (stops.length === 0) {
+        if (!Array.isArray(stops) || stops.length === 0) {
             resultsDiv.innerHTML = '<div class="search-result-item">No stops found</div>';
             return;
         }
 
         resultsDiv.innerHTML = stops.map(stop => `
-            <div class="search-result-item" onclick="addStop('${stop.id}', '${stop.name}', ${stop.location.lat}, ${stop.location.lon})">
-                <div class="stop-name">${stop.name}</div>
+            <div class="search-result-item" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon}, true)">
+                <div class="stop-name">${escapeHtml(stop.name)}</div>
                 <small class="text-muted">${stop.id}</small>
             </div>
         `).join('');
     } catch (error) {
         console.error('Error searching stops:', error);
+        const resultsDiv = document.getElementById('stopSearchResults');
+        resultsDiv.classList.add('show');
+        resultsDiv.innerHTML = '<div class="search-result-item text-danger">Error searching stops</div>';
     }
 }
 
+// Make addStop available globally
+window.addStop = addStop;
+
 // Add a stop to the selection
-function addStop(stopId, stopName, lat, lon) {
-    if (stopMarkers.has(stopId)) {
+function addStop(stopId, stopName, lat, lon, fromSearch = false) {
+    if (selectedStops.has(stopId)) {
         return; // Stop already added
     }
 
-    const color = MARKER_COLORS[colorIndex % MARKER_COLORS.length];
-    colorIndex++;
+    const color = getStopColor(stopId);
 
-    // Add marker to map
+    // Remove from map markers if it exists
+    if (mapMarkers.has(stopId)) {
+        const { marker } = mapMarkers.get(stopId);
+        map.removeLayer(marker);
+        mapMarkers.delete(stopId);
+    }
+
+    // Add marker to map for the selected stop
     const marker = L.marker([lat, lon], {
         icon: L.divIcon({
             className: 'custom-div-icon',
@@ -133,26 +276,13 @@ function addStop(stopId, stopName, lat, lon) {
             iconAnchor: [15, 42]
         })
     }).addTo(map);
-    stopMarkers.set(stopId, { marker, color });
+    selectedStops.set(stopId, { marker, color, name: stopName });
 
-    // Add to selected stops table
-    const table = document.getElementById('selectedStopsTable');
-    const row = document.createElement('div');
-    row.className = 'selected-stop-row';
-    row.id = `stop-row-${stopId}`;
-    row.innerHTML = `
-        <div class="stop-color-indicator" style="background-color: ${color};"></div>
-        <div class="stop-info">
-            <div class="stop-name">${stopName}</div>
-            <div class="stop-id">${stopId}</div>
-        </div>
-        <button class="remove-stop" onclick="removeStop('${stopId}')">&times;</button>
-    `;
-    table.appendChild(row);
-
-    // Update map bounds
-    const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
-    map.fitBounds(bounds, { padding: [50, 50] });
+    // Only adjust map bounds if the stop was added from search
+    if (fromSearch) {
+        const bounds = L.latLngBounds(Array.from(selectedStops.values()).map(m => m.marker.getLatLng()));
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
 
     // Hide search results
     document.getElementById('stopSearchResults').classList.remove('show');
@@ -164,72 +294,86 @@ function addStop(stopId, stopName, lat, lon) {
 
 // Remove a stop from the selection
 function removeStop(stopId) {
-    if (!stopMarkers.has(stopId)) {
-        return;
-    }
-
-    // Remove marker from map
-    const { marker } = stopMarkers.get(stopId);
+    const { marker } = selectedStops.get(stopId);
     map.removeLayer(marker);
-    stopMarkers.delete(stopId);
-
-    // Remove from table
-    const row = document.getElementById(`stop-row-${stopId}`);
-    row.remove();
-
-    // Update map bounds if there are still markers
-    if (stopMarkers.size > 0) {
-        const bounds = L.latLngBounds(Array.from(stopMarkers.values()).map(m => m.marker.getLatLng()));
-        map.fitBounds(bounds, { padding: [50, 50] });
-    }
-
-    // Reload routes
+    selectedStops.delete(stopId);
     loadAllRoutes();
+    
+    // Refresh map markers to show the removed stop if it's in the current view
+    loadStopsInView();
 }
 
 // Load routes for all selected stops
 async function loadAllRoutes() {
     const routesContainer = document.getElementById('routesContainer');
 
-    if (stopMarkers.size === 0) {
+    if (selectedStops.size === 0) {
         routesContainer.innerHTML = '<div class="alert alert-info">Select stops to see their routes.</div>';
         return;
     }
 
     try {
-        // Load routes for each stop
-        const routePromises = Array.from(stopMarkers.keys()).map(stopId =>
-            fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
-                .then(response => response.json())
-                .then(routes => ({ stopId, routes }))
-        );
+        // Get routes for each stop, reusing data if available
+        const results = Array.from(selectedStops.entries()).map(([stopId, stopData]) => {
+            return {
+                stopId,
+                stopName: stopData.name,
+                routes: stopData.routes || [] // Use existing routes if available
+            };
+        });
 
-        const results = await Promise.all(routePromises);
+        // Only fetch routes if we don't have them yet
+        const fetchPromises = results.map(async (result) => {
+            if (result.routes.length === 0) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/stations/${result.stopId}/routes?language=${selectedLanguage}`);
+                    result.routes = await response.json();
+                    // Store the routes in the selectedStops Map for future use
+                    selectedStops.get(result.stopId).routes = result.routes;
+                } catch (error) {
+                    console.error(`Error fetching routes for stop ${result.stopId}:`, error);
+                    result.routes = [];
+                }
+            }
+            return result;
+        });
+
+        await Promise.all(fetchPromises);
 
         // Group routes by stop
-        routesContainer.innerHTML = results.map(({ stopId, routes }) => {
-            const { color } = stopMarkers.get(stopId);
-            const stopName = escapeHtml(document.querySelector(`#stop-row-${stopId} .stop-name`).textContent);
+        routesContainer.innerHTML = results.map(({ stopId, stopName, routes }) => {
+            const { color } = selectedStops.get(stopId);
 
             return `
                 <div class="stop-routes-group">
                     <div class="stop-routes-header">
-                        <div class="d-flex align-items-center">
-                            <div class="stop-color-indicator" style="background-color: ${color};"></div>
-                            <div class="ms-2">
-                                <strong>${stopName}</strong>
-                                <div class="text-muted">Stop ID: ${stopId}</div>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center">
+                                <div class="stop-color-indicator" style="background-color: ${color};"></div>
+                                <div class="ms-2">
+                                    <strong>${stopName}</strong>
+                                    <div class="d-flex align-items-center">
+                                        <span class="text-muted">Stop ID: ${stopId}</span>
+                                        <button class="copy-button ms-2" onclick="copyToClipboard('${stopId}')" title="Copy stop ID">
+                                            📋
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="removeStop('${stopId}')">Remove</button>
                         </div>
                     </div>
                     <div class="stop-routes-content">
                         ${routes.length === 0 ?
-                    '<div class="p-3">No routes found for this stop.</div>' :
-                    routes.map(route => `
+                            '<div class="p-3">No routes found for this stop.</div>' :
+                            routes.map(route => `
                                 <div class="route-line" style="border-left-color: #${route.color || '000000'}">
                                     <div class="d-flex align-items-start">
                                         <div class="route-badge" style="background-color: #${route.color || '6c757d'}">
                                             ${route.short_name || route.route_id}
+                                            <button class="copy-button ms-1" onclick="copyToClipboard('${route.route_id}')" title="Copy route ID">
+                                                📋
+                                            </button>
                                         </div>
                                         <div class="ms-3">
                                             <div class="fw-bold">${route.headsign || route.last_stop}</div>
@@ -238,8 +382,8 @@ async function loadAllRoutes() {
                                                 From: ${route.first_stop}<br>
                                                 To: ${route.last_stop}<br>
                                                 Service days: ${route.service_days.map(day =>
-                        day.charAt(0).toUpperCase() + day.slice(1)
-                    ).join(', ')}
+                                                    day.charAt(0).toUpperCase() + day.slice(1)
+                                                ).join(', ')}
                                             </div>
                                             <div class="mt-2">
                                                 <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
@@ -255,7 +399,7 @@ async function loadAllRoutes() {
                                     </div>
                                 </div>
                             `).join('')
-                }
+                        }
                     </div>
                 </div>
             `;
@@ -267,23 +411,37 @@ async function loadAllRoutes() {
     }
 }
 
+// Function to generate distinct colors
+function generateDistinctColors(count) {
+    // Generate a palette of RGB colors
+    const colors = [];
+    for (let r = 0; r <= 255; r += 32) {
+        for (let g = 0; g <= 255; g += 32) {
+            for (let b = 0; b <= 255; b += 32) {
+                colors.push([r, g, b]);
+            }
+        }
+    }
+
+    // Use simulated annealing to select distinct colors
+    const result = simulatedAnnealing(colors, count);
+    return result.colors.map(rgb => rgbToHex(rgb));
+}
 
 // Setup event listeners
 function setupEventListeners() {
     // Provider selection
     document.getElementById('providerSelect').addEventListener('change', async (e) => {
         const provider = e.target.value;
-        showLoading('Loading GTFS data...');
         try {
             const response = await fetch(`${API_BASE_URL}/provider/${provider}`, { method: 'POST' });
             const result = await response.json();
 
             if (result.status === 'success') {
                 document.getElementById('stopSearch').disabled = false;
-                showSuccess('GTFS data loaded successfully');
                 await loadLanguages();
-                // Do initial search after provider is loaded
-                await searchStops('ab');
+                // Load initial stops in current view
+                await loadStopsInView(true);
             } else {
                 showError('Failed to load GTFS data');
             }
@@ -296,7 +454,7 @@ function setupEventListeners() {
     // Language selection
     document.getElementById('languageSelect').addEventListener('change', (e) => {
         selectedLanguage = e.target.value;
-        if (stopMarkers.size > 0) {
+        if (selectedStops.size > 0) {
             loadAllRoutes();
         }
     });
@@ -315,6 +473,11 @@ function setupEventListeners() {
         if (!searchResults.contains(e.target) && e.target !== searchInput) {
             searchResults.classList.remove('show');
         }
+    });
+
+    // Show/hide unselected stops checkbox
+    document.getElementById('showUnselectedStops').addEventListener('change', () => {
+        loadStopsInView();
     });
 }
 
@@ -387,3 +550,273 @@ async function loadLanguages() {
 
 // Initialize when the page loads
 document.addEventListener('DOMContentLoaded', init);
+
+// Make functions available globally
+window.addStop = addStop;
+window.removeStop = removeStop;
+
+// Load stops in current map view
+async function loadStopsInView(initialLoad = false) {
+    const currentBounds = map.getBounds();
+    const providerId = providerSelect.value;
+    if (!providerId) return;
+
+    try {
+        // Show loading indicator for all loads
+        const backendStatus = document.getElementById('backendStatus');
+        const statusText = backendStatus.querySelector('.status-text');
+        backendStatus.className = 'backend-status loading';
+        backendStatus.style.display = 'block';
+        backendStatus.classList.remove('fade-out');
+        statusText.textContent = initialLoad ? 'Loading stops...' : 'Loading additional stops...';
+
+        // First get the count of stops in the area
+        const countResponse = await fetch(
+            `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+            `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+            `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}&` +
+            `count_only=true`
+        );
+        
+        if (!countResponse.ok) throw new Error('Failed to fetch stop count');
+        const { count } = await countResponse.json();
+
+        // If we have a reasonable number of stops, load them all at once
+        if (count <= 100) {
+            statusText.textContent = `Loading ${count} stops...`;
+            const response = await fetch(
+                `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+                `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+                `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}`
+            );
+            
+            if (!response.ok) throw new Error('Failed to fetch stops');
+            
+            const stops = await response.json();
+            updateStopsOnMap(stops, initialLoad);
+            lastLoadedBounds = currentBounds;
+            
+            // Show success and fade out
+            backendStatus.className = 'backend-status ready';
+            statusText.textContent = 'Stops loaded successfully';
+            setTimeout(() => {
+                backendStatus.classList.add('fade-out');
+                setTimeout(() => {
+                    backendStatus.style.display = 'none';
+                    backendStatus.classList.remove('fade-out');
+                }, 2000);
+            }, 2000);
+            return;
+        }
+
+        // For larger numbers of stops, load them in batches
+        const batchSize = 100;
+        const totalBatches = Math.ceil(count / batchSize);
+        let loadedStops = 0;
+        
+        for (let batch = 0; batch < totalBatches; batch++) {
+            // Check if the map has moved significantly before loading next batch
+            const newBounds = map.getBounds();
+            if (!newBounds.equals(currentBounds)) {
+                console.log('Map moved, stopping batch loading');
+                statusText.textContent = 'Map moved, loading stops in new area...';
+                break;
+            }
+
+            // Update loading status with progress
+            statusText.textContent = `Loading stops... (${Math.min(loadedStops + batchSize, count)}/${count})`;
+
+            const response = await fetch(
+                `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+                `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+                `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}&` +
+                `offset=${batch * batchSize}&limit=${batchSize}`
+            );
+            
+            if (!response.ok) throw new Error('Failed to fetch stops');
+            
+            const stops = await response.json();
+            updateStopsOnMap(stops, batch === 0 && initialLoad);
+            loadedStops += stops.length;
+
+            // Add a small delay between batches to allow for map interaction
+            if (batch < totalBatches - 1) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        lastLoadedBounds = currentBounds;
+        
+        // Show success and fade out
+        backendStatus.className = 'backend-status ready';
+        statusText.textContent = `Loaded ${loadedStops} stops successfully`;
+        setTimeout(() => {
+            backendStatus.classList.add('fade-out');
+            setTimeout(() => {
+                backendStatus.style.display = 'none';
+                backendStatus.classList.remove('fade-out');
+            }, 2000);
+        }, 2000);
+
+    } catch (error) {
+        console.error('Error loading stops:', error);
+        const backendStatus = document.getElementById('backendStatus');
+        backendStatus.className = 'backend-status error';
+        backendStatus.querySelector('.status-text').textContent = 'Failed to load stops';
+        backendStatus.style.display = 'block';
+        backendStatus.classList.remove('fade-out');
+    }
+}
+
+// Calculate new areas that need to be loaded
+function getNewAreas(oldBounds, newBounds) {
+    const areas = [];
+    
+    // Only add areas if they don't completely overlap
+    if (!oldBounds.contains(newBounds)) {
+        // North
+        if (newBounds.getNorth() > oldBounds.getNorth()) {
+            areas.push(L.latLngBounds(
+                [oldBounds.getNorth(), newBounds.getWest()],
+                [newBounds.getNorth(), newBounds.getEast()]
+            ));
+        }
+        // South
+        if (newBounds.getSouth() < oldBounds.getSouth()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), newBounds.getWest()],
+                [oldBounds.getSouth(), newBounds.getEast()]
+            ));
+        }
+        // East
+        if (newBounds.getEast() > oldBounds.getEast()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), oldBounds.getEast()],
+                [newBounds.getNorth(), newBounds.getEast()]
+            ));
+        }
+        // West
+        if (newBounds.getWest() < oldBounds.getWest()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), newBounds.getWest()],
+                [newBounds.getNorth(), oldBounds.getWest()]
+            ));
+        }
+    }
+    
+    return areas;
+}
+
+// Remove markers that are no longer visible
+function unloadInvisibleStops(currentBounds) {
+    const markersToRemove = [];
+    mapMarkers.forEach((data, stopId) => {
+        const pos = data.marker.getLatLng();
+        if (!currentBounds.contains(pos)) {
+            markersToRemove.push(stopId);
+        }
+    });
+
+    markersToRemove.forEach(stopId => {
+        const marker = mapMarkers.get(stopId);
+        if (marker) {
+            map.removeLayer(marker.marker);
+            mapMarkers.delete(stopId);
+        }
+    });
+}
+
+// Update stops displayed on the map
+function updateStopsOnMap(stops, clearExisting = true) {
+    // Clear existing markers if requested
+    if (clearExisting) {
+        mapMarkers.forEach(({ marker }) => map.removeLayer(marker));
+        mapMarkers.clear();
+    }
+
+    // Check if we should show unselected stops
+    const showUnselected = document.getElementById('showUnselectedStops').checked;
+    if (!showUnselected) return;
+
+    // Add new markers
+    stops.forEach(stop => {
+        // Skip if this stop is already selected or already has a marker
+        if (selectedStops.has(stop.id) || mapMarkers.has(stop.id)) return;
+
+        const color = getStopColor(stop.id);
+
+        const marker = L.marker([stop.location.lat, stop.location.lon], {
+            icon: L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color: ${color};" class="marker-pin"></div>`,
+                iconSize: [30, 42],
+                iconAnchor: [15, 42]
+            })
+        });
+
+        // Create popup content
+        const popupContent = document.createElement('div');
+        popupContent.className = 'stop-popup';
+        
+        // Create the content elements
+        const content = document.createElement('div');
+        content.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <h5>${escapeHtml(stop.name)}</h5>
+                <button class="copy-button" onclick="copyToClipboard('${stop.id}')" title="Copy stop ID">
+                    📋
+                </button>
+            </div>
+            <div class="stop-id">${stop.id}</div>
+            ${stop.routes ? `
+                <div class="routes-list">
+                    <h6>Routes:</h6>
+                    ${stop.routes.map(route => `
+                        <div class="route-item" style="border-left-color: #${route.color || '000000'}">
+                            <span class="route-badge" style="background-color: #${route.color || '6c757d'}">
+                                ${route.short_name || route.route_id}
+                            </span>
+                            <span class="route-name">${route.route_name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+        `;
+        popupContent.appendChild(content);
+
+        // Create and append the button with a direct event listener
+        const addButton = document.createElement('button');
+        addButton.className = 'btn btn-sm btn-primary mt-2';
+        addButton.textContent = 'Add to selection';
+        addButton.addEventListener('click', () => {
+            addStop(stop.id, stop.name, stop.location.lat, stop.location.lon, false);
+            marker.closePopup();
+        });
+        popupContent.appendChild(addButton);
+
+        marker.bindPopup(popupContent);
+        marker.addTo(map);
+        mapMarkers.set(stop.id, { marker, color, name: stop.name });
+    });
+}
+
+// Debounce the loadStopsInView function
+let debounceTimer = null;
+function debounceLoadStops() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => loadStopsInView(false), 300);
+}
+
+// Function to copy text to clipboard
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (err) {
+        console.error('Failed to copy text:', err);
+    }
+}
+
+// Make copy function available globally
+window.copyToClipboard = copyToClipboard;

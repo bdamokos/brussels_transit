@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Request, Path
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Union
 from datetime import datetime, timedelta
 import os
 from pathlib import Path as FilePath
@@ -32,6 +32,7 @@ from .models import (
     DatasetValidation,
     RouteColors,
     LineInfo,
+    BoundingBox,
 )
 from .gtfs_loader import FlixbusFeed, load_feed
 
@@ -1399,3 +1400,310 @@ async def delete_all_datasets():
     except Exception as e:
         logger.error(f"Error deleting all datasets: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/api/{provider_id}/stops/bbox",
+    response_model=Union[List[StationResponse], Dict[str, int]],
+)
+async def get_stops_in_bbox(
+    provider_id: str = Path(...),
+    min_lat: float = Query(..., description="Minimum latitude of bounding box"),
+    min_lon: float = Query(..., description="Minimum longitude of bounding box"),
+    max_lat: float = Query(..., description="Maximum latitude of bounding box"),
+    max_lon: float = Query(..., description="Maximum longitude of bounding box"),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+    offset: Optional[int] = Query(0, description="Number of stops to skip"),
+    limit: Optional[int] = Query(None, description="Maximum number of stops to return"),
+    count_only: bool = Query(
+        False, description="Only return the count of stops in the bounding box"
+    ),
+):
+    """Get all stops within a bounding box for a specific provider."""
+    # Validate bounding box
+    try:
+        bbox = BoundingBox(
+            min_lat=min_lat,
+            min_lon=min_lon,
+            max_lat=max_lat,
+            max_lon=max_lon,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
+        raise HTTPException(
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
+        )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    # Filter stops within the bounding box
+    stops_in_bbox = []
+    for stop_id, stop in feed.stops.items():
+        if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
+            bbox.min_lon <= stop.lon <= bbox.max_lon
+        ):
+            # If we only need the count, just add the ID
+            if count_only:
+                stops_in_bbox.append(stop_id)
+                continue
+
+            # Get translated name if available
+            name = feed.get_stop_name(stop_id, language)
+            if not name:
+                name = stop.name
+
+            # Create basic station response without routes for now
+            stops_in_bbox.append(
+                StationResponse(
+                    id=stop_id,
+                    name=name,
+                    location=Location(lat=stop.lat, lon=stop.lon),
+                    translations=(
+                        stop.translations if hasattr(stop, "translations") else None
+                    ),
+                    routes=[],  # Routes will be added later for paginated results
+                )
+            )
+
+    if count_only:
+        return {"count": len(stops_in_bbox)}
+
+    # Sort stops by ID to ensure consistent pagination
+    stops_in_bbox.sort(key=lambda x: x.id)
+
+    # Apply pagination
+    paginated_stops = stops_in_bbox[offset:]
+    if limit is not None:
+        paginated_stops = paginated_stops[:limit]
+
+    # Now process routes only for the paginated stops
+    for stop in paginated_stops:
+        routes_info = []
+        seen_route_ids = set()
+
+        for route in feed.routes:
+            # Skip if we've already seen this route
+            if route.route_id in seen_route_ids:
+                continue
+
+            # Check if this stop is served by this route
+            station_in_route = False
+            for route_stop in route.stops:
+                if route_stop.stop.id == stop.id:
+                    station_in_route = True
+                    break
+
+            if station_in_route:
+                seen_route_ids.add(route.route_id)
+
+                # Get stop names in the correct language
+                stop_names = [
+                    (
+                        feed.get_stop_name(s.stop.id, language)
+                        if language != "default"
+                        else s.stop.name
+                    )
+                    for s in route.stops
+                ]
+
+                # Handle NaN values in route name and colors
+                route_name = route.route_name
+                if pd.isna(route_name):
+                    route_name = f"Route {route.route_id}"
+
+                color = (
+                    route.color
+                    if hasattr(route, "color") and not pd.isna(route.color)
+                    else None
+                )
+                text_color = (
+                    route.text_color
+                    if hasattr(route, "text_color") and not pd.isna(route.text_color)
+                    else None
+                )
+
+                routes_info.append(
+                    RouteInfo(
+                        route_id=route.route_id,
+                        route_name=route_name,
+                        short_name=(
+                            route.short_name if hasattr(route, "short_name") else None
+                        ),
+                        color=color,
+                        text_color=text_color,
+                        first_stop=stop_names[0],
+                        last_stop=stop_names[-1],
+                        stops=stop_names,
+                        headsign=route.stops[-1].stop.name,
+                        service_days=route.service_days,
+                        parent_station_id=getattr(stop, "parent_station", None),
+                        terminus_stop_id=route.stops[-1].stop.id,
+                        service_days_explicit=(
+                            route.service_days_explicit
+                            if hasattr(route, "service_days_explicit")
+                            else None
+                        ),
+                        calendar_dates_additions=(
+                            route.calendar_dates_additions
+                            if hasattr(route, "calendar_dates_additions")
+                            else None
+                        ),
+                        calendar_dates_removals=(
+                            route.calendar_dates_removals
+                            if hasattr(route, "calendar_dates_removals")
+                            else None
+                        ),
+                        valid_calendar_days=(
+                            route.valid_calendar_days
+                            if hasattr(route, "valid_calendar_days")
+                            else None
+                        ),
+                        service_calendar=(
+                            route.service_calendar
+                            if hasattr(route, "service_calendar")
+                            else None
+                        ),
+                    )
+                )
+
+        stop.routes = routes_info
+
+    return paginated_stops
+
+
+@app.get("/api/{provider_id}/routes/find", response_model=List[RouteInfo])
+async def find_route_by_name(
+    provider_id: str = Path(...),
+    route_name: Optional[str] = Query(
+        None, description="Full route name to search for"
+    ),
+    short_name: Optional[str] = Query(
+        None, description="Short name (line number) to search for"
+    ),
+    language: Optional[str] = Query(
+        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
+    ),
+):
+    """Find route IDs by searching with route names or short names.
+    Returns all matching routes with their details."""
+
+    if not route_name and not short_name:
+        raise HTTPException(
+            status_code=400, detail="Either route_name or short_name must be provided"
+        )
+
+    # Check provider availability and load if needed
+    is_ready, message, provider = await ensure_provider_loaded(provider_id)
+    if not is_ready:
+        raise HTTPException(
+            status_code=409 if "being loaded" in message else 404,
+            detail=message,
+        )
+
+    if not feed:
+        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+    matching_routes = []
+    for route in feed.routes:
+        # Check if route matches any of the search criteria
+        matches = False
+
+        if route_name:
+            # Check route_name against various name fields
+            route_full_name = (
+                route.route_name
+                if hasattr(route, "route_name") and not pd.isna(route.route_name)
+                else ""
+            )
+            if route_name.lower() in route_full_name.lower():
+                matches = True
+
+        if short_name and not matches:
+            # Check short_name
+            route_short = (
+                route.short_name
+                if hasattr(route, "short_name") and not pd.isna(route.short_name)
+                else ""
+            )
+            if short_name.lower() == route_short.lower():
+                matches = True
+
+        if matches:
+            # Get stop names in the correct language
+            stop_names = [
+                (
+                    feed.get_stop_name(s.stop.id, language)
+                    if language != "default"
+                    else s.stop.name
+                )
+                for s in route.stops
+            ]
+
+            # Handle NaN values in route name and colors
+            route_name = route.route_name
+            if pd.isna(route_name):
+                route_name = f"Route {route.route_id}"
+
+            color = (
+                route.color
+                if hasattr(route, "color") and not pd.isna(route.color)
+                else None
+            )
+            text_color = (
+                route.text_color
+                if hasattr(route, "text_color") and not pd.isna(route.text_color)
+                else None
+            )
+
+            matching_routes.append(
+                RouteInfo(
+                    route_id=route.route_id,
+                    route_name=route_name,
+                    short_name=(
+                        route.short_name if hasattr(route, "short_name") else None
+                    ),
+                    color=color,
+                    text_color=text_color,
+                    first_stop=stop_names[0],
+                    last_stop=stop_names[-1],
+                    stops=stop_names,
+                    headsign=route.stops[-1].stop.name,
+                    service_days=route.service_days,
+                    terminus_stop_id=route.stops[-1].stop.id,
+                    service_days_explicit=(
+                        route.service_days_explicit
+                        if hasattr(route, "service_days_explicit")
+                        else None
+                    ),
+                    calendar_dates_additions=(
+                        route.calendar_dates_additions
+                        if hasattr(route, "calendar_dates_additions")
+                        else None
+                    ),
+                    calendar_dates_removals=(
+                        route.calendar_dates_removals
+                        if hasattr(route, "calendar_dates_removals")
+                        else None
+                    ),
+                    valid_calendar_days=(
+                        route.valid_calendar_days
+                        if hasattr(route, "valid_calendar_days")
+                        else None
+                    ),
+                    service_calendar=(
+                        route.service_calendar
+                        if hasattr(route, "service_calendar")
+                        else None
+                    ),
+                )
+            )
+
+    return matching_routes

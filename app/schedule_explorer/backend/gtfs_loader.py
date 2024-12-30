@@ -424,9 +424,9 @@ class Route:
             if start_dates and end_dates:
                 start_date = min(start_dates)
                 end_date = max(end_dates)
-                logger.info(
-                    f"Route {self.route_id}: Calendar window: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
-                )
+                # logger.info(
+                #     f"Route {self.route_id}: Calendar window: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+                # )
 
                 # For each day in the window, check if the route operates
                 current_date = start_date
@@ -546,15 +546,15 @@ class Route:
                     has_exception = True
                     if cal_date.exception_type == 1:  # Service added
                         operates = True
-                        logger.info(
-                            f"Route {self.route_id}: Service {service_id} added on {date.strftime('%Y-%m-%d')} via exception"
-                        )
+                        # logger.info(
+                        #     f"Route {self.route_id}: Service {service_id} added on {date.strftime('%Y-%m-%d')} via exception"
+                        # )
                         break
                     elif cal_date.exception_type == 2:  # Service removed
                         operates = False
-                        logger.info(
-                            f"Route {self.route_id}: Service {service_id} removed on {date.strftime('%Y-%m-%d')} via exception"
-                        )
+                        # logger.info(
+                        #     f"Route {self.route_id}: Service {service_id} removed on {date.strftime('%Y-%m-%d')} via exception"
+                        # )
                         break
 
             # If no exception found and we have a regular calendar, check it
@@ -1668,9 +1668,9 @@ def load_feed(
                 start_date=datetime.strptime(str(row["start_date"]), "%Y%m%d"),
                 end_date=datetime.strptime(str(row["end_date"]), "%Y%m%d"),
             )
-            logger.info(
-                f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
-            )
+            # logger.info(
+            #     f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
+            # )
         del calendar_df
         logger.info(
             f"Loaded calendar.txt with {len(calendars)} services in {time.time() - t0:.2f} seconds"
