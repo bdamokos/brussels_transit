@@ -565,7 +565,7 @@ def _get_stop_info(stop_id: str) -> Dict[str, Any]:
     if stop_id in _stops_cache:
         return _stops_cache[stop_id]
     else:
-        logger.warning(f"Stop {stop_id} not found in GTFS data")
+        # logger.warning(f"Stop {stop_id} not found in GTFS data")
         return {"name": f"Unknown stop ({stop_id})", "lat": None, "lon": None}
 
 
@@ -750,9 +750,9 @@ def _get_destination_from_trip(
             logger.debug(f"Found match for base trip ID {base_trip_id}: {headsign}")
             return headsign
 
-        logger.warning(
-            f"Trip {trip_id} (base: {base_trip_id}) not found in GTFS data. This might indicate that the GTFS file needs to be updated."
-        )
+        # logger.warning(
+        #     f"Trip {trip_id} (base: {base_trip_id}) not found in GTFS data. This might indicate that the GTFS file needs to be updated."
+        # )
         return _get_fallback_destination(stop_sequence)
 
     except Exception as e:
