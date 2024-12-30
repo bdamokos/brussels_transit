@@ -245,15 +245,15 @@ class GTFSManager:
     async def ensure_gtfs_data(self) -> Optional[Path]:
         """Ensure GTFS data is downloaded and up to date"""
         try:
+            # Create GTFS directory if it doesn't exist
             if not GTFS_DIR:
-                logger.error("GTFS_DIR is not set")
-                return None
-
-            # Check if GTFS data exists and is recent enough
-            gtfs_files = [GTFS_DIR / f for f in GTFS_USED_FILES]
-            if not gtfs_files:
-                logger.error("GTFS_USED_FILES is not set")
-                return None
+                #     GTFS_DIR.mkdir(parents=True, exist_ok=True)
+                # else:
+                logger.error("GTFS_DIR is not set in provider configuration")
+                GTFS_DIR = Path(os.environ["PROJECT_ROOT"]) / "downloads"
+                logger.info(
+                    f"Using default GTFS_DIR: {GTFS_DIR} - please set it in provider configuration"
+                )
 
             # Check if we need to download new data
             datasets = self.mobility_api.datasets
