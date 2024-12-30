@@ -13,17 +13,17 @@ const API_BASE_URL = window.API_BASE_URL;
 
 // Function to get a consistent color for a stop ID
 function getStopColor(stopId) {
-    // Simple hash function
+    // More chaotic hash function that spreads consecutive IDs across the color space
     let hash = 0;
     for (let i = 0; i < stopId.length; i++) {
-        hash = ((hash << 5) - hash) + stopId.charCodeAt(i);
-        hash = hash & hash; // Convert to 32-bit integer
+        // Use prime numbers and bit operations for more chaos
+        hash = Math.imul(hash ^ stopId.charCodeAt(i), 1597); // Prime number
+        hash = hash ^ (hash >>> 7);  // Right shift and XOR
+        hash = Math.imul(hash, 367); // Another prime
     }
-    // Make sure hash is positive
-    hash = Math.abs(hash);
-    // Get color from predefined list
-    const colorRGB = colors[hash % colors.length];
-    return `rgb(${colorRGB[0]}, ${colorRGB[1]}, ${colorRGB[2]})`;
+    // Make sure hash is positive and well-distributed
+    hash = Math.abs(hash ^ (hash >>> 16));
+    return `rgb(${colors[hash % colors.length].join(', ')})`;
 }
 
 // Function to escape HTML special characters
@@ -305,16 +305,32 @@ async function loadAllRoutes() {
     }
 
     try {
-        // Load routes for each stop
-        const routePromises = Array.from(selectedStops.keys()).map(stopId => {
-            const stopName = selectedStops.get(stopId).name || '';
-            
-            return fetch(`${API_BASE_URL}/stations/${stopId}/routes?language=${selectedLanguage}`)
-                .then(response => response.json())
-                .then(routes => ({ stopId, stopName, routes }));
+        // Get routes for each stop, reusing data if available
+        const results = Array.from(selectedStops.entries()).map(([stopId, stopData]) => {
+            return {
+                stopId,
+                stopName: stopData.name,
+                routes: stopData.routes || [] // Use existing routes if available
+            };
         });
 
-        const results = await Promise.all(routePromises);
+        // Only fetch routes if we don't have them yet
+        const fetchPromises = results.map(async (result) => {
+            if (result.routes.length === 0) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/stations/${result.stopId}/routes?language=${selectedLanguage}`);
+                    result.routes = await response.json();
+                    // Store the routes in the selectedStops Map for future use
+                    selectedStops.get(result.stopId).routes = result.routes;
+                } catch (error) {
+                    console.error(`Error fetching routes for stop ${result.stopId}:`, error);
+                    result.routes = [];
+                }
+            }
+            return result;
+        });
+
+        await Promise.all(fetchPromises);
 
         // Group routes by stop
         routesContainer.innerHTML = results.map(({ stopId, stopName, routes }) => {
