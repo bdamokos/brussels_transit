@@ -1412,6 +1412,7 @@ async def get_stops_in_bbox(
     language: Optional[str] = Query(
         "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
     ),
+    limit: Optional[int] = Query(None, description="Maximum number of stops to return"),
 ):
     """Get all stops within a bounding box for a specific provider."""
     # Validate bounding box
@@ -1549,5 +1550,9 @@ async def get_stops_in_bbox(
                 routes=routes_info,
             )
             stops_in_bbox.append(station)
+
+            # Apply limit if specified
+            if limit is not None and len(stops_in_bbox) >= limit:
+                break
 
     return stops_in_bbox

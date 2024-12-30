@@ -221,13 +221,13 @@ async function searchStops(query) {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&provider_id=${providerSelect.value}`);
         const stops = await response.json();
-
+        
         const resultsDiv = document.getElementById('stopSearchResults');
         resultsDiv.classList.add('show');
 
-        if (stops.length === 0) {
+        if (!Array.isArray(stops) || stops.length === 0) {
             resultsDiv.innerHTML = '<div class="search-result-item">No stops found</div>';
             return;
         }
@@ -240,6 +240,9 @@ async function searchStops(query) {
         `).join('');
     } catch (error) {
         console.error('Error searching stops:', error);
+        const resultsDiv = document.getElementById('stopSearchResults');
+        resultsDiv.classList.add('show');
+        resultsDiv.innerHTML = '<div class="search-result-item text-danger">Error searching stops</div>';
     }
 }
 
@@ -425,17 +428,15 @@ function setupEventListeners() {
     // Provider selection
     document.getElementById('providerSelect').addEventListener('change', async (e) => {
         const provider = e.target.value;
-        showLoading('Loading GTFS data...');
         try {
             const response = await fetch(`${API_BASE_URL}/provider/${provider}`, { method: 'POST' });
             const result = await response.json();
 
             if (result.status === 'success') {
                 document.getElementById('stopSearch').disabled = false;
-                showSuccess('GTFS data loaded successfully');
                 await loadLanguages();
-                // Do initial search after provider is loaded
-                await searchStops('ab');
+                // Load initial stops in current view
+                await loadStopsInView(true);
             } else {
                 showError('Failed to load GTFS data');
             }
@@ -550,26 +551,75 @@ window.addStop = addStop;
 window.removeStop = removeStop;
 
 // Load stops in current map view
-async function loadStopsInView() {
+async function loadStopsInView(initialLoad = false) {
     const bounds = map.getBounds();
     const providerId = providerSelect.value;
     if (!providerId) return;
 
     try {
+        // Show loading indicator for initial load
+        if (initialLoad) {
+            showLoading('Loading stops...');
+        }
+
+        // First, quickly load a limited number of stops
         const response = await fetch(
             `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
             `min_lat=${bounds.getSouth()}&max_lat=${bounds.getNorth()}&` +
-            `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}`
+            `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}` +
+            (initialLoad ? '&limit=10' : '')
         );
         
         if (!response.ok) throw new Error('Failed to fetch stops');
         
         const stops = await response.json();
         updateStopsOnMap(stops);
+
+        // If this was the initial load with limit, load all stops
+        if (initialLoad && stops.length === 10) {  // If we got exactly 10 stops, there might be more
+            const fullResponse = await fetch(
+                `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+                `min_lat=${bounds.getSouth()}&max_lat=${bounds.getNorth()}&` +
+                `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}`
+            );
+            
+            if (!fullResponse.ok) throw new Error('Failed to fetch all stops');
+            
+            const allStops = await fullResponse.json();
+            updateStopsOnMap(allStops);
+        }
+
+        if (initialLoad) {
+            showSuccess('Stops loaded successfully');
+        }
     } catch (error) {
         console.error('Error loading stops:', error);
+        if (initialLoad) {
+            showError('Failed to load stops');
+        }
     }
 }
+
+// Debounce the loadStopsInView function
+let debounceTimer = null;
+function debounceLoadStops() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => loadStopsInView(false), 300);
+}
+
+// Function to copy text to clipboard
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (err) {
+        console.error('Failed to copy text:', err);
+    }
+}
+
+// Make copy function available globally
+window.copyToClipboard = copyToClipboard;
 
 // Update stops displayed on the map
 function updateStopsOnMap(stops) {
@@ -642,24 +692,3 @@ function updateStopsOnMap(stops) {
         mapMarkers.set(stop.id, { marker, color, name: stop.name });
     });
 }
-
-// Debounce the loadStopsInView function
-let debounceTimer = null;
-function debounceLoadStops() {
-    if (debounceTimer) {
-        clearTimeout(debounceTimer);
-    }
-    debounceTimer = setTimeout(loadStopsInView, 300);
-}
-
-// Function to copy text to clipboard
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch (err) {
-        console.error('Failed to copy text:', err);
-    }
-}
-
-// Make copy function available globally
-window.copyToClipboard = copyToClipboard;
