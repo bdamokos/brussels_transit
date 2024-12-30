@@ -1084,6 +1084,16 @@ async def get_waiting_times(
     if not gtfs_stop:
         raise HTTPException(status_code=404, detail=f"Stop {stop_id} not found")
 
+    # Get the agency timezone
+    agency_timezone = None
+    if feed.agencies:
+        # Get the first agency's timezone (all agencies inside a GTFS dataset musth have the same timezone)
+        agency_timezone = next(iter(feed.agencies.values())).agency_timezone
+
+    # If no agency timezone found, use the server timezone
+    if not agency_timezone:
+        agency_timezone = datetime.now().astimezone().tzname()
+
     # Determine if this is a parent station or child stop
     is_parent = getattr(gtfs_stop, "location_type", 0) == 1
     parent_id = getattr(gtfs_stop, "parent_station", None)
@@ -1111,15 +1121,15 @@ async def get_waiting_times(
         elif time_utc:
             # If UTC time is provided, convert it to local
             utc_time = datetime.strptime(time_utc, "%H:%M:%S")
-            target_time = utc_time.astimezone(ZoneInfo("Europe/Brussels")).time()
+            target_time = utc_time.astimezone(ZoneInfo(agency_timezone)).time()
         else:
             # If no time provided, use current local time
-            target_time = datetime.now(ZoneInfo("Europe/Brussels")).time()
+            target_time = datetime.now(ZoneInfo(agency_timezone)).time()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM:SS")
 
     # Get current time in local timezone
-    current_time = datetime.now(ZoneInfo("Europe/Brussels")).strftime("%H:%M:%S")
+    current_time = datetime.now(ZoneInfo(agency_timezone)).strftime("%H:%M:%S")
 
     # Initialize response structure with proper models
     next_arrivals: Dict[str, Dict[str, List[ArrivalInfo]]] = {}
