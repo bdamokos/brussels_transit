@@ -1668,9 +1668,9 @@ def load_feed(
                 start_date=datetime.strptime(str(row["start_date"]), "%Y%m%d"),
                 end_date=datetime.strptime(str(row["end_date"]), "%Y%m%d"),
             )
-            logger.info(
-                f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
-            )
+            # logger.info(
+            #     f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
+            # )
         del calendar_df
         logger.info(
             f"Loaded calendar.txt with {len(calendars)} services in {time.time() - t0:.2f} seconds"
