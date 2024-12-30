@@ -11,8 +11,8 @@ import pytz
 
 dotenv.load_dotenv(override=True)
 
-# Get project root directory
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# Get project root from environment variable (set by start.py)
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
 # Provider Configuration
 ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]  # List of enabled transit providers

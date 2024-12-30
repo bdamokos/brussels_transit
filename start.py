@@ -5,6 +5,10 @@ import signal
 import time
 from pathlib import Path
 
+# Set project root as environment variable
+PROJECT_ROOT = str(Path(__file__).parent.absolute())
+os.environ["PROJECT_ROOT"] = PROJECT_ROOT
+
 # Add app directory to Python path
 app_dir = Path(__file__).parent / "app"
 sys.path.append(str(app_dir))
@@ -15,8 +19,10 @@ def run_apps():
     print("Starting all components...")
 
     # Create shared directories
-    logs_dir = Path(__file__).parent / "logs"
+    logs_dir = Path(PROJECT_ROOT) / "logs"
     logs_dir.mkdir(exist_ok=True)
+    cache_dir = Path(PROJECT_ROOT) / "cache"
+    cache_dir.mkdir(exist_ok=True)
 
     # Start processes
     processes = []

@@ -55,7 +55,7 @@ if "handlers" not in logging_config:
 if "loggers" not in logging_config:
     logging_config["loggers"] = {}
 
-logging_config["handlers"]["bkk_file"] = {
+logging_config["handlers"]["legacy_app"] = {
     "class": "logging.handlers.RotatingFileHandler",
     "filename": str(Path("logs/bkk.log").absolute()),
     "maxBytes": 1024 * 1024,  # 1MB
@@ -65,13 +65,19 @@ logging_config["handlers"]["bkk_file"] = {
 }
 
 logging_config["loggers"]["bkk"] = {
-    "handlers": ["bkk_file", "file"],
+    "handlers": ["legacy_app", "console"],
     "level": "DEBUG",
-    "propagate": True,
+    "propagate": False,
+}
+
+logging_config["loggers"]["bkk.api"] = {
+    "handlers": ["legacy_app", "console"],
+    "level": "DEBUG",
+    "propagate": False,
 }
 
 logging_config["loggers"]["transit_providers.config"] = {
-    "handlers": ["bkk_file", "file"],
+    "handlers": ["legacy_app", "console"],
     "level": "DEBUG",
     "propagate": True,
 }
