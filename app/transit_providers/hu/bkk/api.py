@@ -47,22 +47,16 @@ __all__ = [
 
 # Setup logging
 logging_config = get_config("LOGGING_CONFIG")
-logging_config["log_dir"].mkdir(exist_ok=True)
+
+# Ensure log directory exists
+log_dir = Path(os.environ["PROJECT_ROOT"]) / "logs"
+log_dir.mkdir(exist_ok=True)
 
 # Add handler for BKK provider if not exists
 if "handlers" not in logging_config:
     logging_config["handlers"] = {}
 if "loggers" not in logging_config:
     logging_config["loggers"] = {}
-
-logging_config["handlers"]["legacy_app"] = {
-    "class": "logging.handlers.RotatingFileHandler",
-    "filename": str(Path("logs/bkk.log").absolute()),
-    "maxBytes": 1024 * 1024,  # 1MB
-    "backupCount": 3,
-    "formatter": "standard",
-    "level": "DEBUG",
-}
 
 logging_config["loggers"]["bkk"] = {
     "handlers": ["legacy_app", "console"],
