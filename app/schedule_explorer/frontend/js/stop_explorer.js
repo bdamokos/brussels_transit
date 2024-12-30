@@ -11,6 +11,9 @@ let selectedLanguage = 'default';
 window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = window.API_BASE_URL;
 
+// Track the last loaded bounds
+let lastLoadedBounds = null;
+
 // Function to get a consistent color for a stop ID
 function getStopColor(stopId) {
     // More chaotic hash function that spreads consecutive IDs across the color space
@@ -233,7 +236,7 @@ async function searchStops(query) {
         }
 
         resultsDiv.innerHTML = stops.map(stop => `
-            <div class="search-result-item" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon})">
+            <div class="search-result-item" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon}, true)">
                 <div class="stop-name">${escapeHtml(stop.name)}</div>
                 <small class="text-muted">${stop.id}</small>
             </div>
@@ -250,7 +253,7 @@ async function searchStops(query) {
 window.addStop = addStop;
 
 // Add a stop to the selection
-function addStop(stopId, stopName, lat, lon) {
+function addStop(stopId, stopName, lat, lon, fromSearch = false) {
     if (selectedStops.has(stopId)) {
         return; // Stop already added
     }
@@ -275,9 +278,11 @@ function addStop(stopId, stopName, lat, lon) {
     }).addTo(map);
     selectedStops.set(stopId, { marker, color, name: stopName });
 
-    // Update map bounds to include all selected stops
-    const bounds = L.latLngBounds(Array.from(selectedStops.values()).map(m => m.marker.getLatLng()));
-    map.fitBounds(bounds, { padding: [50, 50] });
+    // Only adjust map bounds if the stop was added from search
+    if (fromSearch) {
+        const bounds = L.latLngBounds(Array.from(selectedStops.values()).map(m => m.marker.getLatLng()));
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
 
     // Hide search results
     document.getElementById('stopSearchResults').classList.remove('show');
@@ -552,7 +557,7 @@ window.removeStop = removeStop;
 
 // Load stops in current map view
 async function loadStopsInView(initialLoad = false) {
-    const bounds = map.getBounds();
+    const currentBounds = map.getBounds();
     const providerId = providerSelect.value;
     if (!providerId) return;
 
@@ -562,36 +567,73 @@ async function loadStopsInView(initialLoad = false) {
             showLoading('Loading stops...');
         }
 
-        // First, quickly load a limited number of stops
-        const response = await fetch(
+        // First get the count of stops in the area
+        const countResponse = await fetch(
             `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
-            `min_lat=${bounds.getSouth()}&max_lat=${bounds.getNorth()}&` +
-            `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}` +
-            (initialLoad ? '&limit=10' : '')
+            `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+            `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}&` +
+            `count_only=true`
         );
         
-        if (!response.ok) throw new Error('Failed to fetch stops');
-        
-        const stops = await response.json();
-        updateStopsOnMap(stops);
+        if (!countResponse.ok) throw new Error('Failed to fetch stop count');
+        const { count } = await countResponse.json();
 
-        // If this was the initial load with limit, load all stops
-        if (initialLoad && stops.length === 10) {  // If we got exactly 10 stops, there might be more
-            const fullResponse = await fetch(
+        // If we have a reasonable number of stops, load them all at once
+        if (count <= 100) {
+            const response = await fetch(
                 `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
-                `min_lat=${bounds.getSouth()}&max_lat=${bounds.getNorth()}&` +
-                `min_lon=${bounds.getWest()}&max_lon=${bounds.getEast()}`
+                `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+                `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}`
             );
             
-            if (!fullResponse.ok) throw new Error('Failed to fetch all stops');
+            if (!response.ok) throw new Error('Failed to fetch stops');
             
-            const allStops = await fullResponse.json();
-            updateStopsOnMap(allStops);
+            const stops = await response.json();
+            updateStopsOnMap(stops, initialLoad);
+            lastLoadedBounds = currentBounds;
+            
+            if (initialLoad) {
+                showSuccess('Stops loaded successfully');
+            }
+            return;
         }
 
+        // For larger numbers of stops, load them in batches
+        const batchSize = 100;
+        const totalBatches = Math.ceil(count / batchSize);
+        
+        for (let batch = 0; batch < totalBatches; batch++) {
+            // Check if the map has moved significantly before loading next batch
+            const newBounds = map.getBounds();
+            if (!newBounds.equals(currentBounds)) {
+                console.log('Map moved, stopping batch loading');
+                break;
+            }
+
+            const response = await fetch(
+                `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
+                `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
+                `min_lon=${currentBounds.getWest()}&max_lon=${currentBounds.getEast()}&` +
+                `offset=${batch * batchSize}&limit=${batchSize}`
+            );
+            
+            if (!response.ok) throw new Error('Failed to fetch stops');
+            
+            const stops = await response.json();
+            updateStopsOnMap(stops, batch === 0 && initialLoad);
+
+            // Add a small delay between batches to allow for map interaction
+            if (batch < totalBatches - 1) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        lastLoadedBounds = currentBounds;
+        
         if (initialLoad) {
             showSuccess('Stops loaded successfully');
         }
+
     } catch (error) {
         console.error('Error loading stops:', error);
         if (initialLoad) {
@@ -600,32 +642,71 @@ async function loadStopsInView(initialLoad = false) {
     }
 }
 
-// Debounce the loadStopsInView function
-let debounceTimer = null;
-function debounceLoadStops() {
-    if (debounceTimer) {
-        clearTimeout(debounceTimer);
+// Calculate new areas that need to be loaded
+function getNewAreas(oldBounds, newBounds) {
+    const areas = [];
+    
+    // Only add areas if they don't completely overlap
+    if (!oldBounds.contains(newBounds)) {
+        // North
+        if (newBounds.getNorth() > oldBounds.getNorth()) {
+            areas.push(L.latLngBounds(
+                [oldBounds.getNorth(), newBounds.getWest()],
+                [newBounds.getNorth(), newBounds.getEast()]
+            ));
+        }
+        // South
+        if (newBounds.getSouth() < oldBounds.getSouth()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), newBounds.getWest()],
+                [oldBounds.getSouth(), newBounds.getEast()]
+            ));
+        }
+        // East
+        if (newBounds.getEast() > oldBounds.getEast()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), oldBounds.getEast()],
+                [newBounds.getNorth(), newBounds.getEast()]
+            ));
+        }
+        // West
+        if (newBounds.getWest() < oldBounds.getWest()) {
+            areas.push(L.latLngBounds(
+                [newBounds.getSouth(), newBounds.getWest()],
+                [newBounds.getNorth(), oldBounds.getWest()]
+            ));
+        }
     }
-    debounceTimer = setTimeout(() => loadStopsInView(false), 300);
+    
+    return areas;
 }
 
-// Function to copy text to clipboard
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch (err) {
-        console.error('Failed to copy text:', err);
-    }
-}
+// Remove markers that are no longer visible
+function unloadInvisibleStops(currentBounds) {
+    const markersToRemove = [];
+    mapMarkers.forEach((data, stopId) => {
+        const pos = data.marker.getLatLng();
+        if (!currentBounds.contains(pos)) {
+            markersToRemove.push(stopId);
+        }
+    });
 
-// Make copy function available globally
-window.copyToClipboard = copyToClipboard;
+    markersToRemove.forEach(stopId => {
+        const marker = mapMarkers.get(stopId);
+        if (marker) {
+            map.removeLayer(marker.marker);
+            mapMarkers.delete(stopId);
+        }
+    });
+}
 
 // Update stops displayed on the map
-function updateStopsOnMap(stops) {
-    // Clear existing markers
-    mapMarkers.forEach(marker => map.removeLayer(marker));
-    mapMarkers.clear();
+function updateStopsOnMap(stops, clearExisting = true) {
+    // Clear existing markers if requested
+    if (clearExisting) {
+        mapMarkers.forEach(({ marker }) => map.removeLayer(marker));
+        mapMarkers.clear();
+    }
 
     // Check if we should show unselected stops
     const showUnselected = document.getElementById('showUnselectedStops').checked;
@@ -633,8 +714,8 @@ function updateStopsOnMap(stops) {
 
     // Add new markers
     stops.forEach(stop => {
-        // Skip if this stop is already selected
-        if (selectedStops.has(stop.id)) return;
+        // Skip if this stop is already selected or already has a marker
+        if (selectedStops.has(stop.id) || mapMarkers.has(stop.id)) return;
 
         const color = getStopColor(stop.id);
 
@@ -682,7 +763,7 @@ function updateStopsOnMap(stops) {
         addButton.className = 'btn btn-sm btn-primary mt-2';
         addButton.textContent = 'Add to selection';
         addButton.addEventListener('click', () => {
-            addStop(stop.id, stop.name, stop.location.lat, stop.location.lon);
+            addStop(stop.id, stop.name, stop.location.lat, stop.location.lon, false);
             marker.closePopup();
         });
         popupContent.appendChild(addButton);
@@ -692,3 +773,24 @@ function updateStopsOnMap(stops) {
         mapMarkers.set(stop.id, { marker, color, name: stop.name });
     });
 }
+
+// Debounce the loadStopsInView function
+let debounceTimer = null;
+function debounceLoadStops() {
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => loadStopsInView(false), 300);
+}
+
+// Function to copy text to clipboard
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (err) {
+        console.error('Failed to copy text:', err);
+    }
+}
+
+// Make copy function available globally
+window.copyToClipboard = copyToClipboard;
