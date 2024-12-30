@@ -39,14 +39,6 @@ from .gtfs_loader import FlixbusFeed, load_feed
 DOWNLOAD_DIR = FilePath(os.environ["PROJECT_ROOT"]) / "downloads"
 
 
-# Configure logging
-def setup_logging():
-    """Configure logging for the schedule explorer backend"""
-    logging_config = get_config("LOGGING_CONFIG")
-    logging.config.dictConfig(logging_config)
-    return logging.getLogger("schedule_explorer")
-
-
 app = FastAPI(title="Schedule Explorer API")
 
 # Enable CORS
@@ -62,7 +54,7 @@ app.add_middleware(
 feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
 available_providers: List[Provider] = []
-logger = setup_logging()
+logger = logging.getLogger("schedule_explorer.backend")
 db: Optional[MobilityAPI] = None
 
 

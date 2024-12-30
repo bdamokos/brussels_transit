@@ -5,7 +5,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 import pytz
 import logging
-from logging.config import dictConfig
 import asyncio
 from pathlib import Path
 from dataclasses import asdict
@@ -34,10 +33,6 @@ from .locate_vehicles import (
 )
 from .validate_stops import validate_line_stops, load_route_shape
 
-# Setup logging using configuration
-logging_config = get_config("LOGGING_CONFIG")
-dictConfig(logging_config)
-
 # Get logger
 logger = logging.getLogger("stib")
 
@@ -53,8 +48,8 @@ logger.debug(f"MESSAGES_API_URL: {MESSAGES_API_URL}")
 WAITING_TIMES_API_URL = provider_config.get("STIB_WAITING_TIME_API_URL", "")
 logger.debug(f"WAITING_TIMES_API_URL: {WAITING_TIMES_API_URL}")
 GTFS_URL = provider_config.get("GTFS_URL", "")
-GTFS_DIR = get_config('GTFS_DIR')
-CACHE_DIR = get_config('CACHE_DIR')
+GTFS_DIR = get_config("GTFS_DIR")
+CACHE_DIR = get_config("CACHE_DIR")
 SHAPES_CACHE_DIR = CACHE_DIR / "shapes"
 
 # Initialize caches

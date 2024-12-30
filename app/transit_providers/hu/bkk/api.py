@@ -4,7 +4,6 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import logging
-from logging.config import dictConfig
 from pathlib import Path
 import asyncio
 from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple
@@ -45,38 +44,7 @@ __all__ = [
     "get_line_colors",
 ]
 
-# Setup logging
-logging_config = get_config("LOGGING_CONFIG")
-
-# Ensure log directory exists
-log_dir = Path(os.environ["PROJECT_ROOT"]) / "logs"
-# log_dir.mkdir(exist_ok=True)
-
-# Add handler for BKK provider if not exists
-if "handlers" not in logging_config:
-    logging_config["handlers"] = {}
-if "loggers" not in logging_config:
-    logging_config["loggers"] = {}
-
-logging_config["loggers"]["bkk"] = {
-    "handlers": ["legacy_app", "console"],
-    "level": "DEBUG",
-    "propagate": False,
-}
-
-logging_config["loggers"]["bkk.api"] = {
-    "handlers": ["legacy_app", "console"],
-    "level": "DEBUG",
-    "propagate": False,
-}
-
-logging_config["loggers"]["transit_providers.config"] = {
-    "handlers": ["legacy_app", "console"],
-    "level": "DEBUG",
-    "propagate": True,
-}
-
-dictConfig(logging_config)
+# Get logger
 logger = logging.getLogger("bkk")
 
 # Get provider configuration

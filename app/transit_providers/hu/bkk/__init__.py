@@ -8,13 +8,9 @@ from typing import Dict, Any, Callable, Awaitable, List
 from transit_providers.config import get_provider_config
 from config import get_config
 import logging
-from logging.config import dictConfig
 from transit_providers import TransitProvider, register_provider
 import asyncio
 
-# Setup logging using configuration
-logging_config = get_config("LOGGING_CONFIG")
-dictConfig(logging_config)
 
 # Get logger
 logger = logging.getLogger("bkk")
