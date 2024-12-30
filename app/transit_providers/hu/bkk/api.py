@@ -276,48 +276,28 @@ class GTFSManager:
     """Manages GTFS data download and caching using mobility-db-api"""
 
     def __init__(self):
-        if not GTFS_DIR:
-            raise ValueError("GTFS_DIR is not set in provider configuration")
+        # Get GTFS directory from config or use default
+        self.gtfs_dir = (
+            provider_config.get("GTFS_DIR")
+            or Path(os.environ["PROJECT_ROOT"]) / "downloads"
+        )
+        logger.info(f"Initializing GTFSManager with directory: {self.gtfs_dir}")
+
+        # Create GTFS directory if it doesn't exist
+        self.gtfs_dir.mkdir(parents=True, exist_ok=True)
+
         self.mobility_api = MobilityAPI(
-            data_dir=str(GTFS_DIR),
+            data_dir=str(self.gtfs_dir),
             refresh_token=os.getenv("MOBILITY_API_REFRESH_TOKEN"),
         )
 
-    async def ensure_gtfs_data(self) -> Optional[Path]:
-        """Ensure GTFS data is downloaded and up to date"""
-        try:
-            # Create GTFS directory if it doesn't exist
-            if not GTFS_DIR:
-                #     GTFS_DIR.mkdir(parents=True, exist_ok=True)
-                # else:
-                logger.error("GTFS_DIR is not set in provider configuration")
-                GTFS_DIR = Path(os.environ["PROJECT_ROOT"]) / "downloads"
-                logger.info(
-                    f"Using default GTFS_DIR: {GTFS_DIR} - please set it in provider configuration"
-                )
-
-            # Check if we need to download new data
-            datasets = self.mobility_api.datasets
-            current_dataset = next(
-                (d for d in datasets.values() if d.provider_id == PROVIDER_ID), None
-            )
-
-            if not current_dataset or self._is_dataset_expired(current_dataset):
-                logger.info("Downloading fresh GTFS data")
-                dataset_path = self.mobility_api.download_latest_dataset(PROVIDER_ID)
-                if not dataset_path:
-                    logger.error("Failed to download GTFS data")
-                    return None
-                return Path(dataset_path)
-
-            return Path(current_dataset.download_path)
-
-        except Exception as e:
-            logger.error(f"Error ensuring GTFS data: {e}")
-            return None
-
     def _is_dataset_expired(self, dataset) -> bool:
         """Check if dataset needs updating"""
+        # First check if file exists
+        if not dataset.download_path or not Path(dataset.download_path).exists():
+            return True
+
+        # Check feed end date
         if not dataset.feed_end_date:
             return True
 
@@ -358,6 +338,31 @@ class GTFSManager:
             end_date = end_date.replace(tzinfo=timezone.utc)
         days_until_expiry = (end_date - now).days
         return days_until_expiry < 7
+
+    async def ensure_gtfs_data(self) -> Optional[Path]:
+        """Ensure GTFS data is downloaded and up to date"""
+        try:
+            logger.info(f"Ensuring GTFS data in directory: {self.gtfs_dir}")
+
+            # Check if we need to download new data
+            datasets = self.mobility_api.datasets
+            current_dataset = next(
+                (d for d in datasets.values() if d.provider_id == PROVIDER_ID), None
+            )
+
+            if not current_dataset or self._is_dataset_expired(current_dataset):
+                logger.info("Downloading fresh GTFS data")
+                dataset_path = self.mobility_api.download_latest_dataset(PROVIDER_ID)
+                if not dataset_path:
+                    logger.error("Failed to download GTFS data")
+                    return None
+                return Path(dataset_path)
+
+            return Path(current_dataset.download_path)
+
+        except Exception as e:
+            logger.error(f"Error ensuring GTFS data: {e}")
+            return None
 
 
 # Initialize GTFSManager at module load
