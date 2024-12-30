@@ -84,7 +84,9 @@ provider_config = get_provider_config("bkk")
 
 # Constants from config
 CACHE_DIR = provider_config.get("CACHE_DIR")
-GTFS_DIR = provider_config.get("GTFS_DIR")
+GTFS_DIR = (
+    provider_config.get("GTFS_DIR") or Path(os.environ["PROJECT_ROOT"]) / "downloads"
+)
 API_KEY = provider_config.get("API_KEY")
 PROVIDER_ID = provider_config.get("PROVIDER_ID", "mdb-990")  # BKK's ID in Mobility DB
 MONITORED_LINES = provider_config.get("MONITORED_LINES", [])
