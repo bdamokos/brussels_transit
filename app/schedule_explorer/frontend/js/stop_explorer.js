@@ -49,11 +49,22 @@ function updateBackendStatus(status, message) {
 
 // Initialize the map
 function initMap() {
-    map = L.map('map').setView([50.8503, 4.3517], 13);  // Brussels center
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    if (!map) {  // Only initialize if not already initialized
+        map = L.map('map').setView([50.8503, 4.3517], 13);  // Brussels center
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Add locate control
+        L.control.locate({
+            position: 'topleft',
+            strings: {
+                title: "Show me where I am"
+            }
+        }).addTo(map);
+    }
+    return map;
 }
 
 // Initialize the page
@@ -64,25 +75,118 @@ async function init() {
     // Initial search moved to after provider loading
 }
 
+// Function to setup provider selection
+export function setupProviderSelection() {
+    const providerSelect = document.getElementById('providerSelect');
+    const languageSelect = document.getElementById('languageSelect');
+    const stopSearch = document.getElementById('stopSearch');
+    const backendStatus = document.getElementById('backendStatus');
+    const statusText = backendStatus.querySelector('.status-text');
+
+    // Load available providers
+    loadProviders();
+
+    // Handle provider selection
+    providerSelect.addEventListener('change', async () => {
+        const providerId = providerSelect.value;
+        if (!providerId) return;
+
+        try {
+            // Show loading status
+            backendStatus.className = 'backend-status loading';
+            statusText.textContent = 'Loading provider data...';
+
+            // Load the provider
+            await loadProvider(providerId);
+
+            // Show success status
+            backendStatus.className = 'backend-status ready';
+            statusText.textContent = 'Provider loaded successfully';
+
+            // Enable language selection and stop search
+            languageSelect.disabled = false;
+            stopSearch.disabled = false;
+
+            // Load languages
+            await loadLanguages();
+
+            // Fade out success message after 2 seconds
+            setTimeout(() => {
+                backendStatus.classList.add('fade-out');
+                setTimeout(() => {
+                    backendStatus.style.display = 'none';
+                    backendStatus.classList.remove('fade-out');
+                }, 2000);
+            }, 2000);
+
+        } catch (error) {
+            console.error('Error loading provider:', error);
+            backendStatus.className = 'backend-status error';
+            statusText.textContent = 'Failed to load provider';
+        }
+    });
+}
+
 // Load available providers
 async function loadProviders() {
+    const providerSelect = document.getElementById('providerSelect');
+    const backendStatus = document.getElementById('backendStatus');
+    const statusText = backendStatus.querySelector('.status-text');
+
     try {
-        const response = await fetch(`${API_BASE_URL}/providers`);
+        backendStatus.className = 'backend-status loading';
+        statusText.textContent = 'Loading providers...';
+
+        const response = await fetch('http://localhost:8000/providers_info');
+        if (!response.ok) throw new Error('Failed to fetch providers');
+        
         const providers = await response.json();
+        
+        // Clear existing options except the placeholder
+        while (providerSelect.options.length > 1) {
+            providerSelect.remove(1);
+        }
+        
+        // Add provider options
+        for (const provider of providers) {
+            const option = document.createElement('option');
+            option.value = provider.id;
+            option.textContent = provider.name || provider.id;
+            providerSelect.appendChild(option);
+        }
 
-        const select = document.getElementById('providerSelect');
-        select.innerHTML = '<option value="" selected disabled>Select a provider</option>' +
-            providers.map(provider => `<option value="${provider}">${provider}</option>`).join('');
+        // Enable provider selection
+        providerSelect.disabled = false;
 
-        const languageSelect = document.getElementById('languageSelect');
-        languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
-        languageSelect.disabled = true;
+        // Show success status briefly
+        backendStatus.className = 'backend-status ready';
+        statusText.textContent = 'Providers loaded successfully';
+        setTimeout(() => {
+            backendStatus.classList.add('fade-out');
+            setTimeout(() => {
+                backendStatus.style.display = 'none';
+                backendStatus.classList.remove('fade-out');
+            }, 2000);
+        }, 2000);
 
-        select.disabled = false;
     } catch (error) {
         console.error('Error loading providers:', error);
-        showError('Failed to load providers');
+        backendStatus.className = 'backend-status error';
+        statusText.textContent = 'Failed to load providers';
     }
+}
+
+// Load a specific provider
+async function loadProvider(providerId) {
+    const response = await fetch(`http://localhost:8000/provider/${providerId}`, {
+        method: 'POST'
+    });
+    
+    if (!response.ok) {
+        throw new Error('Failed to load provider');
+    }
+    
+    return response.json();
 }
 
 // Search for stops
@@ -105,8 +209,8 @@ async function searchStops(query) {
         }
 
         resultsDiv.innerHTML = stops.map(stop => `
-            <div class="search-result-item" onclick="addStop('${stop.id}', '${stop.name}', ${stop.location.lat}, ${stop.location.lon})">
-                <div class="stop-name">${stop.name}</div>
+            <div class="search-result-item" onclick="window.addStop('${stop.id}', '${escapeHtml(stop.name)}', ${stop.location.lat}, ${stop.location.lon})">
+                <div class="stop-name">${escapeHtml(stop.name)}</div>
                 <small class="text-muted">${stop.id}</small>
             </div>
         `).join('');
@@ -114,6 +218,9 @@ async function searchStops(query) {
         console.error('Error searching stops:', error);
     }
 }
+
+// Make addStop available globally
+window.addStop = addStop;
 
 // Add a stop to the selection
 function addStop(stopId, stopName, lat, lon) {
@@ -387,3 +494,7 @@ async function loadLanguages() {
 
 // Initialize when the page loads
 document.addEventListener('DOMContentLoaded', init);
+
+// Make functions available globally
+window.addStop = addStop;
+window.removeStop = removeStop;
