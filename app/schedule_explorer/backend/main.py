@@ -1447,6 +1447,97 @@ async def get_stops_in_bbox(
             if not name:
                 name = stop.name
 
+            # Get routes serving this stop
+            routes_info = []
+            seen_route_ids = set()
+            for route in feed.routes:
+                # Skip if we've already seen this route
+                if route.route_id in seen_route_ids:
+                    continue
+
+                # Check if this stop is served by this route
+                station_in_route = False
+                for route_stop in route.stops:
+                    if route_stop.stop.id == stop_id:
+                        station_in_route = True
+                        break
+
+                if station_in_route:
+                    seen_route_ids.add(route.route_id)
+
+                    # Get stop names in the correct language
+                    stop_names = [
+                        (
+                            feed.get_stop_name(s.stop.id, language)
+                            if language != "default"
+                            else s.stop.name
+                        )
+                        for s in route.stops
+                    ]
+
+                    # Handle NaN values in route name and colors
+                    route_name = route.route_name
+                    if pd.isna(route_name):
+                        route_name = f"Route {route.route_id}"
+
+                    color = (
+                        route.color
+                        if hasattr(route, "color") and not pd.isna(route.color)
+                        else None
+                    )
+                    text_color = (
+                        route.text_color
+                        if hasattr(route, "text_color")
+                        and not pd.isna(route.text_color)
+                        else None
+                    )
+
+                    routes_info.append(
+                        RouteInfo(
+                            route_id=route.route_id,
+                            route_name=route_name,
+                            short_name=(
+                                route.short_name
+                                if hasattr(route, "short_name")
+                                else None
+                            ),
+                            color=color,
+                            text_color=text_color,
+                            first_stop=stop_names[0],
+                            last_stop=stop_names[-1],
+                            stops=stop_names,
+                            headsign=route.stops[-1].stop.name,
+                            service_days=route.service_days,
+                            parent_station_id=getattr(stop, "parent_station", None),
+                            terminus_stop_id=route.stops[-1].stop.id,
+                            service_days_explicit=(
+                                route.service_days_explicit
+                                if hasattr(route, "service_days_explicit")
+                                else None
+                            ),
+                            calendar_dates_additions=(
+                                route.calendar_dates_additions
+                                if hasattr(route, "calendar_dates_additions")
+                                else None
+                            ),
+                            calendar_dates_removals=(
+                                route.calendar_dates_removals
+                                if hasattr(route, "calendar_dates_removals")
+                                else None
+                            ),
+                            valid_calendar_days=(
+                                route.valid_calendar_days
+                                if hasattr(route, "valid_calendar_days")
+                                else None
+                            ),
+                            service_calendar=(
+                                route.service_calendar
+                                if hasattr(route, "service_calendar")
+                                else None
+                            ),
+                        )
+                    )
+
             # Create response object
             station = StationResponse(
                 id=stop_id,
@@ -1455,6 +1546,7 @@ async def get_stops_in_bbox(
                 translations=(
                     stop.translations if hasattr(stop, "translations") else None
                 ),
+                routes=routes_info,
             )
             stops_in_bbox.append(station)
 
