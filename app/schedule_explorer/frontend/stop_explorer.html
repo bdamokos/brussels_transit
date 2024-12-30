@@ -265,9 +265,14 @@
         <!-- Map Container -->
         <div class="map-container position-relative">
             <div id="map"></div>
-            <button class="map-expand-btn" onclick="toggleMapFullscreen()">
-                <i class="fas fa-expand"></i>
-            </button>
+            <div class="map-controls">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="showUnselectedStops" checked>
+                    <label class="form-check-label" for="showUnselectedStops">
+                        Show unselected stops
+                    </label>
+                </div>
+            </div>
         </div>
 
         <!-- Routes Display -->

@@ -328,7 +328,12 @@ async function loadAllRoutes() {
                                 <div class="stop-color-indicator" style="background-color: ${color};"></div>
                                 <div class="ms-2">
                                     <strong>${stopName}</strong>
-                                    <div class="text-muted">Stop ID: ${stopId}</div>
+                                    <div class="d-flex align-items-center">
+                                        <span class="text-muted">Stop ID: ${stopId}</span>
+                                        <button class="copy-button ms-2" onclick="copyToClipboard('${stopId}')" title="Copy stop ID">
+                                            📋
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <button class="btn btn-sm btn-outline-danger" onclick="removeStop('${stopId}')">Remove</button>
@@ -342,6 +347,9 @@ async function loadAllRoutes() {
                                     <div class="d-flex align-items-start">
                                         <div class="route-badge" style="background-color: #${route.color || '6c757d'}">
                                             ${route.short_name || route.route_id}
+                                            <button class="copy-button ms-1" onclick="copyToClipboard('${route.route_id}')" title="Copy route ID">
+                                                📋
+                                            </button>
                                         </div>
                                         <div class="ms-3">
                                             <div class="fw-bold">${route.headsign || route.last_stop}</div>
@@ -443,6 +451,11 @@ function setupEventListeners() {
         if (!searchResults.contains(e.target) && e.target !== searchInput) {
             searchResults.classList.remove('show');
         }
+    });
+
+    // Show/hide unselected stops checkbox
+    document.getElementById('showUnselectedStops').addEventListener('change', () => {
+        loadStopsInView();
     });
 }
 
@@ -548,6 +561,10 @@ function updateStopsOnMap(stops) {
     mapMarkers.forEach(marker => map.removeLayer(marker));
     mapMarkers.clear();
 
+    // Check if we should show unselected stops
+    const showUnselected = document.getElementById('showUnselectedStops').checked;
+    if (!showUnselected) return;
+
     // Add new markers
     stops.forEach(stop => {
         // Skip if this stop is already selected
@@ -571,7 +588,12 @@ function updateStopsOnMap(stops) {
         // Create the content elements
         const content = document.createElement('div');
         content.innerHTML = `
-            <h5>${escapeHtml(stop.name)}</h5>
+            <div class="d-flex justify-content-between align-items-start">
+                <h5>${escapeHtml(stop.name)}</h5>
+                <button class="copy-button" onclick="copyToClipboard('${stop.id}')" title="Copy stop ID">
+                    📋
+                </button>
+            </div>
             <div class="stop-id">${stop.id}</div>
             ${stop.routes ? `
                 <div class="routes-list">
@@ -613,3 +635,15 @@ function debounceLoadStops() {
     }
     debounceTimer = setTimeout(loadStopsInView, 300);
 }
+
+// Function to copy text to clipboard
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (err) {
+        console.error('Failed to copy text:', err);
+    }
+}
+
+// Make copy function available globally
+window.copyToClipboard = copyToClipboard;
