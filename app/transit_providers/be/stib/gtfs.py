@@ -2,7 +2,6 @@
 
 from transit_providers.config import get_provider_config
 import requests
-from logging.config import dictConfig
 import logging
 
 # Get logger

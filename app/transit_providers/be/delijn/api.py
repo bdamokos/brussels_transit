@@ -11,10 +11,8 @@ import urllib.request
 import pytz
 import inspect
 import logging
-from logging.handlers import RotatingFileHandler
 import sys
 from config import get_config
-from logging.config import dictConfig
 import asyncio
 from transit_providers.config import get_provider_config
 import pytz
@@ -33,9 +31,6 @@ import csv
 from functools import lru_cache
 import hashlib
 
-# Setup logging using configuration
-logging_config = get_config("LOGGING_CONFIG")
-dictConfig(logging_config)
 
 # Get logger
 logger = logging.getLogger("delijn")

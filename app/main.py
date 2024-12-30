@@ -18,7 +18,6 @@ from validate_stops import validate_line_stops
 from locate_vehicles import process_vehicle_positions
 from collections import defaultdict
 import logging
-from logging.config import dictConfig
 from utils import RateLimiter, get_client
 from flask import jsonify
 from transit_providers import PROVIDERS, get_provider_path, get_provider_from_path
@@ -31,10 +30,6 @@ import secrets
 from functools import wraps
 from transit_providers.config import get_provider_config
 from functools import lru_cache
-
-# Setup logging using configuration
-logging_config = get_config('LOGGING_CONFIG')
-dictConfig(logging_config)
 
 # Get loggers
 logger = logging.getLogger("main")

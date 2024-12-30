@@ -1,8 +1,8 @@
-''' Generic function to get the nearest stop to a given point from GTFS stops.txt.
+""" Generic function to get the nearest stop to a given point from GTFS stops.txt.
 
 Each provider module can rely on this function to analyze the nearest stop to a given point.
 
-'''
+"""
 
 import csv
 import math
@@ -11,14 +11,13 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union, Generator
 from dataclasses import dataclass, asdict
 import logging
-from logging.config import dictConfig
 from config import get_config
 
 # Setup logging using configuration
-logging_config = get_config('LOGGING_CONFIG')
-dictConfig(logging_config)
 
-logger = logging.getLogger('transit_providers.nearest_stop')
+
+logger = logging.getLogger("transit_providers.nearest_stop")
+
 
 @dataclass
 class Stop:
@@ -30,37 +29,41 @@ class Stop:
     parent_station: Optional[str] = None
     line_ids: Optional[List[Union[str, Tuple[str, str]]]] = None
 
+
 def iter_gtfs_stops(gtfs_stops_path: str) -> Generator[Stop, None, None]:
     """Iterate through GTFS stops.txt yielding Stop objects."""
-    stops_path = Path(gtfs_stops_path) / 'stops.txt'
+    stops_path = Path(gtfs_stops_path) / "stops.txt"
     logger.debug(f"Stops path: {stops_path}")
-    
+
     try:
-        with open(stops_path, 'r', encoding='utf-8') as f:
+        with open(stops_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 # Skip parent stations (location_type = 1)
-                if row.get('location_type') == '1':
+                if row.get("location_type") == "1":
                     continue
-                    
+
                 try:
                     stop = Stop(
-                        id=row['stop_id'],
-                        name=row['stop_name'],
-                        lat=float(row['stop_lat']),
-                        lon=float(row['stop_lon']),
-                        location_type=row.get('location_type'),
-                        parent_station=row.get('parent_station')
+                        id=row["stop_id"],
+                        name=row["stop_name"],
+                        lat=float(row["stop_lat"]),
+                        lon=float(row["stop_lon"]),
+                        location_type=row.get("location_type"),
+                        parent_station=row.get("parent_station"),
                     )
                     yield stop
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error processing stop {row.get('stop_id')}: {e}")
                     continue
-                    
+
     except FileNotFoundError:
-        logger.warning(f"File {stops_path} not found. Maybe the GTFS data is not available?")
+        logger.warning(
+            f"File {stops_path} not found. Maybe the GTFS data is not available?"
+        )
     except Exception as e:
         logger.error(f"Error reading stops.txt: {e}")
+
 
 def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
     """Ingest GTFS stops.txt into a dictionary of Stop objects."""
@@ -68,53 +71,63 @@ def ingest_gtfs_stops(gtfs_stops_path: str) -> Dict[str, Stop]:
     logger.info(f"Successfully loaded {len(stops)} stops from GTFS data")
     return stops
 
+
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two points using Haversine formula."""
     R = 6371  # Earth's radius in km
 
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    
+
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    )
     c = 2 * math.asin(math.sqrt(a))
-    
+
     return R * c
 
-def get_nearest_stops(stops: Dict[str, Stop], point: Tuple[float, float], limit: int = 5, max_distance: float = 2.0) -> List[Dict]:
+
+def get_nearest_stops(
+    stops: Dict[str, Stop],
+    point: Tuple[float, float],
+    limit: int = 5,
+    max_distance: float = 2.0,
+) -> List[Dict]:
     """
     Get the nearest stops to a given point from a dictionary of stops.
-    
+
     Args:
         stops: Dictionary of Stop objects
         point: Tuple of (latitude, longitude)
         limit: Maximum number of stops to return
         max_distance: Maximum distance in kilometers to consider
-        
+
     Returns:
         List of dictionaries containing stop information and distance
     """
     lat, lon = point
     stops_with_distances = []
-    
+
     for stop in stops.values():
         distance = calculate_distance(lat, lon, stop.lat, stop.lon)
         if distance <= max_distance:
-            stops_with_distances.append({
-                **asdict(stop),
-                'distance': round(distance, 3)
-            })
-    
+            stops_with_distances.append(
+                {**asdict(stop), "distance": round(distance, 3)}
+            )
+
     # Sort by distance and return the nearest stops
-    stops_with_distances.sort(key=lambda x: x['distance'])
+    stops_with_distances.sort(key=lambda x: x["distance"])
     return stops_with_distances[:limit]
+
 
 def cache_stops(stops: Dict[str, Stop], cache_path: Path) -> None:
     """Cache the stops on disk."""
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w', encoding='utf-8') as f:
+        with open(cache_path, "w", encoding="utf-8") as f:
             # Convert Stop objects to dictionaries
             stops_dict = {k: asdict(v) for k, v in stops.items()}
             json.dump(stops_dict, f, indent=2)
@@ -122,18 +135,19 @@ def cache_stops(stops: Dict[str, Stop], cache_path: Path) -> None:
     except Exception as e:
         logger.error(f"Error caching stops: {e}")
 
+
 def get_cached_stops(cache_path: Path) -> Optional[Dict[str, Stop]]:
     """Get the cached stops from disk."""
     try:
         if not cache_path.exists():
             logger.warning(f"File {cache_path} not found. Creating empty cache.")
             # Create empty cache file
-            with open(cache_path, 'w', encoding='utf-8') as f:
+            with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump({}, f)
             logger.info(f"Created empty {cache_path} file")
             return None
-            
-        with open(cache_path, 'r', encoding='utf-8') as f:
+
+        with open(cache_path, "r", encoding="utf-8") as f:
             stops_dict = json.load(f)
             # Convert dictionaries back to Stop objects
             stops = {k: Stop(**v) for k, v in stops_dict.items()}
@@ -143,6 +157,7 @@ def get_cached_stops(cache_path: Path) -> Optional[Dict[str, Stop]]:
         logger.error(f"Error loading cached stops: {e}")
         return None
 
+
 def get_stop_by_name(stops: dict, name: str, limit: int = 5) -> Optional[List[Stop]]:
     """Get a stop by its name in a search query."""
     results = []
@@ -150,4 +165,3 @@ def get_stop_by_name(stops: dict, name: str, limit: int = 5) -> Optional[List[St
         if name.lower() in stop.name.lower():
             results.append(stop)
     return results[:limit]
-

@@ -17,20 +17,12 @@ import csv
 from .memory_util import check_memory_for_file
 
 
-def setup_logging():
-    """Configure logging for GTFS loader"""
-    logging_config = get_config("LOGGING_CONFIG")
-    # logging_config["log_dir"].mkdir(exist_ok=True)  # Removed: already created in start.py
-    logging.config.dictConfig(logging_config)
-    return logging.getLogger("schedule_explorer.gtfs")
-
-
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
     """Convert bytes to megabytes."""
     return round(bytes / (1024 * 1024), precision)
 
 
-logger = setup_logging()
+logger = logging.getLogger("schedule_explorer.gtfs_loader")
 
 
 @dataclass
