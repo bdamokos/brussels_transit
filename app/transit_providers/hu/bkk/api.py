@@ -204,6 +204,18 @@ async def _initialize_caches():
 
     try:
         logger.info("Initializing BKK provider caches...")
+
+        # First ensure GTFS data is available
+        if gtfs_manager:
+            logger.info("Ensuring GTFS data is available...")
+            gtfs_path = await gtfs_manager.ensure_gtfs_data()
+            if not gtfs_path:
+                logger.error("Failed to ensure GTFS data")
+            else:
+                logger.info(f"GTFS data available at {gtfs_path}")
+        else:
+            logger.error("GTFSManager not initialized")
+
         try:
             _load_stops_cache()
         except Exception as e:
