@@ -157,9 +157,9 @@ PROVIDER_CONFIG = {
             "API_KEY": os.getenv("STIB_API_KEY"),
             "_AVAILABLE_LANGUAGES": ["en", "fr", "nl"],
             "API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
-            "GTFS_DIR": CACHE_DIR / "stib/gtfs",
-            "CACHE_DIR": CACHE_DIR / "stib",
-            "STOPS_CACHE_FILE": CACHE_DIR / "stib/stops.json",
+            "GTFS_DIR": PROJECT_ROOT / "cache" / "stib" / "gtfs",
+            "CACHE_DIR": PROJECT_ROOT / "cache" / "stib",
+            "STOPS_CACHE_FILE": PROJECT_ROOT / "cache" / "stib" / "stops.json",
             "CACHE_DURATION": timedelta(days=30),
             "RATE_LIMIT_DELAY": 0.5,
             "GTFS_CACHE_DURATION": 86400 * 30,  # 30 days in seconds
