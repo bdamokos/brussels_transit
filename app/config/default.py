@@ -11,6 +11,9 @@ import pytz
 
 dotenv.load_dotenv(override=True)
 
+# Get project root directory
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
 # Provider Configuration
 ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]  # List of enabled transit providers
 
@@ -37,7 +40,7 @@ LOGGING_CONFIG = {
     "handlers": {
         "legacy_app": {
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(Path("logs/legacy_app.log").absolute()),
+            "filename": str((PROJECT_ROOT / "logs" / "legacy_app.log").absolute()),
             "maxBytes": 1024 * 1024,  # 1MB
             "backupCount": 3,
             "formatter": "standard",
@@ -46,7 +49,9 @@ LOGGING_CONFIG = {
         },
         "schedule_explorer": {
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(Path("logs/schedule_explorer.log").absolute()),
+            "filename": str(
+                (PROJECT_ROOT / "logs" / "schedule_explorer.log").absolute()
+            ),
             "maxBytes": 1024 * 1024,  # 1MB
             "backupCount": 3,
             "formatter": "standard",
@@ -82,7 +87,7 @@ LOGGING_CONFIG = {
             "propagate": False,
         },
     },
-    "log_dir": Path("logs"),  # This is now relative to the project root
+    "log_dir": PROJECT_ROOT / "logs",  # This is now relative to the project root
 }
 
 # Map default settings
@@ -102,7 +107,7 @@ API_CONFIG = {
 }
 
 # Cache Configuration
-CACHE_DIR = Path("cache")
+CACHE_DIR = PROJECT_ROOT / "cache"
 STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
 CACHE_DURATION = timedelta(days=30)
 GTFS_CACHE_DURATION = timedelta(days=30)
@@ -126,8 +131,8 @@ PROVIDER_CONFIG = {
         "provider_specific": {
             "PROVIDER_ID": "mdb-990",  # BKK's ID in Mobility DB
             "API_KEY": os.getenv("BKK_API_KEY"),
-            "CACHE_DIR": Path("cache/bkk"),
-            "GTFS_DIR": Path("cache/bkk/gtfs"),
+            "CACHE_DIR": CACHE_DIR / "bkk",
+            "GTFS_DIR": CACHE_DIR / "bkk/gtfs",
             "RATE_LIMIT_DELAY": 0.5,  # 500ms between API calls
             "GTFS_CACHE_DURATION": 7 * 24 * 60 * 60,  # 7 days in seconds
         },
@@ -152,9 +157,9 @@ PROVIDER_CONFIG = {
             "API_KEY": os.getenv("STIB_API_KEY"),
             "_AVAILABLE_LANGUAGES": ["en", "fr", "nl"],
             "API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
-            "GTFS_DIR": Path("cache/stib/gtfs"),
-            "CACHE_DIR": Path("cache/stib"),
-            "STOPS_CACHE_FILE": Path("cache/stib/stops.json"),
+            "GTFS_DIR": CACHE_DIR / "stib/gtfs",
+            "CACHE_DIR": CACHE_DIR / "stib",
+            "STOPS_CACHE_FILE": CACHE_DIR / "stib/stops.json",
             "CACHE_DURATION": timedelta(days=30),
             "RATE_LIMIT_DELAY": 0.5,
             "GTFS_CACHE_DURATION": 86400 * 30,  # 30 days in seconds
@@ -189,8 +194,8 @@ PROVIDER_CONFIG = {
             "API_URL": "https://api.delijn.be/DLKernOpenData/api/v1",
             "_AVAILABLE_LANGUAGES": ["nl"],
             "GTFS_URL": "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip",
-            "GTFS_DIR": Path("cache/delijn/gtfs"),
-            "CACHE_DIR": Path("cache/delijn"),
+            "GTFS_DIR": CACHE_DIR / "delijn/gtfs",
+            "CACHE_DIR": CACHE_DIR / "delijn",
             "RATE_LIMIT_DELAY": 0.5,
             "GTFS_CACHE_DURATION": 86400 * 30,  # 30 days in seconds
             "API_KEY": os.getenv("DELIJN_API_KEY"),

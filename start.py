@@ -5,17 +5,29 @@ import signal
 import time
 from pathlib import Path
 
+# Add app directory to Python path
+app_dir = Path(__file__).parent / "app"
+sys.path.append(str(app_dir))
+
 
 def run_apps():
     """Run all applications and handle their lifecycle"""
     print("Starting all components...")
+
+    # Create shared directories
+    logs_dir = Path(__file__).parent / "logs"
+    logs_dir.mkdir(exist_ok=True)
 
     # Start processes
     processes = []
     try:
         # Legacy app
         app_dir = Path(__file__).parent / "app"
-        legacy_process = subprocess.Popen([sys.executable, "main.py"], cwd=app_dir)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(app_dir)
+        legacy_process = subprocess.Popen(
+            [sys.executable, "main.py"], cwd=app_dir, env=env
+        )
         processes.append(("Legacy app (port 5001)", legacy_process))
         print("Legacy app started on port 5001")
 
@@ -30,6 +42,8 @@ def run_apps():
 
         # Schedule Explorer backend
         backend_dir = Path(__file__).parent / "app" / "schedule_explorer"
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(app_dir)
         backend_process = subprocess.Popen(
             [
                 sys.executable,
@@ -42,6 +56,7 @@ def run_apps():
                 "8000",
             ],
             cwd=backend_dir,
+            env=env,
         )
         processes.append(("Schedule Explorer backend (port 8000)", backend_process))
         print(
