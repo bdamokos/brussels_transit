@@ -562,10 +562,13 @@ async function loadStopsInView(initialLoad = false) {
     if (!providerId) return;
 
     try {
-        // Show loading indicator for initial load
-        if (initialLoad) {
-            showLoading('Loading stops...');
-        }
+        // Show loading indicator for all loads
+        const backendStatus = document.getElementById('backendStatus');
+        const statusText = backendStatus.querySelector('.status-text');
+        backendStatus.className = 'backend-status loading';
+        backendStatus.style.display = 'block';
+        backendStatus.classList.remove('fade-out');
+        statusText.textContent = initialLoad ? 'Loading stops...' : 'Loading additional stops...';
 
         // First get the count of stops in the area
         const countResponse = await fetch(
@@ -580,6 +583,7 @@ async function loadStopsInView(initialLoad = false) {
 
         // If we have a reasonable number of stops, load them all at once
         if (count <= 100) {
+            statusText.textContent = `Loading ${count} stops...`;
             const response = await fetch(
                 `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
                 `min_lat=${currentBounds.getSouth()}&max_lat=${currentBounds.getNorth()}&` +
@@ -592,23 +596,35 @@ async function loadStopsInView(initialLoad = false) {
             updateStopsOnMap(stops, initialLoad);
             lastLoadedBounds = currentBounds;
             
-            if (initialLoad) {
-                showSuccess('Stops loaded successfully');
-            }
+            // Show success and fade out
+            backendStatus.className = 'backend-status ready';
+            statusText.textContent = 'Stops loaded successfully';
+            setTimeout(() => {
+                backendStatus.classList.add('fade-out');
+                setTimeout(() => {
+                    backendStatus.style.display = 'none';
+                    backendStatus.classList.remove('fade-out');
+                }, 2000);
+            }, 2000);
             return;
         }
 
         // For larger numbers of stops, load them in batches
         const batchSize = 100;
         const totalBatches = Math.ceil(count / batchSize);
+        let loadedStops = 0;
         
         for (let batch = 0; batch < totalBatches; batch++) {
             // Check if the map has moved significantly before loading next batch
             const newBounds = map.getBounds();
             if (!newBounds.equals(currentBounds)) {
                 console.log('Map moved, stopping batch loading');
+                statusText.textContent = 'Map moved, loading stops in new area...';
                 break;
             }
+
+            // Update loading status with progress
+            statusText.textContent = `Loading stops... (${Math.min(loadedStops + batchSize, count)}/${count})`;
 
             const response = await fetch(
                 `${API_BASE_URL}/api/${providerId}/stops/bbox?` + 
@@ -621,6 +637,7 @@ async function loadStopsInView(initialLoad = false) {
             
             const stops = await response.json();
             updateStopsOnMap(stops, batch === 0 && initialLoad);
+            loadedStops += stops.length;
 
             // Add a small delay between batches to allow for map interaction
             if (batch < totalBatches - 1) {
@@ -630,15 +647,24 @@ async function loadStopsInView(initialLoad = false) {
 
         lastLoadedBounds = currentBounds;
         
-        if (initialLoad) {
-            showSuccess('Stops loaded successfully');
-        }
+        // Show success and fade out
+        backendStatus.className = 'backend-status ready';
+        statusText.textContent = `Loaded ${loadedStops} stops successfully`;
+        setTimeout(() => {
+            backendStatus.classList.add('fade-out');
+            setTimeout(() => {
+                backendStatus.style.display = 'none';
+                backendStatus.classList.remove('fade-out');
+            }, 2000);
+        }, 2000);
 
     } catch (error) {
         console.error('Error loading stops:', error);
-        if (initialLoad) {
-            showError('Failed to load stops');
-        }
+        const backendStatus = document.getElementById('backendStatus');
+        backendStatus.className = 'backend-status error';
+        backendStatus.querySelector('.status-text').textContent = 'Failed to load stops';
+        backendStatus.style.display = 'block';
+        backendStatus.classList.remove('fade-out');
     }
 }
 
