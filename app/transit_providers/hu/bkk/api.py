@@ -50,7 +50,7 @@ logging_config = get_config("LOGGING_CONFIG")
 
 # Ensure log directory exists
 log_dir = Path(os.environ["PROJECT_ROOT"]) / "logs"
-log_dir.mkdir(exist_ok=True)
+# log_dir.mkdir(exist_ok=True)
 
 # Add handler for BKK provider if not exists
 if "handlers" not in logging_config:
