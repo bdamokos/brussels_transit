@@ -36,7 +36,7 @@ from .models import (
 from .gtfs_loader import FlixbusFeed, load_feed
 
 # Configure download directory - hardcoded to project root/downloads
-DOWNLOAD_DIR = Path(os.environ["PROJECT_ROOT"]) / "downloads"
+DOWNLOAD_DIR = FilePath(os.environ["PROJECT_ROOT"]) / "downloads"
 
 
 # Configure logging
