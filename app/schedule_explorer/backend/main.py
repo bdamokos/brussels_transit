@@ -411,7 +411,7 @@ async def startup_event():
     """Load available GTFS providers on startup"""
     global available_providers, db
     available_providers = find_gtfs_directories()
-    db = MobilityAPI()
+    db = MobilityAPI(data_dir=DOWNLOAD_DIR)
 
 
 @app.post("/provider/{provider_id}")

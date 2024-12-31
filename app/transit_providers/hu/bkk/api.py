@@ -257,11 +257,12 @@ class GTFSManager:
         # Check for refresh token
         refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
         if not refresh_token:
-            logger.warning(
+            logger.error(
                 "MOBILITY_API_REFRESH_TOKEN not found in environment variables. "
                 "GTFS data download from Mobility Database will not be available. "
                 "Please add MOBILITY_API_REFRESH_TOKEN to your .env file."
             )
+            return None
 
         self.mobility_api = MobilityAPI(
             data_dir=str(self.gtfs_dir),
@@ -323,8 +324,10 @@ class GTFSManager:
 
             # Check if we have a refresh token
             if not os.getenv("MOBILITY_API_REFRESH_TOKEN"):
-                logger.warning(
-                    "Skipping GTFS data download: MOBILITY_API_REFRESH_TOKEN not found in environment variables"
+                logger.error(
+                    "MOBILITY_API_REFRESH_TOKEN not found in environment variables. "
+                    "GTFS data download from Mobility Database will not be available. "
+                    "Please add MOBILITY_API_REFRESH_TOKEN to your .env file."
                 )
                 return None
 
