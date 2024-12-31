@@ -254,9 +254,18 @@ class GTFSManager:
         # Create GTFS directory if it doesn't exist
         self.gtfs_dir.mkdir(parents=True, exist_ok=True)
 
+        # Check for refresh token
+        refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
+        if not refresh_token:
+            logger.warning(
+                "MOBILITY_API_REFRESH_TOKEN not found in environment variables. "
+                "GTFS data download from Mobility Database will not be available. "
+                "Please add MOBILITY_API_REFRESH_TOKEN to your .env file."
+            )
+
         self.mobility_api = MobilityAPI(
             data_dir=str(self.gtfs_dir),
-            refresh_token=os.getenv("MOBILITY_API_REFRESH_TOKEN"),
+            refresh_token=refresh_token,
         )
 
     def _is_dataset_expired(self, dataset) -> bool:
@@ -311,6 +320,13 @@ class GTFSManager:
         """Ensure GTFS data is downloaded and up to date"""
         try:
             logger.info(f"Ensuring GTFS data in directory: {self.gtfs_dir}")
+
+            # Check if we have a refresh token
+            if not os.getenv("MOBILITY_API_REFRESH_TOKEN"):
+                logger.warning(
+                    "Skipping GTFS data download: MOBILITY_API_REFRESH_TOKEN not found in environment variables"
+                )
+                return None
 
             # Check if we need to download new data
             datasets = self.mobility_api.datasets
