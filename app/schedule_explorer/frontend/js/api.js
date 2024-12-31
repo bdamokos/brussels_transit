@@ -1,5 +1,6 @@
 // Base URL for the API
-const API_BASE_URL = 'http://localhost:8000';
+window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = window.API_BASE_URL;
 
 // Get stops within a bounding box
 export async function getStopsInBbox(providerId, minLat, minLon, maxLat, maxLon, language = 'default') {

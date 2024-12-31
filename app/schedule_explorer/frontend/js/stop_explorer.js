@@ -164,7 +164,7 @@ async function loadProviders() {
         backendStatus.className = 'backend-status loading';
         statusText.textContent = 'Loading providers...';
 
-        const response = await fetch('http://localhost:8000/providers_info');
+        const response = await fetch(`${API_BASE_URL}/providers_info`);
         if (!response.ok) throw new Error('Failed to fetch providers');
         
         const providers = await response.json();
@@ -205,7 +205,7 @@ async function loadProviders() {
 
 // Load a specific provider
 async function loadProvider(providerId) {
-    const response = await fetch(`http://localhost:8000/provider/${providerId}`, {
+    const response = await fetch(`${API_BASE_URL}/provider/${providerId}`, {
         method: 'POST'
     });
     
