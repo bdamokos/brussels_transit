@@ -192,7 +192,7 @@ async def _initialize_caches():
         for i in range(max_retries):
             if gtfs_path.exists() and gtfs_path.stat().st_size > 0:
                 logger.info(
-                    f"GTFS data available at {gtfs_path} (size: {gtfs_path.stat().st_size} bytes)"
+                    f"GTFS data available at {gtfs_path} (size: {get_directory_size(gtfs_path):.2f} MB)"
                 )
                 break
             if i < max_retries - 1:
@@ -1920,3 +1920,12 @@ except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 loop.run_until_complete(_ensure_caches_initialized())
+
+
+def get_directory_size(directory: Path) -> float:
+    """Calculate total size of a directory in megabytes."""
+    total_size = 0
+    for path in directory.rglob('*'):
+        if path.is_file():
+            total_size += path.stat().st_size
+    return total_size / (1024 * 1024)
