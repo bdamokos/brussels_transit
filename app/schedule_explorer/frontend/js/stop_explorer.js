@@ -7,6 +7,7 @@ let mapMarkers = new Map(); // For all stops visible on the map
 let selectedStops = new Map(); // For stops that are selected
 let routeLines = [];
 let selectedLanguage = 'default';
+let providers = []; // Store providers data globally
 // Get the current server's URL and port
 window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const API_BASE_URL = window.API_BASE_URL;
@@ -94,7 +95,7 @@ function initMap() {
 // Initialize the page
 async function init() {
     initMap();
-    await loadProviders();
+    setupProviderSelection();  // This will also load providers
     setupEventListeners();
     // Initial search moved to after provider loading
 }
@@ -123,6 +124,35 @@ export function setupProviderSelection() {
             // Load the provider
             await loadProvider(providerId);
 
+            // Clear existing markers and selected stops
+            mapMarkers.forEach(({ marker }) => map.removeLayer(marker));
+            mapMarkers.clear();
+            selectedStops.forEach(({ marker }) => map.removeLayer(marker));
+            selectedStops.clear();
+
+            // Find the provider's bounding box
+            const provider = providers.find(p => p.raw_id === providerId);
+            console.log('Selected provider:', provider);  // Debug log
+            if (provider?.bounding_box) {
+                console.log('Found bounding box:', provider.bounding_box);  // Debug log
+                
+                // Create a Leaflet bounds object from the bounding box
+                // Note: Leaflet uses [lat, lon] order
+                const bounds = L.latLngBounds(
+                    [provider.bounding_box.min_lat, provider.bounding_box.min_lon],
+                    [provider.bounding_box.max_lat, provider.bounding_box.max_lon]
+                );
+                console.log('Created bounds:', bounds);  // Debug log
+                
+                // Fit the map to the bounds with some padding
+                map.fitBounds(bounds, {
+                    padding: [50, 50],  // Add 50px padding on all sides
+                    maxZoom: 13  // Don't zoom in too far
+                });
+            } else {
+                console.log('No bounding box found for provider:', providerId);  // Debug log
+            }
+
             // Show success status
             backendStatus.className = 'backend-status ready';
             statusText.textContent = 'Provider loaded successfully';
@@ -135,7 +165,7 @@ export function setupProviderSelection() {
             await loadLanguages();
 
             // Load initial stops based on current map bounds
-            await loadStopsInView();
+            await loadStopsInView(true);
 
             // Fade out success message after 2 seconds
             setTimeout(() => {
@@ -167,7 +197,9 @@ async function loadProviders() {
         const response = await fetch(`${API_BASE_URL}/providers_info`);
         if (!response.ok) throw new Error('Failed to fetch providers');
         
-        const providers = await response.json();
+        const providersData = await response.json();
+        console.log('Loaded providers:', providersData);  // Debug log
+        providers = providersData; // Store providers globally
         
         // Clear existing options except the placeholder
         while (providerSelect.options.length > 1) {
@@ -176,6 +208,7 @@ async function loadProviders() {
         
         // Add provider options
         for (const provider of providers) {
+            console.log('Adding provider to select:', provider);  // Debug log
             const option = document.createElement('option');
             option.value = provider.raw_id;
             
@@ -438,65 +471,7 @@ function generateDistinctColors(count) {
 
 // Setup event listeners
 function setupEventListeners() {
-    // Provider selection
-    document.getElementById('providerSelect').addEventListener('change', async (e) => {
-        const provider = e.target.value;
-        const inputs = [
-            document.getElementById('stopSearch'),
-            document.getElementById('languageSelect'),
-            document.getElementById('providerSelect')
-        ];
-        
-        // Disable all inputs during loading
-        inputs.forEach(input => input.disabled = true);
-        
-        // Show loading status
-        const backendStatus = document.getElementById('backendStatus');
-        backendStatus.className = 'backend-status loading';
-        backendStatus.style.display = 'block';
-        backendStatus.querySelector('.status-text').textContent = 'Loading provider data...';
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/provider/${provider}`, { method: 'POST' });
-            const result = await response.json();
-
-            if (result.status === 'success') {
-                // Clear existing markers and selected stops
-                mapMarkers.forEach(({ marker }) => map.removeLayer(marker));
-                mapMarkers.clear();
-                selectedStops.forEach(({ marker }) => map.removeLayer(marker));
-                selectedStops.clear();
-                
-                // Show success message
-                backendStatus.className = 'backend-status ready';
-                backendStatus.querySelector('.status-text').textContent = 'Provider loaded successfully';
-                
-                // Re-enable inputs except language select (it will be enabled after loading languages)
-                document.getElementById('stopSearch').disabled = false;
-                document.getElementById('providerSelect').disabled = false;
-                
-                await loadLanguages();
-                await loadStopsInView(true);
-                
-                // Fade out success message
-                setTimeout(() => {
-                    backendStatus.classList.add('fade-out');
-                    setTimeout(() => {
-                        backendStatus.style.display = 'none';
-                        backendStatus.classList.remove('fade-out');
-                    }, 2000);
-                }, 2000);
-            } else {
-                throw new Error('Failed to load provider');
-            }
-        } catch (error) {
-            console.error('Error loading provider:', error);
-            // Show error and re-enable provider selection
-            backendStatus.className = 'backend-status error';
-            backendStatus.querySelector('.status-text').textContent = 'Failed to load provider';
-            document.getElementById('providerSelect').disabled = false;
-        }
-    });
+    // Provider selection is handled in setupProviderSelection()
 
     // Language selection
     document.getElementById('languageSelect').addEventListener('change', (e) => {
