@@ -1688,9 +1688,9 @@ def load_feed(
                     exception_type=exception_type,
                 )
             )
-            logger.info(
-                f"Service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-            )
+            # logger.info(
+            #     f"Service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
+            # )
         del calendar_df
         logger.info(
             f"Loaded calendar_dates.txt with {len(calendar_dates)} exceptions in {time.time() - t0:.2f} seconds"
