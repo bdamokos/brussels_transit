@@ -1,3 +1,30 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+
+- [Public Transport Waiting Times](#public-transport-waiting-times)
+  - [Features](#features)
+  - [Use-case](#use-case)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+    - [Running the Application](#running-the-application)
+    - [Running with Docker](#running-with-docker)
+  - [Getting API Access](#getting-api-access)
+    - [STIB/MIVB API](#stibmivb-api)
+    - [De Lijn API](#de-lijn-api)
+    - [BKK (Budapest)](#bkk-budapest)
+    - [Mobility Database](#mobility-database)
+  - [Figuring out stop IDs](#figuring-out-stop-ids)
+    - [Stib](#stib)
+    - [De Lijn](#de-lijn)
+  - [Configuration](#configuration)
+  - [Initial Setup](#initial-setup)
+  - [Configuration Files](#configuration-files)
+  - [Known Issues and Limitations](#known-issues-and-limitations)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # Public Transport Waiting Times
 
 Creates a dashboard showing waiting times for implemented public transport companies' stops, ordered by distance from a given point (map centre or user's current location).
@@ -23,11 +50,12 @@ Alongside realtime waiting times, it creates a dashboard to browse stops and rou
 
 ![Screenshot of the web portal the application creates](docs/images/webportal.png)
 
+![All stops being loaded in the Stop Explorer view](docs/images/map_loading_stop_explorer.gif)
 
 ## Use-case
 Mainly to power smart home displays that provide transit data (e.g. next train departures, waiting times at nearby bus stops).
 
-Reference implementation: [Raspberry Pi Waiting Time Display](https://github.com/bdamokos/rpi_waiting_time_display)
+Reference implementation: [Raspberry Pi Waiting Time Display (ridiculously sped up)](https://github.com/bdamokos/rpi_waiting_time_display)
 
 ## Getting Started
 
