@@ -441,21 +441,60 @@ function setupEventListeners() {
     // Provider selection
     document.getElementById('providerSelect').addEventListener('change', async (e) => {
         const provider = e.target.value;
+        const inputs = [
+            document.getElementById('stopSearch'),
+            document.getElementById('languageSelect'),
+            document.getElementById('providerSelect')
+        ];
+        
+        // Disable all inputs during loading
+        inputs.forEach(input => input.disabled = true);
+        
+        // Show loading status
+        const backendStatus = document.getElementById('backendStatus');
+        backendStatus.className = 'backend-status loading';
+        backendStatus.style.display = 'block';
+        backendStatus.querySelector('.status-text').textContent = 'Loading provider data...';
+        
         try {
             const response = await fetch(`${API_BASE_URL}/provider/${provider}`, { method: 'POST' });
             const result = await response.json();
 
             if (result.status === 'success') {
+                // Clear existing markers and selected stops
+                mapMarkers.forEach(({ marker }) => map.removeLayer(marker));
+                mapMarkers.clear();
+                selectedStops.forEach(({ marker }) => map.removeLayer(marker));
+                selectedStops.clear();
+                
+                // Show success message
+                backendStatus.className = 'backend-status ready';
+                backendStatus.querySelector('.status-text').textContent = 'Provider loaded successfully';
+                
+                // Re-enable inputs except language select (it will be enabled after loading languages)
                 document.getElementById('stopSearch').disabled = false;
+                document.getElementById('providerSelect').disabled = false;
+                
                 await loadLanguages();
-                // Load initial stops in current view
                 await loadStopsInView(true);
+                
+                // Fade out success message
+                setTimeout(() => {
+                    backendStatus.classList.add('fade-out');
+                    setTimeout(() => {
+                        backendStatus.style.display = 'none';
+                        backendStatus.classList.remove('fade-out');
+                    }, 2000);
+                }, 2000);
             } else {
-                showError('Failed to load GTFS data');
+                throw new Error('Failed to load provider');
             }
         } catch (error) {
             console.error('Error loading provider:', error);
-            showError('Failed to load GTFS data');
+            // Show error and re-enable provider selection
+            backendStatus.className = 'backend-status error';
+            backendStatus.querySelector('.status-text').textContent = 'Failed to load provider';
+            document.getElementById('providerSelect').disabled = false;
         }
     });
 
