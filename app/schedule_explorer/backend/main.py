@@ -1206,7 +1206,7 @@ async def get_waiting_times(
         # Get the agency timezone
         agency_timezone = None
         if feed.agencies:
-            # Get the first agency's timezone (all agencies inside a GTFS dataset musth have the same timezone)
+            # Get the first agency's timezone (all agencies inside a GTFS dataset must have the same timezone)
             agency_timezone = next(iter(feed.agencies.values())).agency_timezone
 
         # If no agency timezone found, use the server timezone
@@ -1259,7 +1259,9 @@ async def get_waiting_times(
         for current_stop_id in stop_ids_to_check:
             # Get all routes serving this stop
             routes_info = await get_station_routes(
-                current_stop_id, provider_id=provider_id
+                request=request,  # Add the missing request parameter
+                station_id=current_stop_id,
+                provider_id=provider_id,
             )
             logger.info(
                 f"Found {len(routes_info)} routes serving stop {current_stop_id}"
@@ -1273,6 +1275,7 @@ async def get_waiting_times(
 
                 # Get all trips between our stop and the terminus
                 routes_response = await get_routes(
+                    request=request,  # Add the missing request parameter
                     from_station=current_stop_id,
                     to_station=route_info.terminus_stop_id,
                     date=None,
