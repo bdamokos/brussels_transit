@@ -154,9 +154,13 @@ async def check_provider_availability(
 
 
 async def ensure_provider_loaded(
-    provider_id: str,
+    provider_id: str, auto_download: bool = False
 ) -> Tuple[bool, str, Optional[Provider]]:
-    """Ensure provider is loaded, loading it if available.
+    """Ensure provider is loaded, loading or downloading it if available.
+
+    Args:
+        provider_id: The ID of the provider to load
+        auto_download: If True, will attempt to download the provider if not available locally
 
     Returns:
         Tuple[bool, str, Optional[Provider]]:
@@ -177,11 +181,35 @@ async def ensure_provider_loaded(
         )
 
     if not is_local and can_download:
-        return (
-            False,
-            f"Provider {provider_id} needs to be downloaded first. Use POST /api/download/{provider_id} to download it.",
-            None,
-        )
+        if not auto_download:
+            return (
+                False,
+                f"Provider {provider_id} needs to be downloaded first. Add download=true to your request to automatically download it.",
+                None,
+            )
+
+        # Download the provider
+        try:
+            logger.info(f"Downloading provider {provider_id}...")
+            result = db.download_latest_dataset(provider_id, str(DOWNLOAD_DIR))
+            if not result:
+                return False, f"Failed to download provider {provider_id}", None
+
+            # Refresh provider info after download
+            is_local, can_download, provider = await check_provider_availability(
+                provider_id
+            )
+            if not is_local:
+                return (
+                    False,
+                    f"Provider {provider_id} download succeeded but provider not found locally",
+                    None,
+                )
+
+            logger.info(f"Successfully downloaded provider {provider_id}")
+        except Exception as e:
+            logger.error(f"Error downloading provider {provider_id}: {str(e)}")
+            return False, f"Error downloading provider {provider_id}: {str(e)}", None
 
     # At this point, provider exists locally
     if feed is not None and current_provider == provider.id:
@@ -220,12 +248,45 @@ async def ensure_provider_loaded(
         ):
             return False, f"GTFS data not found for provider {provider_id}", None
 
+        logger.info(f"Loading GTFS data for provider {provider_id}...")
         feed = load_feed(str(dataset_dir))
         current_provider = provider.id
+        logger.info(f"Successfully loaded GTFS data for provider {provider_id}")
         return True, f"Loaded GTFS data for {provider_id}", provider
     except Exception as e:
         logger.error(f"Error loading provider {provider_id}: {str(e)}")
         return False, f"Error loading provider {provider_id}: {str(e)}", None
+
+
+async def handle_provider_request(
+    provider_id: str, request: Request
+) -> Tuple[bool, str, Optional[Provider]]:
+    """Handle a request that requires a specific provider, automatically loading or downloading if needed.
+
+    Args:
+        provider_id: The ID of the provider needed
+        request: The FastAPI request object to get query parameters
+
+    Returns:
+        Same as ensure_provider_loaded
+    """
+    # Check if auto-download is requested
+    auto_download = request.query_params.get("download", "").lower() == "true"
+
+    # Try to ensure the provider is loaded
+    is_ready, message, provider = await ensure_provider_loaded(
+        provider_id, auto_download
+    )
+
+    if not is_ready:
+        raise HTTPException(
+            status_code=(
+                409 if "being loaded" in message or "download" in message else 404
+            ),
+            detail=message,
+        )
+
+    return is_ready, message, provider
 
 
 def find_gtfs_directories() -> List[Provider]:
@@ -581,6 +642,7 @@ async def set_provider(provider_id: str):
 
 @app.get("/api/{provider_id}/stations/search", response_model=List[StationResponse])
 async def search_stations_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     query: str = Query(..., min_length=2),
     language: Optional[str] = Query(
@@ -588,6 +650,7 @@ async def search_stations_with_provider(
     ),
 ):
     """Search for stations by name with explicit provider"""
+    await handle_provider_request(provider_id, request)
     return await search_stations(
         query=query, language=language, provider_id=provider_id
     )
@@ -690,6 +753,7 @@ async def search_stations(
 
 @app.get("/api/{provider_id}/routes", response_model=RouteResponse)
 async def get_routes_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     from_station: str = Query(..., description="Departure station ID"),
     to_station: str = Query(..., description="Destination station ID"),
@@ -699,7 +763,9 @@ async def get_routes_with_provider(
     ),
 ):
     """Get all routes between two stations for a specific date with explicit provider"""
+    await handle_provider_request(provider_id, request)
     return await get_routes(
+        request=request,
         from_station=from_station,
         to_station=to_station,
         date=date,
@@ -1206,16 +1272,8 @@ async def get_waiting_times(
     ):
         start_time = time.time()
 
-        # Check provider availability and load if needed
-        is_ready, message, provider = await ensure_provider_loaded(provider_id)
-        if not is_ready:
-            raise HTTPException(
-                status_code=409 if "being loaded" in message else 404,
-                detail=message,
-            )
-
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
+        # Use the new handler
+        _, _, provider = await handle_provider_request(provider_id, request)
 
         # Get the stop
         gtfs_stop = feed.stops.get(stop_id)
@@ -1397,20 +1455,13 @@ def calculate_minutes_until(arrival_time: str, current_time: str) -> str:
 
 @app.get("/api/{provider_id}/colors/{route_id}", response_model=RouteColors)
 async def get_route_colors(
+    request: Request,
     provider_id: str = Path(...),
     route_id: str = Path(...),
 ):
     """Get the color scheme for a route."""
-    # Check provider availability and load if needed
-    is_ready, message, provider = await ensure_provider_loaded(provider_id)
-    if not is_ready:
-        raise HTTPException(
-            status_code=409 if "being loaded" in message else 404,
-            detail=message,
-        )
-
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    # Use the new handler
+    _, _, provider = await handle_provider_request(provider_id, request)
 
     # Find the route
     route = next((r for r in feed.routes if r.route_id == route_id), None)
@@ -1438,20 +1489,13 @@ async def get_route_colors(
 
 @app.get("/api/{provider_id}/line_info/{route_id}", response_model=Dict[str, LineInfo])
 async def get_line_info(
+    request: Request,
     provider_id: str = Path(...),
     route_id: str = Path(...),
 ):
     """Get detailed information about a route/line."""
-    # Check provider availability and load if needed
-    is_ready, message, provider = await ensure_provider_loaded(provider_id)
-    if not is_ready:
-        raise HTTPException(
-            status_code=409 if "being loaded" in message else 404,
-            detail=message,
-        )
-
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    # Use the new handler
+    _, _, provider = await handle_provider_request(provider_id, request)
 
     # Find the route
     route = next((r for r in feed.routes if r.route_id == route_id), None)
