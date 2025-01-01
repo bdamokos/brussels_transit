@@ -17,12 +17,48 @@ class DatasetInfo(BaseModel):
     validation_report: DatasetValidation
 
 
+class BoundingBox(BaseModel):
+    """A geographical bounding box defined by its corners."""
+
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
+
+    @field_validator("min_lat", "max_lat")
+    def validate_latitude(cls, v):
+        if not -90 <= v <= 90:
+            raise ValueError("Latitude must be between -90 and 90 degrees")
+        return v
+
+    @field_validator("min_lon", "max_lon")
+    def validate_longitude(cls, v):
+        if not -180 <= v <= 180:
+            raise ValueError("Longitude must be between -180 and 180 degrees")
+        return v
+
+    @field_validator("max_lat")
+    def validate_lat_bounds(cls, v, values):
+        if "min_lat" in values.data and v < values.data["min_lat"]:
+            raise ValueError("max_lat must be greater than or equal to min_lat")
+        return v
+
+    @field_validator("max_lon")
+    def validate_lon_bounds(cls, v, values):
+        if "min_lon" in values.data and v < values.data["min_lon"]:
+            raise ValueError("max_lon must be greater than or equal to min_lon")
+        return v
+
+
 class Provider(BaseModel):
     id: str  # The long ID generated from the provider's name and the dataset_id (raw_id) (e.g. "Budapest_Transport_mdb-990")
     raw_id: str  # The short ID (e.g. "mdb-990") - the raw ID is the dataset_id in the Mobility Database
     provider: str  # The provider's name
     name: str  # The provider's name (same as provider)
     latest_dataset: DatasetInfo
+    bounding_box: Optional[BoundingBox] = (
+        None  # The geographical bounding box of the dataset, if available
+    )
 
 
 class Location(BaseModel):
@@ -178,36 +214,3 @@ class LineInfo(BaseModel):
     route_sort_order: Optional[int] = None  # Order in which routes should be displayed
     continuous_pickup: Optional[int] = None  # Flag stop behavior for pickup (0-3)
     continuous_drop_off: Optional[int] = None  # Flag stop behavior for drop-off (0-3)
-
-
-class BoundingBox(BaseModel):
-    """A geographical bounding box defined by its corners."""
-
-    min_lat: float
-    min_lon: float
-    max_lat: float
-    max_lon: float
-
-    @field_validator("min_lat", "max_lat")
-    def validate_latitude(cls, v):
-        if not -90 <= v <= 90:
-            raise ValueError("Latitude must be between -90 and 90 degrees")
-        return v
-
-    @field_validator("min_lon", "max_lon")
-    def validate_longitude(cls, v):
-        if not -180 <= v <= 180:
-            raise ValueError("Longitude must be between -180 and 180 degrees")
-        return v
-
-    @field_validator("max_lat")
-    def validate_lat_bounds(cls, v, values):
-        if "min_lat" in values.data and v < values.data["min_lat"]:
-            raise ValueError("max_lat must be greater than min_lat")
-        return v
-
-    @field_validator("max_lon")
-    def validate_lon_bounds(cls, v, values):
-        if "min_lon" in values.data and v < values.data["min_lon"]:
-            raise ValueError("max_lon must be greater than min_lon")
-        return v

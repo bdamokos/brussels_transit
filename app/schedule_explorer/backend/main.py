@@ -267,6 +267,24 @@ def find_gtfs_directories() -> List[Provider]:
                         # Always append the provider_id to make each provider unique
                         provider_key = f"{sanitized_name}_{provider_id}"
 
+                        # Create bounding box if coordinates are available
+                        bounding_box = None
+                        if all(
+                            dataset_info.get(key) is not None
+                            for key in [
+                                "minimum_latitude",
+                                "maximum_latitude",
+                                "minimum_longitude",
+                                "maximum_longitude",
+                            ]
+                        ):
+                            bounding_box = BoundingBox(
+                                min_lat=dataset_info["minimum_latitude"],
+                                max_lat=dataset_info["maximum_latitude"],
+                                min_lon=dataset_info["minimum_longitude"],
+                                max_lon=dataset_info["maximum_longitude"],
+                            )
+
                         # Convert to the format expected by the frontend
                         providers[provider_key] = Provider(
                             id=provider_key,  # Use sanitized name with provider_id as ID
@@ -284,6 +302,7 @@ def find_gtfs_directories() -> List[Provider]:
                                     total_info=0,
                                 ),
                             ),
+                            bounding_box=bounding_box,
                         )
             except Exception as e:
                 logger.error(f"Error reading metadata file {metadata_file}: {str(e)}")
