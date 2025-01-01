@@ -173,14 +173,31 @@ function getUrlParams() {
 // Provider handling
 async function loadProviders() {
     try {
-        const response = await fetch(`${API_BASE_URL}/providers`);
+        const response = await fetch(`${API_BASE_URL}/providers_info`);
         const providers = await response.json();
 
         const select = document.getElementById('providerSelect');
         select.innerHTML = '<option value="" selected disabled>Select a provider</option>';
-        select.innerHTML += providers.map(provider =>
-            `<option value="${provider}">${provider}</option>`
-        ).join('');
+        
+        // Group providers by name to detect duplicates
+        const providersByName = {};
+        providers.forEach(provider => {
+            if (!providersByName[provider.name]) {
+                providersByName[provider.name] = [];
+            }
+            providersByName[provider.name].push(provider);
+        });
+
+        // Create options, adding ID for duplicates
+        const options = providers.map(provider => {
+            const hasDuplicates = providersByName[provider.name].length > 1;
+            const displayName = hasDuplicates ? 
+                `${provider.name} (${provider.raw_id})` : 
+                provider.name;
+            return `<option value="${provider.raw_id}">${displayName}</option>`;
+        });
+
+        select.innerHTML += options.join('');
 
         const languageSelect = document.getElementById('languageSelect');
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
@@ -202,15 +219,15 @@ async function loadProviders() {
     }
 }
 
-async function setProvider(providerName) {
-    if (!providerName) {
+async function setProvider(providerId) {
+    if (!providerId) {
         return;
     }
 
     try {
-        updateBackendStatus('loading', `Loading ${providerName} GTFS data...`);
+        updateBackendStatus('loading', `Loading provider ${providerId} GTFS data...`);
 
-        const response = await fetch(`${API_BASE_URL}/provider/${providerName}`, {
+        const response = await fetch(`${API_BASE_URL}/provider/${providerId}`, {
             method: 'POST'
         });
 
@@ -245,7 +262,7 @@ async function setProvider(providerName) {
         availableToStations = [];
 
         // Update page title
-        document.querySelector('h1').textContent = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} Route Explorer`;
+        document.querySelector('h1').textContent = `${providerId} Route Explorer`;
 
         // Enable inputs
         fromStationInput.disabled = false;
@@ -294,7 +311,7 @@ async function setProvider(providerName) {
         }
     } catch (error) {
         console.error('Error setting provider:', error);
-        updateBackendStatus('error', `Failed to load ${providerName} data`);
+        updateBackendStatus('error', `Failed to load provider ${providerId} data`);
     }
 }
 

@@ -292,20 +292,20 @@ def find_gtfs_directories() -> List[Provider]:
 
 
 def get_provider_by_id(provider_id: str) -> Optional[Provider]:
-    """Get provider by either its long ID or raw ID."""
+    """Get provider by either its raw ID or long ID."""
     global available_providers
 
     # Refresh available providers if empty
     if not available_providers:
         available_providers = find_gtfs_directories()
 
-    # First try to find by long ID
-    provider = next((p for p in available_providers if p.id == provider_id), None)
+    # First try to find by raw ID (this is the preferred method)
+    provider = next((p for p in available_providers if p.raw_id == provider_id), None)
     if provider:
         return provider
 
-    # If not found, try to find by raw ID
-    return next((p for p in available_providers if p.raw_id == provider_id), None)
+    # If not found, try to find by long ID (for backward compatibility)
+    return next((p for p in available_providers if p.id == provider_id), None)
 
 
 @app.get("/api/providers/search", response_model=List[Dict])
@@ -495,22 +495,22 @@ async def set_provider(provider_id: str):
         )
 
     # If the requested provider is already loaded, return early
-    if feed is not None and current_provider == provider.id:
-        logger.info(f"Provider {provider.id} already loaded, skipping reload")
+    if feed is not None and current_provider == provider.raw_id:
+        logger.info(f"Provider {provider.raw_id} already loaded, skipping reload")
         return {
             "status": "success",
-            "message": f"Provider {provider.id} already loaded",
+            "message": f"Provider {provider.raw_id} already loaded",
         }
 
     try:
-        logger.info(f"Loading GTFS data for provider {provider.id}")
+        logger.info(f"Loading GTFS data for provider {provider.raw_id}")
 
         # Find the provider's dataset directory
         metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
         if not metadata_file.exists():
             raise HTTPException(
                 status_code=404,
-                detail=f"No metadata found for provider {provider.id}",
+                detail=f"No metadata found for provider {provider.raw_id}",
             )
 
         with open(metadata_file, "r") as f:
@@ -529,7 +529,7 @@ async def set_provider(provider_id: str):
             if not dataset_info:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No dataset info found for provider {provider.id}",
+                    detail=f"No dataset info found for provider {provider.raw_id}",
                 )
 
             dataset_dir = FilePath(dataset_info["download_path"])
@@ -544,16 +544,19 @@ async def set_provider(provider_id: str):
         ):
             raise HTTPException(
                 status_code=404,
-                detail=f"GTFS data not found for provider {provider.id}",
+                detail=f"GTFS data not found for provider {provider.raw_id}",
             )
 
         feed = load_feed(str(dataset_dir))
-        current_provider = provider.id
-        return {"status": "success", "message": f"Loaded GTFS data for {provider.id}"}
+        current_provider = provider.raw_id
+        return {
+            "status": "success",
+            "message": f"Loaded GTFS data for {provider.raw_id}",
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error loading provider {provider.id}: {str(e)}")
+        logger.error(f"Error loading provider {provider.raw_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

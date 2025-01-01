@@ -177,8 +177,16 @@ async function loadProviders() {
         // Add provider options
         for (const provider of providers) {
             const option = document.createElement('option');
-            option.value = provider.id;
-            option.textContent = provider.name || provider.id;
+            option.value = provider.raw_id;
+            
+            // Check if there are multiple providers with the same name
+            const duplicateProviders = providers.filter(p => p.name === provider.name);
+            if (duplicateProviders.length > 1) {
+                option.textContent = `${provider.name} (${provider.raw_id})`;
+            } else {
+                option.textContent = provider.name;
+            }
+            
             providerSelect.appendChild(option);
         }
 
