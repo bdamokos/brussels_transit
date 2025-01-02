@@ -829,8 +829,8 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                                 (arrival_time - now_local).total_seconds() / 60
                             )
 
-                            # Skip if realtime is more than 3 hours in the past
-                            if realtime_minutes < -180:
+                            # Skip if realtime is more than 2 minutes in the past
+                            if realtime_minutes < -2:
                                 continue
 
                             delay_seconds = time_entry.get("delay")
