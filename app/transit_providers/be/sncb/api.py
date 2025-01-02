@@ -489,6 +489,12 @@ def _load_routes_cache() -> None:
             route_desc_index = (
                 header.index("route_desc") if "route_desc" in header else -1
             )
+            route_long_name_index = (
+                header.index("route_long_name") if "route_long_name" in header else -1
+            )
+            route_type_index = (
+                header.index("route_type") if "route_type" in header else -1
+            )
 
             for line in f:
                 fields = line.strip().split(",")
@@ -497,6 +503,14 @@ def _load_routes_cache() -> None:
                     "route_short_name": fields[route_short_name_index],
                     "route_desc": (
                         fields[route_desc_index] if route_desc_index >= 0 else None
+                    ),
+                    "route_long_name": (
+                        fields[route_long_name_index]
+                        if route_long_name_index >= 0
+                        else None
+                    ),
+                    "route_type": (
+                        int(fields[route_type_index]) if route_type_index >= 0 else None
                     ),
                 }
 
@@ -858,6 +872,10 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                                     "route_short_name", route_id
                                 ),
                                 "route_desc": route_info.get("route_desc", ""),
+                                "route_long_name": route_info.get(
+                                    "route_long_name", ""
+                                ),
+                                "route_type": route_info.get("route_type"),
                             }
                         }
 
