@@ -11,8 +11,9 @@
     - [Running the Application](#running-the-application)
     - [Running with Docker](#running-with-docker)
   - [Getting API Access](#getting-api-access)
-    - [STIB/MIVB API](#stibmivb-api)
-    - [De Lijn API](#de-lijn-api)
+    - [STIB/MIVB API (Belgium)](#stibmivb-api-belgium)
+    - [De Lijn API (Belgium)](#de-lijn-api-belgium)
+    - [SNCB (Belgium)](#sncb-belgium)
     - [BKK (Budapest)](#bkk-budapest)
     - [Mobility Database](#mobility-database)
   - [Figuring out stop IDs](#figuring-out-stop-ids)
@@ -32,7 +33,7 @@ Creates a dashboard showing waiting times for implemented public transport compa
 The aim is for a modular design that allows for easy addition of new transit providers, including in other countries.
 
 Currently supported real-time waiting times:
-- Belgium: STIB, De Lijn
+- Belgium: STIB, De Lijn, SNCB
 - Hungary: BKK
 
 Schedule based waiting times: supported in 70 countries covered by the Mobility Database.
@@ -107,14 +108,14 @@ Alternatively, you can run individual components:
 
 ## Getting API Access
 
-### STIB/MIVB API
+### STIB/MIVB API (Belgium)
 
 1. Go to the [STIB Open Data Portal](https://opendata.stib-mivb.be/)
 2. Create an account and log in
 3. Generate your API key in your account settings
-4. Add the key to your `.env` file
+4. Add the key to your `.env` file as "STIB_API_KEY"
 
-### De Lijn API
+### De Lijn API (Belgium)
 
 1. Visit the [De Lijn Developer Portal](https://data.delijn.be/)
 2. Create an account
@@ -122,7 +123,17 @@ Alternatively, you can run individual components:
    - "Open Data Free Subscribe Here" 
    - "De Lijn GTFS Realtime"
    - "De Lijn GTFS Static"
-4. Add the keys to your `.env` file
+4. Add the keys to your `.env` file (as DELIJN_API_KEY, DELIJN_GTFS_STATIC_API_KEY, and 
+DELIJN_GTFS_REALTIME_API_KEY)
+
+### SNCB (Belgium)
+
+Note that the app works without signing an agreement with SNCB through the mirrored data provided by [GTFS.be](https://gtfs.be/).
+
+1. Visit https://opendata.sncb.be/
+2. Register and request an agreement
+3. Once both parties have signed the agreement, you will receive a link to a page where the GTFS real time feed is linked
+4. Add the url to your `.env` file as "SNCB_GTFS_REALTIME_API_URL"
 
 ### BKK (Budapest)
 
@@ -131,6 +142,8 @@ Alternatively, you can run individual components:
 3. Add the keys to your `.env` file
 
 ### Mobility Database
+
+Without an API key, you are limited to a CSV mirror of the data, that is not fully up to date.
 
 1. Go to https://mobilitydatabase.org
 2. Create an account
@@ -147,7 +160,8 @@ General method:
 - Select the stops that appear, look for the route and direction you want to monitor
 - Note down the stop_id for the relevant stop
 
-Note that the Schedule Explorer works with a wide range of providers, the waiting time interface is limited to the 3 providers currently implemented.
+Note that the Schedule Explorer works with a wide range of providers. There is a schedule based interface that displays the upcoming arrivals at a stop on port 8000. 
+There is also a similar interface that displays realtime waiting times on port 5001 for the 4 providers that are currently implemented.
   
 ### Stib
 Alternatively:
