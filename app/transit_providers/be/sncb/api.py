@@ -30,6 +30,7 @@ from asyncio import (
     get_running_loop,
 )
 import time
+from schedule_explorer.backend.gtfs_loader import load_translations
 
 # Export public API functions
 __all__ = [
@@ -37,7 +38,6 @@ __all__ = [
     "get_static_data",
     "sncb_config",
     "get_line_info",
-    "get_line_colors",
 ]
 
 # Get logger
@@ -433,6 +433,10 @@ def _load_stops_cache() -> None:
         if not gtfs_path:
             return
 
+        # Load translations first
+        translations = load_translations(str(gtfs_path))
+        logger.info(f"Loaded translations for {len(translations)} stops")
+
         stops_file = gtfs_path / "stops.txt"
         if not stops_file.exists():
             return
@@ -450,6 +454,7 @@ def _load_stops_cache() -> None:
                         "name": row["stop_name"].strip(),
                         "lat": float(row["stop_lat"].strip()),
                         "lon": float(row["stop_lon"].strip()),
+                        "translations": translations.get(stop_id, {}),
                     }
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error parsing stop data for {stop_id}: {e}")
@@ -759,6 +764,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 if stop_info:
                     formatted_data["stops_data"][stop_id] = {
                         "name": stop_info["name"],
+                        "translations": stop_info.get("translations", {}),
                         "coordinates": (
                             {"lat": stop_info["lat"], "lon": stop_info["lon"]}
                             if stop_info.get("lat") and stop_info.get("lon")
@@ -979,6 +985,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             if stop_info:
                 formatted_data["stops_data"][stop_id] = {
                     "name": stop_info["name"],
+                    "translations": stop_info.get("translations", {}),
                     "coordinates": (
                         {"lat": stop_info["lat"], "lon": stop_info["lon"]}
                         if stop_info.get("lat") and stop_info.get("lon")
@@ -1233,101 +1240,6 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
         return line_info
     except Exception as e:
         logger.error(f"Error getting line information: {e}")
-        return {}
-
-
-async def get_line_colors(
-    line_number: Optional[str] = None,
-) -> Dict[str, Dict[str, str]]:
-    """Get line colors in De Lijn format.
-
-    Args:
-        line_number: Optional specific line number to get colors for
-
-    Returns:
-        Dict with format:
-        {
-            "text": "#RRGGBB",
-            "background": "#RRGGBB",
-            "text_border": "#RRGGBB",
-            "background_border": "#RRGGBB"
-        }
-    """
-    await _ensure_caches_initialized()
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return {}
-
-        routes_file = gtfs_path / "routes.txt"
-        if not routes_file.exists():
-            return {}
-
-        with open(routes_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            route_id_index = header.index("route_id")
-            route_color_index = (
-                header.index("route_color") if "route_color" in header else -1
-            )
-            route_text_color_index = (
-                header.index("route_text_color") if "route_text_color" in header else -1
-            )
-
-            # If looking for a specific line
-            if line_number:
-                for line in f:
-                    fields = line.strip().split(",")
-                    if fields[route_id_index] == line_number:
-                        bg_color = (
-                            f"#{fields[route_color_index]}"
-                            if route_color_index >= 0 and fields[route_color_index]
-                            else "#666666"
-                        )
-                        text_color = (
-                            f"#{fields[route_text_color_index]}"
-                            if route_text_color_index >= 0
-                            and fields[route_text_color_index]
-                            else "#FFFFFF"
-                        )
-
-                        return {
-                            "text": text_color,
-                            "background": bg_color,
-                            "text_border": text_color,  # Use same colors for borders
-                            "background_border": bg_color,
-                        }
-                return {}
-
-            # If getting all colors
-            colors = {}
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index]
-
-                if not MONITORED_LINES or route_id in MONITORED_LINES:
-                    bg_color = (
-                        f"#{fields[route_color_index]}"
-                        if route_color_index >= 0 and fields[route_color_index]
-                        else "#666666"
-                    )
-                    text_color = (
-                        f"#{fields[route_text_color_index]}"
-                        if route_text_color_index >= 0
-                        and fields[route_text_color_index]
-                        else "#FFFFFF"
-                    )
-
-                    colors[route_id] = {
-                        "text": text_color,
-                        "background": bg_color,
-                        "text_border": text_color,  # Use same colors for borders
-                        "background_border": bg_color,
-                    }
-
-            return colors
-
-    except Exception as e:
-        logger.error(f"Error getting line colors: {e}")
         return {}
 
 

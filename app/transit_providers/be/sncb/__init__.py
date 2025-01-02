@@ -21,7 +21,6 @@ from .api import (
     get_waiting_times,
     get_static_data,
     get_line_info,
-    get_line_colors,
 )
 
 provider_config = get_provider_config("sncb")
@@ -46,16 +45,14 @@ class SNCBProvider(TransitProvider):
         self.monitored_lines = config.get("MONITORED_LINES", [])
 
         # Define all endpoints
-        endpoints = {
-            "config": sncb_config,
+        self.endpoints = {
             "waiting_times": get_waiting_times,
             "static_data": get_static_data,
             "line_info": get_line_info,
-            "colors": get_line_colors,
         }
 
         # Call parent class constructor
-        super().__init__(name="sncb", endpoints=endpoints)
+        super().__init__(name="sncb", endpoints=self.endpoints)
         logger.info(
             f"SNCB provider initialized with endpoints: {list(self.endpoints.keys())}"
         )
@@ -86,5 +83,4 @@ __all__ = [
     "get_waiting_times",
     "get_static_data",
     "get_line_info",
-    "get_line_colors",
 ]
