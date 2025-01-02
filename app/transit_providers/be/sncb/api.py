@@ -813,10 +813,22 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                     continue
 
                 trip = entity.trip_update
-                line_id = _get_line_id_from_trip(trip.trip.route_id)
+                trip_id = trip.trip.trip_id
+
+                # Get route_id from trips cache
+                trip_info = _trips_cache.get(trip_id, {})
+                route_id = trip_info.get("route_id")
+                if not route_id:
+                    # Try with base trip ID (without date)
+                    base_trip_id = trip_id.split("-")[0]
+                    trip_info = _trips_cache.get(base_trip_id, {})
+                    route_id = trip_info.get("route_id")
+                    if not route_id:
+                        logger.debug(f"No route_id found for trip {trip_id}")
+                        continue
 
                 # Only filter by monitored lines if we're querying monitored stops
-                if not stop_id and monitored_lines and line_id not in monitored_lines:
+                if not stop_id and monitored_lines and route_id not in monitored_lines:
                     continue
 
                 # Collect stop sequence for this trip
@@ -824,13 +836,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 for update in trip.stop_time_update:
                     stop_sequence.append(update.stop_id)
 
-                destination = _get_destination_from_trip(
-                    trip.trip.trip_id, stop_sequence
-                )
+                destination = _get_destination_from_trip(trip_id, stop_sequence)
                 if not destination:
                     continue  # Skip if we couldn't get a destination even with fallback
 
-                route_info = route_info_cache.get(line_id, _get_route_info(line_id))
+                route_info = route_info_cache.get(route_id, _get_route_info(route_id))
 
                 for stop_time in trip.stop_time_update:
                     stop_time_start = time.time()
@@ -841,20 +851,22 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                         continue
 
                     # Initialize line data if needed
-                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                    if route_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                        formatted_data["stops_data"][stop_id]["lines"][route_id] = {
                             "_metadata": {
-                                "route_short_name": route_info["route_short_name"],
-                                "route_desc": route_info["route_desc"],
+                                "route_short_name": route_info.get(
+                                    "route_short_name", route_id
+                                ),
+                                "route_desc": route_info.get("route_desc", ""),
                             }
                         }
 
                     # Initialize destination data if needed
                     if (
                         destination
-                        not in formatted_data["stops_data"][stop_id]["lines"][line_id]
+                        not in formatted_data["stops_data"][stop_id]["lines"][route_id]
                     ):
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][
+                        formatted_data["stops_data"][stop_id]["lines"][route_id][
                             destination
                         ] = []
 
@@ -866,7 +878,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                         scheduled_time_start = time.time()
                         perf_data["stats"]["scheduled_time_lookups"] += 1
                         scheduled_time = _get_scheduled_time(
-                            trip.trip.trip_id, stop_id, stop_time.stop_sequence
+                            trip_id, stop_id, stop_time.stop_sequence
                         )
                         scheduled_timestamp = (
                             scheduled_time.timestamp()
@@ -877,7 +889,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s"
                         )
 
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][
+                        formatted_data["stops_data"][stop_id]["lines"][route_id][
                             destination
                         ].append(
                             {
