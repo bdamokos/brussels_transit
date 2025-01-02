@@ -58,13 +58,8 @@ STOP_IDS = provider_config.get("STOP_IDS", [])
 GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES", [])
 
 # GTFS-realtime endpoints
-VEHICLE_POSITIONS_URL = (
-    f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/VehiclePositions.pb?key={API_KEY}"
-)
-TRIP_UPDATES_URL = (
-    f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/TripUpdates.pb?key={API_KEY}"
-)
-ALERTS_URL = f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb?key={API_KEY}"
+REALTIME_URL = provider_config.get("REALTIME_URL")
+TRIP_UPDATES_URL = REALTIME_URL
 
 # Cache for scheduled stop times
 _stop_times_cache = {}
