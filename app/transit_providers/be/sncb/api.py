@@ -1,4 +1,4 @@
-"""BKK (Budapest) transit provider API implementation"""
+"""SNCB (Belgium) transit provider API implementation"""
 
 import os
 from datetime import datetime, timezone, timedelta
@@ -30,25 +30,21 @@ from asyncio import (
     get_running_loop,
 )
 import time
+from schedule_explorer.backend.gtfs_loader import load_translations
 
 # Export public API functions
 __all__ = [
-    "get_vehicle_positions",
     "get_waiting_times",
-    "get_service_alerts",
     "get_static_data",
-    "bkk_config",
+    "sncb_config",
     "get_line_info",
-    "get_route_shapes",
-    "get_route_variants_api",
-    "get_line_colors",
 ]
 
 # Get logger
-logger = logging.getLogger("bkk")
+logger = logging.getLogger("sncb")
 
 # Get provider configuration
-provider_config = get_provider_config("bkk")
+provider_config = get_provider_config("sncb")
 
 # Constants from config
 CACHE_DIR = provider_config.get("CACHE_DIR")
@@ -56,24 +52,14 @@ GTFS_DIR = (
     provider_config.get("GTFS_DIR") or Path(os.environ["PROJECT_ROOT"]) / "downloads"
 )
 API_KEY = provider_config.get("API_KEY")
-PROVIDER_ID = provider_config.get("PROVIDER_ID", "mdb-990")  # BKK's ID in Mobility DB
+PROVIDER_ID = provider_config.get("PROVIDER_ID", "mdb-1859")  # SNCB's ID in Mobility DB
 MONITORED_LINES = provider_config.get("MONITORED_LINES", [])
 STOP_IDS = provider_config.get("STOP_IDS", [])
 GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES", [])
 
 # GTFS-realtime endpoints
-VEHICLE_POSITIONS_URL = (
-    f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/VehiclePositions.pb?key={API_KEY}"
-)
-TRIP_UPDATES_URL = (
-    f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/TripUpdates.pb?key={API_KEY}"
-)
-ALERTS_URL = f"https://go.bkk.hu/api/query/v1/ws/gtfs-rt/full/Alerts.pb?key={API_KEY}"
-
-# Cache for scheduled stop times
-_stop_times_cache = {}
-_last_cache_update = None
-_CACHE_DURATION = timedelta(hours=24)
+REALTIME_URL = provider_config.get("REALTIME_URL")
+TRIP_UPDATES_URL = REALTIME_URL
 
 # Cache for stop and route information
 _stops_cache = {}
@@ -124,7 +110,7 @@ def _load_trips_cache() -> None:
             return
 
         # Get monitored lines first
-        config = get_provider_config("bkk")
+        config = get_provider_config("sncb")
         monitored_lines = config.get("MONITORED_LINES", [])
 
         new_cache = {}
@@ -182,7 +168,7 @@ async def _initialize_caches():
         return
 
     try:
-        logger.info("Initializing BKK provider caches...")
+        logger.info("Initializing SNCB provider caches...")
 
         # First ensure GTFS data is available
         if not gtfs_manager:
@@ -227,12 +213,6 @@ async def _initialize_caches():
             return
 
         try:
-            _load_stop_times_cache()
-        except Exception as e:
-            logger.error(f"Failed to initialize stop times cache: {e}", exc_info=True)
-            return
-
-        try:
             _load_trips_cache()
         except Exception as e:
             logger.error(f"Failed to initialize trips cache: {e}", exc_info=True)
@@ -243,9 +223,9 @@ async def _initialize_caches():
         _last_waiting_times_update = time.time()
 
         _caches_initialized = True
-        logger.info("BKK provider caches initialized successfully")
+        logger.info("SNCB provider caches initialized successfully")
     except Exception as e:
-        logger.error(f"Error initializing BKK provider caches: {e}")
+        logger.error(f"Error initializing SNCB provider caches: {e}")
         _caches_initialized = False
 
 
@@ -369,70 +349,6 @@ except Exception as e:
     gtfs_manager = None
 
 
-def _load_stop_times_cache() -> None:
-    """Load scheduled stop times for monitored routes into cache"""
-    global _stop_times_cache, _last_cache_update
-
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return
-
-        # Get monitored routes and stops
-        config = get_provider_config("bkk")
-        monitored_lines = config.get("MONITORED_LINES", [])
-        stop_ids = config.get("STOP_IDS", [])
-
-        # First get trip IDs for monitored routes
-        trips_file = gtfs_path / "trips.txt"
-        monitored_trips = set()
-
-        with open(trips_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            route_id_index = header.index("route_id")
-
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index]
-                if route_id in monitored_lines:
-                    monitored_trips.add(fields[trip_id_index])
-
-        # Read stop_times.txt for monitored trips
-        stop_times_file = gtfs_path / "stop_times.txt"
-        new_cache = {}
-
-        with open(stop_times_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            stop_id_index = header.index("stop_id")
-            stop_sequence_index = header.index("stop_sequence")
-            arrival_time_index = header.index("arrival_time")
-
-            for line in f:
-                fields = line.strip().split(",")
-                trip_id = fields[trip_id_index]
-                stop_id = fields[stop_id_index]
-
-                if trip_id in monitored_trips and (not stop_ids or stop_id in stop_ids):
-                    cache_key = (trip_id, stop_id, int(fields[stop_sequence_index]))
-                    time_str = fields[arrival_time_index]
-                    hours, minutes, _ = map(int, time_str.split(":"))
-
-                    # Handle times past midnight (hours > 24)
-                    if hours >= 24:
-                        hours = hours % 24
-
-                    new_cache[cache_key] = (hours, minutes)
-
-        _stop_times_cache = new_cache
-        _last_cache_update = datetime.now(timezone.utc)
-        logger.info(f"Updated stop times cache with {len(_stop_times_cache)} entries")
-
-    except Exception as e:
-        logger.error(f"Error loading stop times cache: {e}")
-
-
 def _load_stops_cache() -> None:
     """Load stop information from GTFS data into cache"""
     global _stops_cache, _stops_cache_update
@@ -441,6 +357,10 @@ def _load_stops_cache() -> None:
         gtfs_path = _get_current_gtfs_path()
         if not gtfs_path:
             return
+
+        # Load translations first
+        translations = load_translations(str(gtfs_path))
+        logger.info(f"Loaded translations for {len(translations)} stops")
 
         stops_file = gtfs_path / "stops.txt"
         if not stops_file.exists():
@@ -459,6 +379,7 @@ def _load_stops_cache() -> None:
                         "name": row["stop_name"].strip(),
                         "lat": float(row["stop_lat"].strip()),
                         "lon": float(row["stop_lon"].strip()),
+                        "translations": translations.get(stop_id, {}),
                     }
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error parsing stop data for {stop_id}: {e}")
@@ -493,6 +414,12 @@ def _load_routes_cache() -> None:
             route_desc_index = (
                 header.index("route_desc") if "route_desc" in header else -1
             )
+            route_long_name_index = (
+                header.index("route_long_name") if "route_long_name" in header else -1
+            )
+            route_type_index = (
+                header.index("route_type") if "route_type" in header else -1
+            )
 
             for line in f:
                 fields = line.strip().split(",")
@@ -501,6 +428,14 @@ def _load_routes_cache() -> None:
                     "route_short_name": fields[route_short_name_index],
                     "route_desc": (
                         fields[route_desc_index] if route_desc_index >= 0 else None
+                    ),
+                    "route_long_name": (
+                        fields[route_long_name_index]
+                        if route_long_name_index >= 0
+                        else None
+                    ),
+                    "route_type": (
+                        int(fields[route_type_index]) if route_type_index >= 0 else None
                     ),
                 }
 
@@ -516,43 +451,7 @@ def _get_scheduled_time(
     trip_id: str, stop_id: str, stop_sequence: int
 ) -> Optional[datetime]:
     """Get scheduled arrival time from cache or static GTFS data"""
-    global _last_cache_update
-
-    # Update cache if needed
-    now = datetime.now(timezone.utc)
-    if not _last_cache_update or (now - _last_cache_update) > _CACHE_DURATION:
-        _load_stop_times_cache()
-
-    try:
-        # Try to get from cache
-        cache_key = (trip_id, stop_id, stop_sequence)
-        if cache_key in _stop_times_cache:
-            hours, minutes = _stop_times_cache[cache_key]
-
-            # Create datetime in local timezone (Budapest)
-            from zoneinfo import ZoneInfo
-
-            budapest_tz = ZoneInfo("Europe/Budapest")
-            now_local = datetime.now(budapest_tz)
-            scheduled = now_local.replace(
-                hour=hours, minute=minutes, second=0, microsecond=0
-            )
-
-            # If the scheduled time is more than 12 hours in the past,
-            # it's probably for tomorrow
-            if (now_local - scheduled).total_seconds() > 12 * 3600:
-                scheduled += timedelta(days=1)
-
-            # Convert to UTC
-            return scheduled.astimezone(timezone.utc)
-
-        return None
-
-    except Exception as e:
-        logger.error(
-            f"Error getting scheduled time from cache for trip {trip_id}, stop {stop_id}: {e}"
-        )
-        return None
+    return None  # We're not using scheduled times anymore
 
 
 def _get_stop_info(stop_id: str) -> Dict[str, Any]:
@@ -561,7 +460,7 @@ def _get_stop_info(stop_id: str) -> Dict[str, Any]:
 
     # Update cache if needed
     now = datetime.now(timezone.utc)
-    if not _stops_cache_update or (now - _stops_cache_update) > _CACHE_DURATION:
+    if not _stops_cache_update:
         _load_stops_cache()
 
     # Return cached info or default with actual stop name from cache
@@ -578,7 +477,7 @@ def _get_route_info(route_id: str) -> Dict[str, Any]:
 
     # Update cache if needed
     now = datetime.now(timezone.utc)
-    if not _routes_cache_update or (now - _routes_cache_update) > _CACHE_DURATION:
+    if not _routes_cache_update:
         _load_routes_cache()
 
     return _routes_cache.get(
@@ -611,117 +510,6 @@ async def get_stops() -> Dict[str, Stop]:
     return stops
 
 
-async def get_vehicle_positions(line=None, direction=None):
-    """Get vehicle positions from BKK GTFS-RT feed.
-
-    Args:
-        line (str, optional): Filter vehicles by line number. Defaults to None.
-        direction (str, optional): Filter vehicles by direction. Defaults to None.
-
-    Returns:
-        list: List of vehicle position dictionaries.
-    """
-    await _ensure_caches_initialized()
-    async with httpx.AsyncClient() as client:
-        response = await client.get(VEHICLE_POSITIONS_URL, params={"key": API_KEY})
-        feed = gtfs_realtime_pb2.FeedMessage()
-        feed.ParseFromString(response.content)
-
-        vehicles = []
-        for entity in feed.entity:
-            if not entity.HasField("vehicle"):
-                continue
-
-            vehicle = entity.vehicle
-            if not vehicle.HasField("trip"):
-                continue
-
-            # Filter by line if specified
-            route_id = vehicle.trip.route_id.lstrip("0")
-            if line and route_id != line.lstrip("0"):
-                continue
-
-            # Get vehicle details
-            vehicle_dict = {
-                "id": vehicle.vehicle.id,
-                "line": vehicle.trip.route_id,
-                "direction": direction,  # We don't have direction info in the feed
-                "destination": vehicle.vehicle.label,
-                "position": {
-                    "lat": float(vehicle.position.latitude),
-                    "lon": float(vehicle.position.longitude),
-                },
-                "bearing": (
-                    float(vehicle.position.bearing)
-                    if vehicle.position.HasField("bearing")
-                    else None
-                ),
-                "speed": (
-                    float(vehicle.position.speed) * 3.6
-                    if vehicle.position.HasField("speed")
-                    else None
-                ),  # Convert m/s to km/h
-                "timestamp": datetime.fromtimestamp(int(vehicle.timestamp)).isoformat()
-                + "+00:00",
-                "delay": None,  # Delay is not provided in the feed
-                "status": vehicle.current_status,
-                "stop_id": vehicle.stop_id,
-                "stop_sequence": vehicle.current_stop_sequence,
-                "license_plate": vehicle.vehicle.license_plate,
-                "provider": "bkk",
-            }
-
-            # # Store raw vehicle data for debugging
-            # vehicle_dict["raw_vehicle"] = json_format.MessageToDict(
-            #     vehicle.vehicle,
-            #     preserving_proto_field_name=True,
-            #     use_integers_for_enums=True
-            # )
-
-            # Store raw bytes for debugging
-            raw_bytes = vehicle.vehicle.SerializeToString()
-            # vehicle_dict["raw_bytes"] = raw_bytes
-
-            # Parse BKK-specific fields from raw bytes
-            try:
-                # Find vehicle model (field 62, tag 0xF2 0x3E)
-                model_start = raw_bytes.find(b"\xf2\x3e")
-                if model_start >= 0:
-                    # Skip tag and length byte
-                    model_start += 3
-                    # Find end of string (next tag or end of bytes)
-                    model_end = raw_bytes.find(b"\x18", model_start)
-                    if model_end < 0:
-                        model_end = len(raw_bytes)
-                    model = raw_bytes[model_start:model_end].decode("utf-8")
-                    # Remove the extra characters at the beginning
-                    if model.startswith("\n)"):
-                        model = model[2:]
-
-                    # Find door status (field 3, tag 0x18)
-                    door_start = raw_bytes.find(b"\x18", model_end)
-                    if door_start >= 0:
-                        door_open = raw_bytes[door_start + 2] == 1
-
-                        # Find stop distance (field 5, tag 0x28)
-                        dist_start = raw_bytes.find(b"\x28", door_start)
-                        if dist_start >= 0:
-                            stop_distance = raw_bytes[dist_start + 1]
-
-                            # Add BKK-specific fields
-                            vehicle_dict["bkk_specific"] = {
-                                "vehicle_model": model,
-                                "door_open": door_open,
-                                "stop_distance": stop_distance,
-                            }
-            except Exception as e:
-                print(f"Error parsing BKK-specific fields: {e}")
-
-            vehicles.append(vehicle_dict)
-
-        return vehicles
-
-
 def _get_destination_from_trip(
     trip_id: str, stop_sequence: Optional[List[str]] = None
 ) -> str:
@@ -736,7 +524,7 @@ def _get_destination_from_trip(
 
         # Update cache if needed
         now = datetime.now(timezone.utc)
-        if not _trips_cache_update or (now - _trips_cache_update) > _CACHE_DURATION:
+        if not _trips_cache_update:
             _load_trips_cache()
 
         # First try exact trip ID match
@@ -801,7 +589,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
     try:
         # Get monitored stops from config
         config_start = time.time()
-        config = get_provider_config("bkk")
+        config = get_provider_config("sncb")
         monitored_lines = config.get("MONITORED_LINES", [])
 
         # Handle stop_id parameter
@@ -879,6 +667,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 if stop_info:
                     formatted_data["stops_data"][stop_id] = {
                         "name": stop_info["name"],
+                        "translations": stop_info.get("translations", {}),
                         "coordinates": (
                             {"lat": stop_info["lat"], "lon": stop_info["lon"]}
                             if stop_info.get("lat") and stop_info.get("lon")
@@ -927,10 +716,22 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                     continue
 
                 trip = entity.trip_update
-                line_id = _get_line_id_from_trip(trip.trip.route_id)
+                trip_id = trip.trip.trip_id
+
+                # Get route_id from trips cache
+                trip_info = _trips_cache.get(trip_id, {})
+                route_id = trip_info.get("route_id")
+                if not route_id:
+                    # Try with base trip ID (without date)
+                    base_trip_id = trip_id.split("-")[0]
+                    trip_info = _trips_cache.get(base_trip_id, {})
+                    route_id = trip_info.get("route_id")
+                    if not route_id:
+                        logger.debug(f"No route_id found for trip {trip_id}")
+                        continue
 
                 # Only filter by monitored lines if we're querying monitored stops
-                if not stop_id and monitored_lines and line_id not in monitored_lines:
+                if not stop_id and monitored_lines and route_id not in monitored_lines:
                     continue
 
                 # Collect stop sequence for this trip
@@ -938,13 +739,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 for update in trip.stop_time_update:
                     stop_sequence.append(update.stop_id)
 
-                destination = _get_destination_from_trip(
-                    trip.trip.trip_id, stop_sequence
-                )
+                destination = _get_destination_from_trip(trip_id, stop_sequence)
                 if not destination:
                     continue  # Skip if we couldn't get a destination even with fallback
 
-                route_info = route_info_cache.get(line_id, _get_route_info(line_id))
+                route_info = route_info_cache.get(route_id, _get_route_info(route_id))
 
                 for stop_time in trip.stop_time_update:
                     stop_time_start = time.time()
@@ -955,49 +754,45 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                         continue
 
                     # Initialize line data if needed
-                    if line_id not in formatted_data["stops_data"][stop_id]["lines"]:
-                        formatted_data["stops_data"][stop_id]["lines"][line_id] = {
+                    if route_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                        formatted_data["stops_data"][stop_id]["lines"][route_id] = {
                             "_metadata": {
-                                "route_short_name": route_info["route_short_name"],
-                                "route_desc": route_info["route_desc"],
+                                "route_short_name": route_info.get(
+                                    "route_short_name", route_id
+                                ),
+                                "route_desc": route_info.get("route_desc", ""),
+                                "route_long_name": route_info.get(
+                                    "route_long_name", ""
+                                ),
+                                "route_type": route_info.get("route_type"),
                             }
                         }
 
                     # Initialize destination data if needed
                     if (
                         destination
-                        not in formatted_data["stops_data"][stop_id]["lines"][line_id]
+                        not in formatted_data["stops_data"][stop_id]["lines"][route_id]
                     ):
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][
+                        formatted_data["stops_data"][stop_id]["lines"][route_id][
                             destination
                         ] = []
 
                     if stop_time.HasField("arrival"):
                         # Store raw timestamps for later processing
                         arrival_time = stop_time.arrival.time
-
-                        # Get scheduled time from static GTFS data
-                        scheduled_time_start = time.time()
-                        perf_data["stats"]["scheduled_time_lookups"] += 1
-                        scheduled_time = _get_scheduled_time(
-                            trip.trip.trip_id, stop_id, stop_time.stop_sequence
-                        )
-                        scheduled_timestamp = (
-                            scheduled_time.timestamp()
-                            if scheduled_time
-                            else arrival_time
-                        )
-                        logger.debug(
-                            f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s"
+                        delay_seconds = (
+                            stop_time.arrival.delay
+                            if stop_time.arrival.HasField("delay")
+                            else None
                         )
 
-                        formatted_data["stops_data"][stop_id]["lines"][line_id][
+                        formatted_data["stops_data"][stop_id]["lines"][route_id][
                             destination
                         ].append(
                             {
                                 "arrival_timestamp": arrival_time,
-                                "scheduled_timestamp": scheduled_timestamp,
-                                "provider": "bkk",
+                                "delay": delay_seconds,
+                                "provider": "sncb",
                             }
                         )
 
@@ -1014,7 +809,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             # Convert timestamps to human-readable format and calculate delays
             time_conversion_start = time.time()
             now = datetime.now(timezone.utc)
-            now_local = now.astimezone(ZoneInfo("Europe/Budapest"))
+            now_local = now.astimezone(ZoneInfo("Europe/Brussels"))
 
             for stop_id, stop_data in formatted_data["stops_data"].items():
                 for line_id, line_data in stop_data["lines"].items():
@@ -1027,46 +822,53 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             arrival_time_utc = datetime.fromtimestamp(
                                 time_entry["arrival_timestamp"], timezone.utc
                             )
-                            scheduled_time_utc = datetime.fromtimestamp(
-                                time_entry["scheduled_timestamp"], timezone.utc
-                            )
-
                             arrival_time = arrival_time_utc.astimezone(
-                                ZoneInfo("Europe/Budapest")
+                                ZoneInfo("Europe/Brussels")
                             )
-                            scheduled_time = scheduled_time_utc.astimezone(
-                                ZoneInfo("Europe/Budapest")
-                            )
-
                             realtime_minutes = int(
                                 (arrival_time - now_local).total_seconds() / 60
                             )
-                            scheduled_minutes = int(
-                                (scheduled_time - now_local).total_seconds() / 60
-                            )
 
-                            # Skip if both scheduled and realtime are in the past
-                            if scheduled_minutes < 0 and realtime_minutes < 0:
+                            # Skip if realtime is more than 2 minutes in the past
+                            if realtime_minutes < -2:
                                 continue
 
-                            delay_seconds = int(
-                                (arrival_time_utc - scheduled_time_utc).total_seconds()
-                            )
+                            delay_seconds = time_entry.get("delay")
 
                             processed_times.append(
                                 {
                                     "delay": delay_seconds,
-                                    "is_realtime": delay_seconds != 0,
+                                    "is_realtime": delay_seconds is not None
+                                    and delay_seconds
+                                    != 0,  # Only true if we have a non-zero delay from GTFS-RT
                                     "message": None,
                                     "realtime_minutes": f"{realtime_minutes}'",
                                     "realtime_time": arrival_time.strftime("%H:%M"),
-                                    "scheduled_minutes": f"{scheduled_minutes}'",
-                                    "scheduled_time": scheduled_time.strftime("%H:%M"),
-                                    "provider": "bkk",
+                                    "provider": "sncb",
                                 }
                             )
 
                         line_data[destination] = processed_times
+
+            # Clean up empty destinations and lines
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                lines_to_remove = []
+                for line_id, line_data in stop_data["lines"].items():
+                    # Get destinations (excluding _metadata)
+                    destinations = [k for k in line_data.keys() if k != "_metadata"]
+
+                    # Remove empty destinations
+                    for destination in destinations:
+                        if not line_data[destination]:
+                            del line_data[destination]
+
+                    # If no destinations left (except _metadata), mark line for removal
+                    if len(line_data) == 1 and "_metadata" in line_data:
+                        lines_to_remove.append(line_id)
+
+                # Remove empty lines
+                for line_id in lines_to_remove:
+                    del stop_data["lines"][line_id]
 
             perf_data["time_conversion_time"] = time.time() - time_conversion_start
 
@@ -1099,6 +901,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             if stop_info:
                 formatted_data["stops_data"][stop_id] = {
                     "name": stop_info["name"],
+                    "translations": stop_info.get("translations", {}),
                     "coordinates": (
                         {"lat": stop_info["lat"], "lon": stop_info["lon"]}
                         if stop_info.get("lat") and stop_info.get("lon")
@@ -1117,298 +920,6 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
         return formatted_data
 
 
-def parse_translations(translation_bytes: bytes) -> Dict[str, str]:
-    """Parse translation message bytes into a dictionary of language codes to text."""
-    translations = {}
-    pos = 0
-    while pos < len(translation_bytes):
-        # Read field tag
-        tag_wire, new_pos = decoder._DecodeVarint(translation_bytes, pos)
-        field_number, wire_type = wire_format.UnpackTag(tag_wire)
-
-        if wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
-            length, text_pos = decoder._DecodeVarint(translation_bytes, new_pos)
-            text_bytes = translation_bytes[text_pos : text_pos + length]
-
-            # Parse translation message
-            trans_pos = 0
-            text = None
-            lang = None
-            while trans_pos < len(text_bytes):
-                trans_tag_wire, trans_new_pos = decoder._DecodeVarint(
-                    text_bytes, trans_pos
-                )
-                trans_field_number, trans_wire_type = wire_format.UnpackTag(
-                    trans_tag_wire
-                )
-
-                if trans_wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
-                    trans_length, trans_text_pos = decoder._DecodeVarint(
-                        text_bytes, trans_new_pos
-                    )
-                    trans_value = text_bytes[
-                        trans_text_pos : trans_text_pos + trans_length
-                    ]
-
-                    if trans_field_number == 1:  # text
-                        text = trans_value.decode("utf-8")
-                    elif trans_field_number == 2:  # language
-                        lang = trans_value.decode("utf-8")
-
-                    trans_pos = trans_text_pos + trans_length
-                else:
-                    trans_pos = trans_new_pos
-
-            if text and lang:
-                translations[lang] = text
-
-            pos = text_pos + length
-        else:
-            pos = new_pos
-
-    return translations
-
-
-def parse_realcity_extension(alert_bytes: bytes) -> Dict:
-    """Parse realcity extension fields from alert bytes."""
-    realcity_data = {
-        "modified_time": None,
-        "start_text": {},
-        "end_text": {},
-        "route_details": [],
-    }
-
-    # Find realcity extension (field 1006)
-    ext_start = alert_bytes.find(b"\xf2\x3e")  # Tag for field 1006
-    if ext_start >= 0:
-        # Skip the extension tag
-        ext_start += 2
-
-        # Read the length of the extension message
-        length, pos = decoder._DecodeVarint(alert_bytes[ext_start:], 0)
-        ext_start += pos
-
-        # Get the extension message data
-        ext_data = alert_bytes[ext_start : ext_start + length]
-
-        # Parse the extension fields
-        current_pos = 0
-        while current_pos < len(ext_data):
-            # Read field tag
-            tag_bytes = ext_data[current_pos:]
-            field_tag, tag_len = decoder._DecodeVarint(tag_bytes, 0)
-            field_number = wire_format.UnpackTag(field_tag)[0]
-            wire_type = wire_format.UnpackTag(field_tag)[1]
-            current_pos += tag_len
-
-            # Read field value based on wire type
-            if wire_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
-                # String or message
-                length_bytes = ext_data[current_pos:]
-                length, length_len = decoder._DecodeVarint(length_bytes, 0)
-                current_pos += length_len
-                value = ext_data[current_pos : current_pos + length]
-
-                if field_number == 1:  # startText
-                    realcity_data["start_text"] = parse_translations(value)
-                elif field_number == 2:  # endText
-                    realcity_data["end_text"] = parse_translations(value)
-                elif field_number == 4:  # route
-                    # Parse route fields
-                    route_data = {
-                        "route_id": None,
-                        "header_text": {},
-                        "effect": None,
-                        "effect_type": None,
-                    }
-                    route_pos = 0
-                    while route_pos < len(value):
-                        # Read field tag
-                        field_tag, field_tag_len = decoder._DecodeVarint(
-                            value[route_pos:], 0
-                        )
-                        field_num = wire_format.UnpackTag(field_tag)[0]
-                        field_type = wire_format.UnpackTag(field_tag)[1]
-                        route_pos += field_tag_len
-
-                        # Read field value
-                        if field_type == wire_format.WIRETYPE_LENGTH_DELIMITED:
-                            field_len, field_len_len = decoder._DecodeVarint(
-                                value[route_pos:], 0
-                            )
-                            route_pos += field_len_len
-                            field_value = value[route_pos : route_pos + field_len]
-
-                            if field_num == 1:  # route_id
-                                route_data["route_id"] = field_value.decode("utf-8")
-                            elif field_num == 2:  # header_text
-                                route_data["header_text"] = parse_translations(
-                                    field_value
-                                )
-
-                            route_pos += field_len
-                        elif field_type == wire_format.WIRETYPE_VARINT:
-                            value_bytes = value[route_pos:]
-                            field_value, value_len = decoder._DecodeVarint(
-                                value_bytes, 0
-                            )
-                            if field_num == 3:  # effect
-                                route_data["effect"] = field_value
-                            elif field_num == 4:  # effect_type
-                                route_data["effect_type"] = field_value
-                            route_pos += value_len
-
-                    realcity_data["route_details"].append(route_data)
-
-                current_pos += length
-            elif wire_type == wire_format.WIRETYPE_VARINT:
-                # Integer
-                value_bytes = ext_data[current_pos:]
-                value, value_len = decoder._DecodeVarint(value_bytes, 0)
-                if field_number == 3:  # modifiedTime
-                    realcity_data["modified_time"] = value
-                current_pos += value_len
-
-    return realcity_data
-
-
-async def get_service_alerts() -> Dict:
-    """Get current service alerts."""
-    await _ensure_caches_initialized()
-    try:
-        # Get latest config
-        config = get_provider_config("bkk")
-        monitored_lines = config.get("MONITORED_LINES", [])
-        stop_ids = config.get("STOP_IDS", [])
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(ALERTS_URL)
-            response.raise_for_status()
-
-            feed = gtfs_realtime_pb2.FeedMessage()
-            feed.ParseFromString(response.content)
-
-            messages = []
-            for entity in feed.entity:
-                if not entity.HasField("alert"):
-                    continue
-
-                alert = entity.alert
-
-                # Get affected lines and stops
-                affected_lines = set()
-                affected_stops = set()
-                for informed_entity in alert.informed_entity:
-                    if informed_entity.HasField("route_id"):
-                        line_id = _get_line_id_from_trip(informed_entity.route_id)
-                        if not monitored_lines or line_id in monitored_lines:
-                            affected_lines.add(line_id)
-                    if informed_entity.HasField("stop_id"):
-                        affected_stops.add(informed_entity.stop_id)
-
-                # Skip if no monitored lines are affected
-                if monitored_lines and not affected_lines:
-                    continue
-
-                # Get stop names for affected stops
-                stop_names = []
-                for stop_id in affected_stops:
-                    stop_info = _get_stop_info(stop_id)
-                    if stop_info:
-                        stop_names.append(stop_info["name"])
-
-                # Check if message affects monitored lines/stops
-                is_monitored = (
-                    not monitored_lines or bool(affected_lines & set(monitored_lines))
-                ) and (not stop_ids or bool(affected_stops & set(stop_ids)))
-
-                # Get translations for header and description
-                header_translations = {}
-                desc_translations = {}
-                available_languages = set()
-
-                # Process header translations
-                for translation in alert.header_text.translation:
-                    lang = translation.language or "hu"  # Default to Hungarian
-                    header_translations[lang] = translation.text
-                    available_languages.add(lang)
-
-                # Process description translations
-                for translation in alert.description_text.translation:
-                    lang = translation.language or "hu"  # Default to Hungarian
-                    desc_translations[lang] = translation.text
-                    available_languages.add(lang)
-
-                # Get URL if available
-                url = None
-                if alert.HasField("url"):
-                    for translation in alert.url.translation:
-                        if translation.language == "en":
-                            url = translation.text
-                            break
-                    if not url and alert.url.translation:
-                        url = alert.url.translation[0].text
-
-                # Get active period
-                start_time = None
-                end_time = None
-                if alert.active_period:
-                    period = alert.active_period[0]
-                    if period.HasField("start"):
-                        start_time = datetime.fromtimestamp(
-                            period.start, tz=timezone.utc
-                        ).isoformat()
-                    if period.HasField("end"):
-                        end_time = datetime.fromtimestamp(
-                            period.end, tz=timezone.utc
-                        ).isoformat()
-
-                # Parse realcity extension
-                realcity_data = parse_realcity_extension(alert.SerializeToString())
-
-                # Format the message
-                message = {
-                    "title": header_translations,
-                    "description": desc_translations,
-                    "start": start_time,
-                    "end": end_time,
-                    "modified": (
-                        datetime.fromtimestamp(
-                            realcity_data["modified_time"], tz=timezone.utc
-                        ).isoformat()
-                        if realcity_data["modified_time"]
-                        else None
-                    ),
-                    "lines": sorted(affected_lines),
-                    "stops": sorted(stop_names),
-                    "points": sorted(affected_stops),
-                    "url": url,
-                    "html_content": desc_translations.get("hu"),
-                    "text_content": " ".join(t for t in desc_translations.values()),
-                    "priority": 0,  # Default priority
-                    "type": "alert",
-                    "is_monitored": is_monitored,
-                    "_metadata": {
-                        "language": {
-                            "available": sorted(available_languages),
-                            "provided": "hu",  # Default to Hungarian
-                            "requested": None,
-                            "warning": None,
-                        },
-                        "start_text": realcity_data["start_text"],
-                        "end_text": realcity_data["end_text"],
-                        "route_details": realcity_data["route_details"],
-                    },
-                }
-                messages.append(message)
-
-            return {"messages": messages}
-
-    except Exception as e:
-        logger.error(f"Error getting service alerts: {e}")
-        raise
-
-
 # Helper functions
 def _get_current_gtfs_path() -> Optional[Path]:
     """Get the path to the current GTFS dataset"""
@@ -1420,16 +931,16 @@ def _get_current_gtfs_path() -> Optional[Path]:
 
             with open(metadata_file, "r") as f:
                 metadata = json.load(f)
-                # Find the latest BKK dataset
-                bkk_datasets = [
+                # Find the latest SNCB dataset
+                sncb_datasets = [
                     (k, v)
                     for k, v in metadata.items()
                     if v["provider_id"] == PROVIDER_ID
                 ]
-                if bkk_datasets:
+                if sncb_datasets:
                     # Sort by download date and get the latest
                     latest = sorted(
-                        bkk_datasets,
+                        sncb_datasets,
                         key=lambda x: datetime.fromisoformat(x[1]["download_date"]),
                         reverse=True,
                     )[0]
@@ -1503,21 +1014,8 @@ def _format_minutes_until(dt: datetime) -> str:
     return f"{minutes}'"
 
 
-def _get_translated_text(text_container) -> str:
-    """Get text in preferred language from GTFS-RT TranslatedString"""
-    # First try Hungarian
-    for translation in text_container.translation:
-        if translation.language == "hu":
-            return translation.text
-
-    # Fallback to first available translation
-    if text_container.translation:
-        return text_container.translation[0].text
-    return ""
-
-
 async def get_static_data() -> Dict[str, Any]:
-    """Get static data for the BKK provider.
+    """Get static data for the SNCB provider.
 
     Returns:
         Dict[str, Any]: Static data including line info and route shapes
@@ -1527,33 +1025,33 @@ async def get_static_data() -> Dict[str, Any]:
         # Get line information for monitored lines
         line_info = await get_line_info()
 
-        # Get route shapes for monitored lines
-        route_shapes = await get_route_shapes()
-
-        return {"provider": "bkk", "line_info": line_info, "route_shapes": route_shapes}
+        return {
+            "provider": "sncb",
+            "line_info": line_info,
+        }
     except Exception as e:
         logger.error(f"Error getting static data: {e}")
-        return {"provider": "bkk", "line_info": {}, "route_shapes": {}}
+        return {"provider": "sncb", "line_info": {}, "route_shapes": {}}
 
 
-async def bkk_config() -> Dict[str, Any]:
-    """Get BKK provider configuration.
+async def sncb_config() -> Dict[str, Any]:
+    """Get SNCB provider configuration.
 
     Returns:
         Dict[str, Any]: Provider configuration
     """
     return {
-        "name": "BKK",
-        "city": "Budapest",
-        "country": "Hungary",
+        "name": "SNCB",
+        "city": "Brussels",
+        "country": "Belgium",
         "monitored_lines": MONITORED_LINES,
         "stop_ids": STOP_IDS,
         "capabilities": {
-            "has_vehicle_positions": True,
+            "has_vehicle_positions": False,
             "has_waiting_times": True,
-            "has_service_alerts": True,
+            "has_service_alerts": False,
             "has_line_info": True,
-            "has_route_shapes": True,
+            "has_route_shapes": False,
         },
     }
 
@@ -1623,7 +1121,7 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
                 info = {
                     "route_id": route_id,
                     "display_name": fields[route_short_name_index],
-                    "provider": "bkk",
+                    "provider": "sncb",
                 }
 
                 # Add optional fields if available
@@ -1645,269 +1143,6 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
         return line_info
     except Exception as e:
         logger.error(f"Error getting line information: {e}")
-        return {}
-
-
-async def get_route_shapes() -> Dict[str, List[Dict[str, float]]]:
-    """Get route shapes for all monitored lines.
-
-    Returns:
-        Dict[str, List[Dict[str, float]]]: Dictionary mapping route_ids to their shape coordinates
-    """
-    await _ensure_caches_initialized()
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return {}
-
-        # First get shape IDs for monitored lines from trips.txt
-        shape_ids = set()
-        trips_file = gtfs_path / "trips.txt"
-
-        if not trips_file.exists():
-            logger.error(f"Trips file not found at {trips_file}")
-            return {}
-
-        with open(trips_file, "r", encoding="utf-8") as f:
-            # Read header
-            header = f.readline().strip().split(",")
-            route_id_index = header.index("route_id")
-            shape_id_index = header.index("shape_id") if "shape_id" in header else -1
-
-            if shape_id_index < 0:
-                logger.error("No shape_id column found in trips.txt")
-                return {}
-
-            # Read trips
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index].strip('"')
-
-                # Only include monitored lines
-                if route_id not in MONITORED_LINES:
-                    continue
-
-                shape_id = fields[shape_id_index].strip('"')
-                shape_ids.add(shape_id)
-
-        # Now get coordinates for each shape from shapes.txt
-        shapes_file = gtfs_path / "shapes.txt"
-        route_shapes = {route_id: [] for route_id in MONITORED_LINES}
-
-        if not shapes_file.exists():
-            logger.error(f"Shapes file not found at {shapes_file}")
-            return {}
-
-        with open(shapes_file, "r", encoding="utf-8") as f:
-            # Read header
-            header = f.readline().strip().split(",")
-            shape_id_index = header.index("shape_id")
-            lat_index = header.index("shape_pt_lat")
-            lon_index = header.index("shape_pt_lon")
-            sequence_index = header.index("shape_pt_sequence")
-
-            # Read shapes
-            shape_points = {}
-            for line in f:
-                fields = line.strip().split(",")
-                shape_id = fields[shape_id_index].strip('"')
-
-                # Only include monitored shapes
-                if shape_id not in shape_ids:
-                    continue
-
-                lat = float(fields[lat_index])
-                lon = float(fields[lon_index])
-                sequence = int(fields[sequence_index])
-
-                if shape_id not in shape_points:
-                    shape_points[shape_id] = []
-                shape_points[shape_id].append((sequence, {"lat": lat, "lon": lon}))
-
-        # Sort points by sequence and add to route shapes
-        for shape_id, points in shape_points.items():
-            points.sort(key=lambda x: x[0])  # Sort by sequence
-            for route_id in MONITORED_LINES:
-                route_shapes[route_id].extend([p[1] for p in points])
-
-        return route_shapes
-    except Exception as e:
-        logger.error(f"Error getting route shapes: {e}")
-        return {}
-
-
-async def get_route_variants_api(route_id: str) -> Dict[str, Any]:
-    """Get route variants for a specific route.
-
-    Args:
-        route_id: The route ID to get variants for
-
-    Returns:
-        Dict: Dictionary containing route variants with their shapes and stops
-    """
-    await _ensure_caches_initialized()
-    try:
-        # Get fresh GTFS data if needed
-        gtfs_manager = GTFSManager()
-        gtfs_dir = await gtfs_manager.ensure_gtfs_data()
-        if not gtfs_dir:
-            return {"shapes": []}
-
-        # Get monitored stops for matching with shapes
-        stops = await get_stops()
-        monitored_stops = [
-            {"lat": float(stop.lat), "lon": float(stop.lon)} for stop in stops.values()
-        ]
-
-        # Get variants for the route
-        from .routes import get_route_variants
-
-        variants = get_route_variants(route_id, monitored_stops, gtfs_dir)
-        if not variants:
-            return {"shapes": []}
-
-        # Convert to API format
-        shapes = []
-        for variant_num, points in variants["variants"].items():
-            # Convert points to [lon, lat] format
-            shape_points = points  # points are already in [lon, lat] format
-
-            # Get stops for this variant
-            variant_stops = []
-            for stop in stops.values():
-                if _point_matches_any_point(stop, points):
-                    variant_stops.append(
-                        {
-                            "coordinates": {
-                                "lat": float(stop.lat),
-                                "lon": float(stop.lon),
-                            },
-                            "id": stop.id,
-                            "name": stop.name,
-                            "order": len(variant_stops) + 1,
-                        }
-                    )
-
-            shapes.append(
-                {
-                    "points": shape_points,
-                    "stops": variant_stops,
-                    "variante": int(variant_num),
-                }
-            )
-
-        return {"shapes": shapes}
-
-    except Exception as e:
-        logger.error(f"Error getting route variants: {e}")
-        return {"shapes": []}
-
-
-def _point_matches_any_point(
-    stop: Stop, points: List[List[float]], threshold: float = 0.0001
-) -> bool:
-    """Check if a stop matches any point in a list of points"""
-    for point in points:
-        if (
-            abs(point[1] - float(stop.lat)) < threshold
-            and abs(point[0] - float(stop.lon)) < threshold
-        ):
-            return True
-    return False
-
-
-async def get_line_colors(
-    line_number: Optional[str] = None,
-) -> Dict[str, Dict[str, str]]:
-    """Get line colors in De Lijn format.
-
-    Args:
-        line_number: Optional specific line number to get colors for
-
-    Returns:
-        Dict with format:
-        {
-            "text": "#RRGGBB",
-            "background": "#RRGGBB",
-            "text_border": "#RRGGBB",
-            "background_border": "#RRGGBB"
-        }
-    """
-    await _ensure_caches_initialized()
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return {}
-
-        routes_file = gtfs_path / "routes.txt"
-        if not routes_file.exists():
-            return {}
-
-        with open(routes_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            route_id_index = header.index("route_id")
-            route_color_index = (
-                header.index("route_color") if "route_color" in header else -1
-            )
-            route_text_color_index = (
-                header.index("route_text_color") if "route_text_color" in header else -1
-            )
-
-            # If looking for a specific line
-            if line_number:
-                for line in f:
-                    fields = line.strip().split(",")
-                    if fields[route_id_index] == line_number:
-                        bg_color = (
-                            f"#{fields[route_color_index]}"
-                            if route_color_index >= 0 and fields[route_color_index]
-                            else "#666666"
-                        )
-                        text_color = (
-                            f"#{fields[route_text_color_index]}"
-                            if route_text_color_index >= 0
-                            and fields[route_text_color_index]
-                            else "#FFFFFF"
-                        )
-
-                        return {
-                            "text": text_color,
-                            "background": bg_color,
-                            "text_border": text_color,  # Use same colors for borders
-                            "background_border": bg_color,
-                        }
-                return {}
-
-            # If getting all colors
-            colors = {}
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index]
-
-                if not MONITORED_LINES or route_id in MONITORED_LINES:
-                    bg_color = (
-                        f"#{fields[route_color_index]}"
-                        if route_color_index >= 0 and fields[route_color_index]
-                        else "#666666"
-                    )
-                    text_color = (
-                        f"#{fields[route_text_color_index]}"
-                        if route_text_color_index >= 0
-                        and fields[route_text_color_index]
-                        else "#FFFFFF"
-                    )
-
-                    colors[route_id] = {
-                        "text": text_color,
-                        "background": bg_color,
-                        "text_border": text_color,  # Use same colors for borders
-                        "background_border": bg_color,
-                    }
-
-            return colors
-
-    except Exception as e:
-        logger.error(f"Error getting line colors: {e}")
         return {}
 
 

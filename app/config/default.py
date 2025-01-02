@@ -15,7 +15,12 @@ dotenv.load_dotenv(override=True)
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
 # Provider Configuration
-ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]  # List of enabled transit providers
+ENABLED_PROVIDERS = [
+    "delijn",
+    "stib",
+    "bkk",
+    "sncb",
+]  # List of enabled transit providers
 
 # Language Configuration
 LANGUAGE_PRECEDENCE = ["en", "hu", "fr", "nl", "de"]  # Default language fallback chain
