@@ -61,11 +61,6 @@ GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES", [])
 REALTIME_URL = provider_config.get("REALTIME_URL")
 TRIP_UPDATES_URL = REALTIME_URL
 
-# Cache for scheduled stop times
-_stop_times_cache = {}
-_last_cache_update = None
-_CACHE_DURATION = timedelta(hours=24)
-
 # Cache for stop and route information
 _stops_cache = {}
 _routes_cache = {}
@@ -218,12 +213,6 @@ async def _initialize_caches():
             return
 
         try:
-            _load_stop_times_cache()
-        except Exception as e:
-            logger.error(f"Failed to initialize stop times cache: {e}", exc_info=True)
-            return
-
-        try:
             _load_trips_cache()
         except Exception as e:
             logger.error(f"Failed to initialize trips cache: {e}", exc_info=True)
@@ -360,70 +349,6 @@ except Exception as e:
     gtfs_manager = None
 
 
-def _load_stop_times_cache() -> None:
-    """Load scheduled stop times for monitored routes into cache"""
-    global _stop_times_cache, _last_cache_update
-
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return
-
-        # Get monitored routes and stops
-        config = get_provider_config("sncb")
-        monitored_lines = config.get("MONITORED_LINES", [])
-        stop_ids = config.get("STOP_IDS", [])
-
-        # First get trip IDs for monitored routes
-        trips_file = gtfs_path / "trips.txt"
-        monitored_trips = set()
-
-        with open(trips_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            route_id_index = header.index("route_id")
-
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index]
-                if route_id in monitored_lines:
-                    monitored_trips.add(fields[trip_id_index])
-
-        # Read stop_times.txt for monitored trips
-        stop_times_file = gtfs_path / "stop_times.txt"
-        new_cache = {}
-
-        with open(stop_times_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            stop_id_index = header.index("stop_id")
-            stop_sequence_index = header.index("stop_sequence")
-            arrival_time_index = header.index("arrival_time")
-
-            for line in f:
-                fields = line.strip().split(",")
-                trip_id = fields[trip_id_index]
-                stop_id = fields[stop_id_index]
-
-                if trip_id in monitored_trips and (not stop_ids or stop_id in stop_ids):
-                    cache_key = (trip_id, stop_id, int(fields[stop_sequence_index]))
-                    time_str = fields[arrival_time_index]
-                    hours, minutes, _ = map(int, time_str.split(":"))
-
-                    # Handle times past midnight (hours > 24)
-                    if hours >= 24:
-                        hours = hours % 24
-
-                    new_cache[cache_key] = (hours, minutes)
-
-        _stop_times_cache = new_cache
-        _last_cache_update = datetime.now(timezone.utc)
-        logger.info(f"Updated stop times cache with {len(_stop_times_cache)} entries")
-
-    except Exception as e:
-        logger.error(f"Error loading stop times cache: {e}")
-
-
 def _load_stops_cache() -> None:
     """Load stop information from GTFS data into cache"""
     global _stops_cache, _stops_cache_update
@@ -526,43 +451,7 @@ def _get_scheduled_time(
     trip_id: str, stop_id: str, stop_sequence: int
 ) -> Optional[datetime]:
     """Get scheduled arrival time from cache or static GTFS data"""
-    global _last_cache_update
-
-    # Update cache if needed
-    now = datetime.now(timezone.utc)
-    if not _last_cache_update or (now - _last_cache_update) > _CACHE_DURATION:
-        _load_stop_times_cache()
-
-    try:
-        # Try to get from cache
-        cache_key = (trip_id, stop_id, stop_sequence)
-        if cache_key in _stop_times_cache:
-            hours, minutes = _stop_times_cache[cache_key]
-
-            # Create datetime in local timezone (Brussels)
-            from zoneinfo import ZoneInfo
-
-            belgium_tz = ZoneInfo("Europe/Brussels")
-            now_local = datetime.now(belgium_tz)
-            scheduled = now_local.replace(
-                hour=hours, minute=minutes, second=0, microsecond=0
-            )
-
-            # If the scheduled time is more than 12 hours in the past,
-            # it's probably for tomorrow
-            if (now_local - scheduled).total_seconds() > 12 * 3600:
-                scheduled += timedelta(days=1)
-
-            # Convert to UTC
-            return scheduled.astimezone(timezone.utc)
-
-        return None
-
-    except Exception as e:
-        logger.error(
-            f"Error getting scheduled time from cache for trip {trip_id}, stop {stop_id}: {e}"
-        )
-        return None
+    return None  # We're not using scheduled times anymore
 
 
 def _get_stop_info(stop_id: str) -> Dict[str, Any]:
@@ -571,7 +460,7 @@ def _get_stop_info(stop_id: str) -> Dict[str, Any]:
 
     # Update cache if needed
     now = datetime.now(timezone.utc)
-    if not _stops_cache_update or (now - _stops_cache_update) > _CACHE_DURATION:
+    if not _stops_cache_update:
         _load_stops_cache()
 
     # Return cached info or default with actual stop name from cache
@@ -588,7 +477,7 @@ def _get_route_info(route_id: str) -> Dict[str, Any]:
 
     # Update cache if needed
     now = datetime.now(timezone.utc)
-    if not _routes_cache_update or (now - _routes_cache_update) > _CACHE_DURATION:
+    if not _routes_cache_update:
         _load_routes_cache()
 
     return _routes_cache.get(
@@ -635,7 +524,7 @@ def _get_destination_from_trip(
 
         # Update cache if needed
         now = datetime.now(timezone.utc)
-        if not _trips_cache_update or (now - _trips_cache_update) > _CACHE_DURATION:
+        if not _trips_cache_update:
             _load_trips_cache()
 
         # First try exact trip ID match
@@ -897,25 +786,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             else None
                         )
 
-                        # Get scheduled time from static GTFS data
-                        scheduled_time_start = time.time()
-                        perf_data["stats"]["scheduled_time_lookups"] += 1
-                        scheduled_time = _get_scheduled_time(
-                            trip_id, stop_id, stop_time.stop_sequence
-                        )
-                        scheduled_timestamp = (
-                            scheduled_time.timestamp() if scheduled_time else None
-                        )
-                        logger.debug(
-                            f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s"
-                        )
-
                         formatted_data["stops_data"][stop_id]["lines"][route_id][
                             destination
                         ].append(
                             {
                                 "arrival_timestamp": arrival_time,
-                                "scheduled_timestamp": scheduled_timestamp,
                                 "delay": delay_seconds,
                                 "provider": "sncb",
                             }
@@ -954,23 +829,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                                 (arrival_time - now_local).total_seconds() / 60
                             )
 
-                            # Handle scheduled time if available
-                            scheduled_time = None
-                            scheduled_minutes = None
-                            if time_entry.get("scheduled_timestamp"):
-                                scheduled_time_utc = datetime.fromtimestamp(
-                                    time_entry["scheduled_timestamp"], timezone.utc
-                                )
-                                scheduled_time = scheduled_time_utc.astimezone(
-                                    ZoneInfo("Europe/Brussels")
-                                )
-                                scheduled_minutes = int(
-                                    (scheduled_time - now_local).total_seconds() / 60
-                                )
-
-                                # Skip if both scheduled and realtime are in the past
-                                if scheduled_minutes < 0 and realtime_minutes < 0:
-                                    continue
+                            # Skip if realtime is more than 3 hours in the past
+                            if realtime_minutes < -180:
+                                continue
 
                             delay_seconds = time_entry.get("delay")
 
@@ -978,20 +839,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                                 {
                                     "delay": delay_seconds,
                                     "is_realtime": delay_seconds is not None
-                                    and delay_seconds != 0,
+                                    and delay_seconds
+                                    != 0,  # Only true if we have a non-zero delay from GTFS-RT
                                     "message": None,
                                     "realtime_minutes": f"{realtime_minutes}'",
                                     "realtime_time": arrival_time.strftime("%H:%M"),
-                                    "scheduled_minutes": (
-                                        f"{scheduled_minutes}'"
-                                        if scheduled_minutes is not None
-                                        else None
-                                    ),
-                                    "scheduled_time": (
-                                        scheduled_time.strftime("%H:%M")
-                                        if scheduled_time
-                                        else None
-                                    ),
                                     "provider": "sncb",
                                 }
                             )
