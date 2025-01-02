@@ -894,7 +894,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                         delay_seconds = (
                             stop_time.arrival.delay
                             if stop_time.arrival.HasField("delay")
-                            else 0
+                            else None
                         )
 
                         # Get scheduled time from static GTFS data
@@ -904,10 +904,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             trip_id, stop_id, stop_time.stop_sequence
                         )
                         scheduled_timestamp = (
-                            scheduled_time.timestamp()
-                            if scheduled_time
-                            else arrival_time
-                            - delay_seconds  # Subtract delay to get scheduled time
+                            scheduled_time.timestamp() if scheduled_time else None
                         )
                         logger.debug(
                             f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s"
@@ -937,9 +934,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             # Convert timestamps to human-readable format and calculate delays
             time_conversion_start = time.time()
             now = datetime.now(timezone.utc)
-            now_local = now.astimezone(
-                ZoneInfo("Europe/Brussels")
-            )  # Use Brussels timezone
+            now_local = now.astimezone(ZoneInfo("Europe/Brussels"))
 
             for stop_id, stop_data in formatted_data["stops_data"].items():
                 for line_id, line_data in stop_data["lines"].items():
@@ -952,39 +947,51 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             arrival_time_utc = datetime.fromtimestamp(
                                 time_entry["arrival_timestamp"], timezone.utc
                             )
-                            scheduled_time_utc = datetime.fromtimestamp(
-                                time_entry["scheduled_timestamp"], timezone.utc
-                            )
-
                             arrival_time = arrival_time_utc.astimezone(
                                 ZoneInfo("Europe/Brussels")
                             )
-                            scheduled_time = scheduled_time_utc.astimezone(
-                                ZoneInfo("Europe/Brussels")
-                            )
-
                             realtime_minutes = int(
                                 (arrival_time - now_local).total_seconds() / 60
                             )
-                            scheduled_minutes = int(
-                                (scheduled_time - now_local).total_seconds() / 60
-                            )
 
-                            # Skip if both scheduled and realtime are in the past
-                            if scheduled_minutes < 0 and realtime_minutes < 0:
-                                continue
+                            # Handle scheduled time if available
+                            scheduled_time = None
+                            scheduled_minutes = None
+                            if time_entry.get("scheduled_timestamp"):
+                                scheduled_time_utc = datetime.fromtimestamp(
+                                    time_entry["scheduled_timestamp"], timezone.utc
+                                )
+                                scheduled_time = scheduled_time_utc.astimezone(
+                                    ZoneInfo("Europe/Brussels")
+                                )
+                                scheduled_minutes = int(
+                                    (scheduled_time - now_local).total_seconds() / 60
+                                )
 
-                            delay_seconds = time_entry.get("delay", 0)
+                                # Skip if both scheduled and realtime are in the past
+                                if scheduled_minutes < 0 and realtime_minutes < 0:
+                                    continue
+
+                            delay_seconds = time_entry.get("delay")
 
                             processed_times.append(
                                 {
                                     "delay": delay_seconds,
-                                    "is_realtime": delay_seconds != 0,
+                                    "is_realtime": delay_seconds is not None
+                                    and delay_seconds != 0,
                                     "message": None,
                                     "realtime_minutes": f"{realtime_minutes}'",
                                     "realtime_time": arrival_time.strftime("%H:%M"),
-                                    "scheduled_minutes": f"{scheduled_minutes}'",
-                                    "scheduled_time": scheduled_time.strftime("%H:%M"),
+                                    "scheduled_minutes": (
+                                        f"{scheduled_minutes}'"
+                                        if scheduled_minutes is not None
+                                        else None
+                                    ),
+                                    "scheduled_time": (
+                                        scheduled_time.strftime("%H:%M")
+                                        if scheduled_time
+                                        else None
+                                    ),
                                     "provider": "sncb",
                                 }
                             )
