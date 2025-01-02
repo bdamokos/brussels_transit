@@ -82,7 +82,7 @@ jobs:
           
           # Run the tests with the environment file
           docker compose --env-file .env -f docker-compose.backend.yaml up -d
-          sleep 30  # Give time for services to start
+          sleep 120  # Give time for services to start
           curl -f http://localhost:5001/health || exit 1
           docker compose -f docker-compose.backend.yaml logs
           docker compose -f docker-compose.backend.yaml down
