@@ -182,7 +182,7 @@ async def _initialize_caches():
             return
 
         # Wait for the GTFS file to exist and be non-empty
-        max_retries = 120
+        max_retries = 60
         retry_delay = 1  # seconds
         for i in range(max_retries):
             if gtfs_path.exists() and gtfs_path.stat().st_size > 0:
@@ -195,9 +195,10 @@ async def _initialize_caches():
                     f"GTFS file not ready yet, retrying in {retry_delay} seconds... ({i + 1}/{max_retries})"
                 )
                 await asyncio.sleep(retry_delay)
-        else:
-            logger.error(f"GTFS file not available after {max_retries} retries")
-            return
+            else:
+                logger.error(f"GTFS file not available after {max_retries} retries")
+                _caches_initialized = False
+                return
 
         # Now that we have GTFS data, load the caches
         try:
