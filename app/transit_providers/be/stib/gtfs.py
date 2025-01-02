@@ -1,7 +1,7 @@
 """ Download the required GTFS data from the STIB API."""
 
 from transit_providers.config import get_provider_config
-import requests
+import niquests as requests
 import logging
 
 # Get logger

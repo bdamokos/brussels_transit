@@ -1,5 +1,5 @@
 import os
-import requests
+import niquests as requests
 from pathlib import Path
 from datetime import timedelta
 import json

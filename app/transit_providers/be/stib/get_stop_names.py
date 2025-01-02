@@ -1,7 +1,7 @@
 # app/transit_providers/be/stib/get_stop_names.py
 
 import os
-import requests
+import niquests as requests
 from pathlib import Path
 from datetime import timedelta, datetime
 import json
