@@ -101,6 +101,15 @@ _trips_lru_cache = {}
 _trips_lru_cache_max_size = 100000
 
 
+def get_directory_size(directory: Path) -> float:
+    """Calculate total size of a directory in megabytes."""
+    total_size = 0
+    for path in directory.rglob("*"):
+        if path.is_file():
+            total_size += path.stat().st_size
+    return total_size / (1024 * 1024)
+
+
 def _load_trips_cache() -> None:
     """Load trip information from GTFS data into cache, including non-monitored stops with LRU caching."""
     global _trips_cache, _trips_cache_update, _trips_lru_cache
@@ -1920,12 +1929,3 @@ except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 loop.run_until_complete(_ensure_caches_initialized())
-
-
-def get_directory_size(directory: Path) -> float:
-    """Calculate total size of a directory in megabytes."""
-    total_size = 0
-    for path in directory.rglob('*'):
-        if path.is_file():
-            total_size += path.stat().st_size
-    return total_size / (1024 * 1024)
