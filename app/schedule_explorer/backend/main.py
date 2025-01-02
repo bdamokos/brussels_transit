@@ -1254,7 +1254,7 @@ async def get_providers_info():
 @app.get(
     "/api/{provider_id}/stops/{stop_id}/waiting_times", response_model=WaitingTimeInfo
 )
-async def get_waiting_times(
+async def get_waiting_times_with_path(
     request: Request,
     provider_id: str = Path(..., description="Provider ID"),
     stop_id: str = Path(..., description="Stop ID"),
@@ -1270,6 +1270,43 @@ async def get_waiting_times(
     ),
 ):
     """Get the next scheduled arrivals at a stop."""
+    return await get_waiting_times_impl(
+        request, provider_id, stop_id, route_id, limit, time_local, time_utc
+    )
+
+
+@app.get("/api/{provider_id}/waiting_times", response_model=WaitingTimeInfo)
+async def get_waiting_times_with_query(
+    request: Request,
+    provider_id: str = Path(..., description="Provider ID"),
+    stop_id: str = Query(..., description="Stop ID"),
+    route_id: Optional[str] = Query(
+        None, description="Optional route ID to filter results"
+    ),
+    limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
+    time_local: Optional[str] = Query(
+        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
+    ),
+    time_utc: Optional[str] = Query(
+        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
+    ),
+):
+    """Get the next scheduled arrivals at a stop."""
+    return await get_waiting_times_impl(
+        request, provider_id, stop_id, route_id, limit, time_local, time_utc
+    )
+
+
+async def get_waiting_times_impl(
+    request: Request,
+    provider_id: str,
+    stop_id: str,
+    route_id: Optional[str] = None,
+    limit: Optional[int] = 2,
+    time_local: Optional[str] = None,
+    time_utc: Optional[str] = None,
+):
+    """Implementation of get_waiting_times that handles both path and query parameter formats."""
     async with check_client_connected(
         request, f"getting waiting times for stop {stop_id}"
     ):
