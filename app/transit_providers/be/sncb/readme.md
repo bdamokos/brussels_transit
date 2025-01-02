@@ -10,3 +10,5 @@
 Sign an agreement with SNCB to be able to use their data: https://www.belgiantrain.be/en/3rd-party-services/mobility-service-providers/public-data
 
 Once you have the agreement signed by both parties, you will get a URL to a page with the datasets. Copy the adress of the GTFS realtime endpoint and add it to the .env file as SNCB_GTFS_REALTIME_API_URL.
+
+As a fallback you can use the GTFS mirror at [https://data.gtfs.be/sncb/gtfs/tripUpdates.pb](https://data.gtfs.be/sncb/gtfs/tripUpdates.pb) provided by [GTFS.be](https://gtfs.be).

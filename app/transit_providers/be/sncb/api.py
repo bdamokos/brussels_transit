@@ -520,11 +520,11 @@ def _get_scheduled_time(
         if cache_key in _stop_times_cache:
             hours, minutes = _stop_times_cache[cache_key]
 
-            # Create datetime in local timezone (Budapest)
+            # Create datetime in local timezone (Brussels)
             from zoneinfo import ZoneInfo
 
-            budapest_tz = ZoneInfo("Europe/Budapest")
-            now_local = datetime.now(budapest_tz)
+            belgium_tz = ZoneInfo("Europe/Brussels")
+            now_local = datetime.now(belgium_tz)
             scheduled = now_local.replace(
                 hour=hours, minute=minutes, second=0, microsecond=0
             )

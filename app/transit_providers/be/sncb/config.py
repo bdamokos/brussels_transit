@@ -19,7 +19,9 @@ DEFAULT_CONFIG = {
     "MONITORED_LINES": [],  # Should be set in local config
     "RATE_LIMIT_DELAY": 0.5,  # seconds between API calls
     "GTFS_CACHE_DURATION": 86400 * 7,  # 7 days in seconds
-    "REALTIME_URL": os.getenv("SNCB_GTFS_REALTIME_API_URL"),
+    "REALTIME_URL": os.getenv(
+        "SNCB_GTFS_REALTIME_API_URL", "https://data.gtfs.be/sncb/gtfs/tripUpdates.pb"
+    ),
 }
 
 # Register configuration
