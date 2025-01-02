@@ -59,6 +59,14 @@ CORS(
         }
     },
 )
+
+# Proxy configuration - place at the start to handle matching routes before legacy endpoints
+SCHEDULE_EXPLORER_PORT = get_config("SCHEDULE_EXPLORER_PORT", "8000")
+SCHEDULE_EXPLORER_HOST = get_config("SCHEDULE_EXPLORER_HOST", "localhost")
+
+# Regular expression to match provider-id format (e.g., "abc-1234")
+PROVIDER_ID_PATTERN = re.compile(r"^[a-zA-Z]+-\d+$")
+
 FILTER_VEHICLES = True
 
 # Get API key from environment variable
@@ -725,6 +733,66 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
     )
 
     try:
+        # First check if this is a provider with a dash (e.g., mdb-1234)
+        if "-" in provider:
+            try:
+                # Use fixed host and port for schedule explorer
+                schedule_explorer_url = (
+                    f"http://{SCHEDULE_EXPLORER_HOST}:{SCHEDULE_EXPLORER_PORT}"
+                )
+
+                # Build the subpath
+                subpath = endpoint
+                if param1:
+                    subpath = f"{subpath}/{param1}"
+                if param2:
+                    subpath = f"{subpath}/{param2}"
+
+                # Forward the request to the schedule explorer service
+                url = f"{schedule_explorer_url}/api/{provider}/{subpath}"
+
+                # Forward query parameters
+                params = request.args.to_dict()
+
+                # Forward the request with the same method and headers
+                resp = requests.request(
+                    method=request.method,
+                    url=url,
+                    headers={
+                        key: value for (key, value) in request.headers if key != "Host"
+                    },
+                    data=request.get_data(),
+                    cookies=request.cookies,
+                    params=params,
+                    allow_redirects=False,
+                )
+
+                # Create the response and forward it
+                excluded_headers = [
+                    "content-encoding",
+                    "content-length",
+                    "transfer-encoding",
+                    "connection",
+                ]
+                headers = [
+                    (name, value)
+                    for (name, value) in resp.raw.headers.items()
+                    if name.lower() not in excluded_headers
+                ]
+
+                response = Response(resp.content, resp.status_code, headers)
+                return response
+
+            except requests.RequestException as e:
+                logger.error(f"Error proxying request to schedule explorer: {e}")
+                return (
+                    jsonify(
+                        {"error": "Failed to connect to schedule explorer service"}
+                    ),
+                    502,
+                )
+
+        # If not a proxied provider, check if it's a legacy provider
         if provider not in PROVIDERS:
             available_providers = list(PROVIDERS.keys())
             return (
@@ -1101,73 +1169,6 @@ def serve_provider_files(path):
 def favicon():
     """Handle favicon requests without a 404"""
     return "", 204
-
-
-# Proxy configuration - place at the end to not interfere with other routes
-SCHEDULE_EXPLORER_PORT = get_config("SCHEDULE_EXPLORER_PORT", "8000")
-
-# Regular expression to match provider-id format (e.g., "abc-1234")
-PROVIDER_ID_PATTERN = re.compile(r"^[a-zA-Z]+-\d+$")
-
-
-@app.route("/api/<provider_id>/<path:subpath>", methods=["GET", "POST"])
-def proxy_to_schedule_explorer(provider_id, subpath):
-    """
-    Proxy endpoint that forwards specific requests to the schedule explorer service.
-    Only handles requests where provider_id matches our pattern (e.g., abc-1234).
-    All other requests (like stib, bkk) fall through to the legacy endpoints.
-    """
-    # First check if this is a legacy provider
-    if provider_id in PROVIDERS:
-        # Let the request fall through to other routes
-        return abort(404)
-
-    # Then check if the provider_id matches our expected format
-    if not PROVIDER_ID_PATTERN.match(provider_id):
-        # If it doesn't match our pattern either, it's a 404
-        return abort(404)
-
-    try:
-        # Get the host from the request and replace the port
-        host = request.host.split(":")[0]  # Remove port if present
-        schedule_explorer_url = f"http://{host}:{SCHEDULE_EXPLORER_PORT}"
-
-        # Forward the request to the schedule explorer service
-        url = f"{schedule_explorer_url}/api/{provider_id}/{subpath}"
-
-        # Forward query parameters
-        params = request.args.to_dict()
-
-        # Forward the request with the same method and headers
-        resp = requests.request(
-            method=request.method,
-            url=url,
-            headers={key: value for (key, value) in request.headers if key != "Host"},
-            data=request.get_data(),
-            cookies=request.cookies,
-            params=params,
-            allow_redirects=False,
-        )
-
-        # Create the response and forward it
-        excluded_headers = [
-            "content-encoding",
-            "content-length",
-            "transfer-encoding",
-            "connection",
-        ]
-        headers = [
-            (name, value)
-            for (name, value) in resp.raw.headers.items()
-            if name.lower() not in excluded_headers
-        ]
-
-        response = Response(resp.content, resp.status_code, headers)
-        return response
-
-    except requests.RequestException as e:
-        logger.error(f"Error proxying request to schedule explorer: {e}")
-        return jsonify({"error": "Failed to connect to schedule explorer service"}), 502
 
 
 if __name__ == "__main__":

@@ -168,7 +168,7 @@ async def ensure_provider_loaded(
             - message: Status message explaining the current state
             - provider: Provider object if found, None otherwise
     """
-    global feed, current_provider
+    global feed, current_provider, available_providers
 
     # Check provider availability
     is_local, can_download, provider = await check_provider_availability(provider_id)
@@ -194,6 +194,9 @@ async def ensure_provider_loaded(
             result = db.download_latest_dataset(provider_id, str(DOWNLOAD_DIR))
             if not result:
                 return False, f"Failed to download provider {provider_id}", None
+
+            # Refresh available providers after download
+            available_providers = find_gtfs_directories()
 
             # Refresh provider info after download
             is_local, can_download, provider = await check_provider_availability(
