@@ -891,6 +891,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                     if stop_time.HasField("arrival"):
                         # Store raw timestamps for later processing
                         arrival_time = stop_time.arrival.time
+                        delay_seconds = (
+                            stop_time.arrival.delay
+                            if stop_time.arrival.HasField("delay")
+                            else 0
+                        )
 
                         # Get scheduled time from static GTFS data
                         scheduled_time_start = time.time()
@@ -902,6 +907,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             scheduled_time.timestamp()
                             if scheduled_time
                             else arrival_time
+                            - delay_seconds  # Subtract delay to get scheduled time
                         )
                         logger.debug(
                             f"Scheduled time lookup took: {time.time() - scheduled_time_start:.4f}s"
@@ -913,6 +919,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             {
                                 "arrival_timestamp": arrival_time,
                                 "scheduled_timestamp": scheduled_timestamp,
+                                "delay": delay_seconds,
                                 "provider": "sncb",
                             }
                         )
@@ -930,7 +937,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             # Convert timestamps to human-readable format and calculate delays
             time_conversion_start = time.time()
             now = datetime.now(timezone.utc)
-            now_local = now.astimezone(ZoneInfo("Europe/Budapest"))
+            now_local = now.astimezone(
+                ZoneInfo("Europe/Brussels")
+            )  # Use Brussels timezone
 
             for stop_id, stop_data in formatted_data["stops_data"].items():
                 for line_id, line_data in stop_data["lines"].items():
@@ -948,10 +957,10 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             )
 
                             arrival_time = arrival_time_utc.astimezone(
-                                ZoneInfo("Europe/Budapest")
+                                ZoneInfo("Europe/Brussels")
                             )
                             scheduled_time = scheduled_time_utc.astimezone(
-                                ZoneInfo("Europe/Budapest")
+                                ZoneInfo("Europe/Brussels")
                             )
 
                             realtime_minutes = int(
@@ -965,9 +974,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             if scheduled_minutes < 0 and realtime_minutes < 0:
                                 continue
 
-                            delay_seconds = int(
-                                (arrival_time_utc - scheduled_time_utc).total_seconds()
-                            )
+                            delay_seconds = time_entry.get("delay", 0)
 
                             processed_times.append(
                                 {
@@ -983,6 +990,26 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                             )
 
                         line_data[destination] = processed_times
+
+            # Clean up empty destinations and lines
+            for stop_id, stop_data in formatted_data["stops_data"].items():
+                lines_to_remove = []
+                for line_id, line_data in stop_data["lines"].items():
+                    # Get destinations (excluding _metadata)
+                    destinations = [k for k in line_data.keys() if k != "_metadata"]
+
+                    # Remove empty destinations
+                    for destination in destinations:
+                        if not line_data[destination]:
+                            del line_data[destination]
+
+                    # If no destinations left (except _metadata), mark line for removal
+                    if len(line_data) == 1 and "_metadata" in line_data:
+                        lines_to_remove.append(line_id)
+
+                # Remove empty lines
+                for line_id in lines_to_remove:
+                    del stop_data["lines"][line_id]
 
             perf_data["time_conversion_time"] = time.time() - time_conversion_start
 
@@ -1126,19 +1153,6 @@ def _format_minutes_until(dt: datetime) -> str:
     diff = (dt - now).total_seconds() / 60
     minutes = round(diff)
     return f"{minutes}'"
-
-
-def _get_translated_text(text_container) -> str:
-    """Get text in preferred language from GTFS-RT TranslatedString"""
-    # First try Hungarian
-    for translation in text_container.translation:
-        if translation.language == "hu":
-            return translation.text
-
-    # Fallback to first available translation
-    if text_container.translation:
-        return text_container.translation[0].text
-    return ""
 
 
 async def get_static_data() -> Dict[str, Any]:
