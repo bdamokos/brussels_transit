@@ -111,13 +111,18 @@ class ParquetGTFSLoader:
             CREATE TABLE stops AS 
             SELECT 
                 stop_id,
+                stop_code,
                 stop_name,
+                stop_desc,
                 CAST(stop_lat AS DOUBLE) as stop_lat,
                 CAST(stop_lon AS DOUBLE) as stop_lon,
+                zone_id,
+                stop_url,
                 location_type,
                 parent_station,
-                platform_code,
-                stop_timezone
+                stop_timezone,
+                wheelchair_boarding,
+                platform_code
             FROM parquet_scan('{parquet_path}')
         """)
         
@@ -171,9 +176,12 @@ class ParquetGTFSLoader:
                 service_id,
                 trip_id,
                 trip_headsign,
+                trip_short_name,
                 direction_id,
                 block_id,
-                shape_id
+                shape_id,
+                wheelchair_accessible,
+                bikes_allowed
             FROM parquet_scan('{parquet_path}')
         """)
         
@@ -191,12 +199,15 @@ class ParquetGTFSLoader:
             CREATE TABLE routes AS 
             SELECT 
                 route_id,
+                agency_id,
                 route_short_name,
                 route_long_name,
+                route_desc,
                 route_type,
+                route_url,
                 route_color,
                 route_text_color,
-                agency_id
+                route_sort_order
             FROM parquet_scan('{parquet_path}')
         """)
         
