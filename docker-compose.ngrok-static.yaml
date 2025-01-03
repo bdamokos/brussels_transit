@@ -19,11 +19,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
+
 
   ngrok:
     image: ngrok/ngrok:latest
@@ -36,8 +32,3 @@ services:
     depends_on:
       web:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 256M 

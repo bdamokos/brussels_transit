@@ -1,3 +1,29 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+
+- [Docker Support](#docker-support)
+  - [Image Versioning](#image-versioning)
+    - [Tag Usage Guidelines](#tag-usage-guidelines)
+  - [Configuration (Alpha Stage)](#configuration-alpha-stage)
+    - [If building locally:](#if-building-locally)
+    - [If using the container registry:](#if-using-the-container-registry)
+    - [Then for both methods:](#then-for-both-methods)
+  - [Available Configurations](#available-configurations)
+    - [1. Backend Only](#1-backend-only)
+    - [2. Backend with Temporary ngrok Tunnel](#2-backend-with-temporary-ngrok-tunnel)
+    - [3. Backend with Static ngrok Domain](#3-backend-with-static-ngrok-domain)
+  - [Environment Variables](#environment-variables)
+    - [Required for All Configurations](#required-for-all-configurations)
+    - [Additional Variables for ngrok Configurations](#additional-variables-for-ngrok-configurations)
+  - [Configuration Files](#configuration-files)
+  - [Health Checks](#health-checks)
+  - [Security](#security)
+  - [Troubleshooting](#troubleshooting)
+  - [Development](#development)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # Docker Support
 
 This repository provides Docker support for running the Public Transit application in different configurations. The repository contains two main applications:
@@ -166,19 +192,6 @@ The application requires certain configuration files to run:
    - Requires a `gtfs_config.json` file for GTFS data configuration
    - Example configuration is provided in `gtfs_config.json.example`
 
-## Resource Limits
-
-Each configuration comes with predefined resource limits:
-
-### Backend Services
-- CPU: 0.5 cores
-- Memory: 512MB
-
-### ngrok Service (when applicable)
-- CPU: 0.25 cores
-- Memory: 256MB
-
-You can adjust these limits in the respective docker-compose files.
 
 ## Health Checks
 
