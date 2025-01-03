@@ -259,41 +259,67 @@ class ParquetGTFSLoader:
         """Find all routes between two stations."""
         query = """
         WITH RECURSIVE 
-        potential_trips AS (
-            -- First find direct trips between stations
-            SELECT DISTINCT t.trip_id, t.route_id, MIN(st1.stop_sequence) as start_seq
+        stop_pairs AS (
+            -- Find all possible stop time pairs for the stations
+            SELECT 
+                st1.trip_id,
+                st1.stop_sequence as start_seq,
+                st2.stop_sequence as end_seq,
+                st1.departure_time as start_time,
+                st2.arrival_time as end_time
             FROM stop_times st1
             JOIN stop_times st2 ON st1.trip_id = st2.trip_id 
                 AND st1.stop_sequence < st2.stop_sequence
-            JOIN trips t ON t.trip_id = st1.trip_id
             WHERE st1.stop_id = ?
                 AND st2.stop_id = ?
-            GROUP BY t.trip_id, t.route_id
+        ),
+        valid_trips AS (
+            -- Get valid trips with their route info
+            SELECT DISTINCT 
+                sp.trip_id,
+                t.route_id,
+                sp.start_seq,
+                sp.end_seq,
+                sp.start_time,
+                sp.end_time
+            FROM stop_pairs sp
+            JOIN trips t ON t.trip_id = sp.trip_id
+        ),
+        route_stops AS (
+            -- Get all intermediate stops for valid trips
+            SELECT 
+                vt.trip_id,
+                vt.route_id,
+                st.stop_sequence,
+                st.stop_id,
+                st.arrival_time,
+                st.departure_time
+            FROM valid_trips vt
+            JOIN stop_times st ON st.trip_id = vt.trip_id
+                AND st.stop_sequence BETWEEN vt.start_seq AND vt.end_seq
         ),
         route_details AS (
+            -- Combine with route and stop information
             SELECT 
                 r.route_id,
                 r.route_short_name,
                 r.route_long_name,
                 t.trip_id,
                 t.trip_headsign,
-                st.stop_sequence,
-                st.stop_id,
+                rs.stop_sequence,
+                rs.stop_id,
                 s.stop_name,
                 s.stop_lat,
                 s.stop_lon,
-                st.arrival_time,
-                st.departure_time
-            FROM potential_trips pt
-            JOIN trips t ON t.trip_id = pt.trip_id
-            JOIN routes r ON r.route_id = pt.route_id
-            JOIN stop_times st ON st.trip_id = pt.trip_id 
-                AND st.stop_sequence >= pt.start_seq
-            JOIN stops s ON s.stop_id = st.stop_id
+                rs.arrival_time,
+                rs.departure_time
+            FROM route_stops rs
+            JOIN trips t ON t.trip_id = rs.trip_id
+            JOIN routes r ON r.route_id = rs.route_id
+            JOIN stops s ON s.stop_id = rs.stop_id
         )
         SELECT * FROM route_details
         ORDER BY trip_id, stop_sequence
-        LIMIT 1000  -- Reasonable limit
         """
         
         try:
