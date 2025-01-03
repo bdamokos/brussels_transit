@@ -67,7 +67,7 @@ pandas==2.2.3
     # via -r requirements.in
 priority==2.0.0
     # via hypercorn
-python-dateutil==2.8.2
+python-dateutil==2.9.0.post0
     # via
     #   -r requirements.in
     #   pandas
