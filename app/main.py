@@ -41,7 +41,7 @@ from functools import lru_cache
 import niquests as requests
 import re
 import socket
-import netifaces
+import psutil
 
 # Get loggers
 logger = logging.getLogger("main")
@@ -1179,18 +1179,17 @@ if __name__ == "__main__":
 
     # Add debug logging
     import socket
-    import netifaces
+    import psutil
 
     # Get all network interfaces
     hostname = socket.gethostname()
     
     # Find the first non-loopback IPv4 address
     network_ip = None
-    for interface in netifaces.interfaces():
-        addrs = netifaces.ifaddresses(interface)
-        if netifaces.AF_INET in addrs:  # IPv4 addresses
-            for addr in addrs[netifaces.AF_INET]:
-                ip = addr['addr']
+    for interface, addrs in psutil.net_if_addrs().items():
+        for addr in addrs:
+            if addr.family == socket.AF_INET:  # IPv4 addresses
+                ip = addr.address
                 if not ip.startswith('127.'):  # Skip loopback addresses
                     network_ip = ip
                     break
