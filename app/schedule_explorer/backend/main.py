@@ -12,7 +12,6 @@ import json
 from mobility_db_api import MobilityAPI
 import time
 from zoneinfo import ZoneInfo
-from config import get_config
 from contextlib import asynccontextmanager
 import asyncio
 
