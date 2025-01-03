@@ -14,13 +14,10 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
+      timeout: 120s
+      retries: 5
+      start_period: 120s
+
   # Delete as appropriate. Service works without ngrok.
   # Example 1: Using a static domain (requires NGROK_DOMAIN in .env)
   ngrok-static:
