@@ -21,6 +21,7 @@ from .api import (
     get_waiting_times,
     get_static_data,
     get_line_info,
+    _ensure_caches_initialized,
 )
 
 provider_config = get_provider_config("sncb")
@@ -57,10 +58,6 @@ class SNCBProvider(TransitProvider):
             f"SNCB provider initialized with endpoints: {list(self.endpoints.keys())}"
         )
 
-        # Initialize caches
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(api._ensure_caches_initialized())
-
     async def get_waiting_times(self, stop_id: str) -> Dict[str, Any]:
         """Get waiting times for a stop"""
         return await get_waiting_times(stop_id)
@@ -72,6 +69,11 @@ if "sncb" in get_config("ENABLED_PROVIDERS", []) and "sncb" not in PROVIDERS:
         provider = SNCBProvider()
         register_provider("sncb", provider)
         logger.info("SNCB provider registered successfully")
+        
+        # Initialize caches only after successful registration
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_ensure_caches_initialized())
+        logger.info("SNCB caches initialized successfully")
     except Exception as e:
         logger.error(f"Failed to register SNCB provider: {e}")
         import traceback
