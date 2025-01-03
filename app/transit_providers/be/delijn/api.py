@@ -2,16 +2,14 @@ import os
 import json
 import httpx
 from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
 from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple, Generator
 from pathlib import Path
 import pandas as pd
 import zipfile
-import urllib.request
+import niquests as requests
 import pytz
 import inspect
 import logging
-import sys
 from config import get_config
 import asyncio
 from transit_providers.config import get_provider_config
@@ -468,7 +466,7 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
 
                 stop_data = stop_response.json()
                 stop_info = await parse_stop_info(stop_data)
-                logger.debug(f"Parsed stop info for {stop_id}: {stop_info}")
+                logger.debug(f"Parsed stop info.")
 
                 # Rate limit before getting realtime arrivals
                 await rate_limit()
@@ -682,20 +680,18 @@ async def download_and_extract_gtfs() -> bool:
                 "Ocp-Apim-Subscription-Key": DELIJN_GTFS_STATIC_API_KEY,
             }
 
-            # Get file size from the GET response
-            req = urllib.request.Request(GTFS_URL, headers=headers)
-            with urllib.request.urlopen(req) as response:
-                total_size = int(response.headers.get("content-length", 0))
-                logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
+            # Get file size and download with progress tracking
+            response = requests.get(GTFS_URL, headers=headers, stream=True)
+            response.raise_for_status()
+            total_size = int(response.headers.get("content-length", 0))
+            logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
 
-                logger.debug("Saving GTFS zip file")
-                progress = ProgressTracker(total_size)
+            logger.debug("Saving GTFS zip file")
+            progress = ProgressTracker(total_size)
 
-                with open("gtfs_transit.zip", "wb") as f_zip:
-                    while True:
-                        chunk = response.read(8192)
-                        if not chunk:
-                            break
+            with open("gtfs_transit.zip", "wb") as f_zip:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
                         f_zip.write(chunk)
                         progress.update(len(chunk))
 
