@@ -21,7 +21,7 @@ charset-normalizer==3.4.0
     # via requests
 click==8.1.7
     # via flask
-deepdiff==8.0.1
+deepdiff==8.1.1
     # via -r requirements.in
 flask>=3.0.0
     # via
