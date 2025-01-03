@@ -51,8 +51,7 @@ class ParquetGTFSLoader:
     
     def _csv_to_parquet(self, file_name: str) -> Optional[Path]:
         """
-        Convert a GTFS CSV file to Parquet format.
-        Uses chunked reading to handle large files efficiently.
+        Convert a GTFS CSV file to Parquet format using DuckDB's native CSV reader.
         
         Args:
             file_name: Name of the GTFS file (e.g., 'stops.txt')
@@ -71,29 +70,19 @@ class ParquetGTFSLoader:
             return parquet_path
         
         try:
-            # Use PyArrow for efficient conversion
-            table = pa.csv.read_csv(
-                csv_path,
-                read_options=pa.csv.ReadOptions(
-                    block_size=8192,  # 8KB chunks as recommended
-                    use_threads=True
-                ),
-                convert_options=pa.csv.ConvertOptions(
-                    strings_can_be_null=True,
-                    include_columns=None  # Auto-detect
+            # Use DuckDB's native CSV reader and Parquet writer
+            self.db.execute(f"""
+                COPY (
+                    SELECT * FROM read_csv_auto('{csv_path}', 
+                        header=true, 
+                        sample_size=1000,
+                        all_varchar=false)
+                ) TO '{parquet_path}' (
+                    FORMAT 'parquet',
+                    COMPRESSION 'SNAPPY',
+                    ROW_GROUP_SIZE 524288
                 )
-            )
-            
-            # Write with optimized settings
-            pq.write_table(
-                table,
-                parquet_path,
-                compression='SNAPPY',  # Fast compression
-                row_group_size=524288,  # 512KB row groups for RPi
-                data_page_size=8192,   # 8KB pages as recommended
-                use_dictionary=True,
-                dictionary_pagesize_limit=512 * 1024  # 512KB
-            )
+            """)
             
             return parquet_path
             
