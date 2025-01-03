@@ -1464,6 +1464,9 @@ def load_feed(
                 lat=row["stop_lat"],
                 lon=row["stop_lon"],
                 translations=translations.get(str(row["stop_id"]), {}),
+                location_type=int(row["location_type"]) if "location_type" in row and pd.notna(row["location_type"]) else None,
+                parent_station=str(row["parent_station"]) if "parent_station" in row and pd.notna(row["parent_station"]) else None,
+                platform_code=str(row["platform_code"]) if "platform_code" in row and pd.notna(row["platform_code"]) else None,
             )
             stops[stop.id] = stop
             # if stop.translations:

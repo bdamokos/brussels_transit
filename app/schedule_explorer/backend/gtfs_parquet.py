@@ -10,39 +10,26 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import pandas as pd
 import os
 
+from .gtfs_models import (
+    Translation,
+    Stop,
+    RouteStop,
+    Shape,
+    StopTime,
+    Trip,
+    Calendar,
+    CalendarDate,
+    Route,
+    FlixbusFeed,
+)
+
 logger = logging.getLogger("schedule_explorer.gtfs_parquet")
 
-@dataclass
-class Translation:
-    """
-    Represents a translation from translations.txt (STIB specific)
-    trans_id/record_id, translation, lang
-    """
-    record_id: str
-    translation: str
-    language: str
 
-@dataclass
-class Stop:
-    """
-    Represents a stop from stops.txt
-    STIB: stop_id, stop_name, stop_lat, stop_lon, location_type, parent_station
-    Flixbus: stop_id, stop_name, stop_lat, stop_lon, stop_timezone, platform_code
-    """
-    id: str
-    name: str
-    lat: float
-    lon: float
-    translations: Dict[str, str] = field(default_factory=dict)  # language -> translated name
-    location_type: Optional[int] = None
-    parent_station: Optional[str] = None
-    platform_code: Optional[str] = None
-    timezone: Optional[str] = None
 
 def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
     """
@@ -151,25 +138,14 @@ class ParquetGTFSLoader:
     Loads and manages GTFS data using Parquet files and DuckDB for efficient querying.
     """
     
-    def __init__(self, data_dir: Path, cache_dir: Optional[Path] = None):
-        """
-        Initialize the loader with paths to GTFS data and cache directories.
-        
-        Args:
-            data_dir: Directory containing GTFS txt files
-            cache_dir: Directory for storing Parquet files (defaults to data_dir/.parquet)
-        """
-        self.data_dir = Path(data_dir)
-        self.cache_dir = Path(cache_dir) if cache_dir else self.data_dir / ".parquet"
-        self.cache_dir.mkdir(exist_ok=True)
-        
-        # Initialize DuckDB connection with optimized settings
+    def __init__(self, data_dir: str | Path = None):
+        """Initialize the loader with the GTFS data directory."""
+        self.data_dir = Path(data_dir) if data_dir else Path.cwd()
         self.db = duckdb.connect(":memory:")
-        self._setup_db()
+        self.stops = {}
+        self.routes = {}
+        self.translations = {}
         
-        # Initialize data structures
-        self.stops: Dict[str, Stop] = {}
-    
     def _setup_db(self):
         """Set up DuckDB configuration for optimal performance."""
         # Configure memory limits based on available system memory
@@ -182,101 +158,70 @@ class ParquetGTFSLoader:
         self.db.execute("PRAGMA memory_limit='1GB'")  # Hard limit
         self.db.execute("PRAGMA temp_directory='.tmp'")  # Use temp directory for spilling
     
-    def _csv_to_parquet(self, file_name: str) -> Optional[Path]:
-        """
-        Convert a GTFS CSV file to Parquet format using DuckDB's native CSV reader.
-        
-        Args:
-            file_name: Name of the GTFS file (e.g., 'stops.txt')
-            
-        Returns:
-            Path to the Parquet file or None if conversion failed
-        """
-        csv_path = self.data_dir / file_name
+    def _csv_to_parquet(self, filename: str) -> Optional[Path]:
+        """Convert a CSV file to Parquet format using DuckDB."""
+        csv_path = self.data_dir / filename
         if not csv_path.exists():
+            logger.warning(f"File not found: {csv_path}")
             return None
-            
-        parquet_path = self.cache_dir / f"{file_name}.parquet"
-        
-        # Skip if Parquet file already exists
-        if parquet_path.exists():
-            return parquet_path
         
         try:
-            # Use DuckDB's native CSV reader and Parquet writer
+            # Create a temporary table from the CSV
+            table_name = f"temp_{filename.replace('.', '_')}"
             self.db.execute(f"""
-                COPY (
-                    SELECT * FROM read_csv_auto('{csv_path}', 
-                        header=true, 
-                        sample_size=1000,
-                        all_varchar=false)
-                ) TO '{parquet_path}' (
-                    FORMAT 'parquet',
-                    COMPRESSION 'SNAPPY',
-                    ROW_GROUP_SIZE 524288
-                )
+                CREATE TABLE {table_name} AS 
+                SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=1000)
             """)
             
-            return parquet_path
+            # Write to Parquet using DuckDB's COPY command
+            parquet_path = self.data_dir / f"{filename}.parquet"
+            self.db.execute(f"""
+                COPY {table_name} TO '{parquet_path}' (FORMAT 'parquet', COMPRESSION 'SNAPPY')
+            """)
             
+            # Drop temporary table
+            self.db.execute(f"DROP TABLE {table_name}")
+            
+            return parquet_path
         except Exception as e:
-            logger.error(f"Error converting {file_name} to Parquet: {e}")
-            if parquet_path.exists():
-                parquet_path.unlink()
+            logger.error(f"Error converting {filename} to Parquet: {e}")
             return None
     
     def _load_stops(self) -> None:
-        """Load stops data into DuckDB and create Stop objects."""
-        parquet_path = self._csv_to_parquet('stops.txt')
+        """Load stops from stops.txt into memory."""
+        parquet_path = self._csv_to_parquet("stops.txt")
         if not parquet_path:
             return
-            
-        # Load translations first
-        translations = load_translations(self.data_dir)
-        logger.info(f"Loaded translations for {len(translations)} stops")
-            
-        # Load stops with all fields
-        self.db.execute(f"""
-            CREATE TABLE stops AS 
-            WITH raw_stops AS (
-                SELECT * FROM parquet_scan('{parquet_path}')
-            )
+
+        # Read stops from Parquet file
+        query = """
             SELECT 
-                stop_id::VARCHAR as stop_id,
-                stop_name::VARCHAR as stop_name,
-                CAST(stop_lat AS DOUBLE) as stop_lat,
-                CAST(stop_lon AS DOUBLE) as stop_lon,
-                TRY_CAST(location_type AS INTEGER) as location_type,
-                NULLIF(parent_station, '') as parent_station,
-                NULLIF(platform_code, '') as platform_code,
-                NULLIF(stop_timezone, '') as stop_timezone
-            FROM raw_stops
-        """)
-        
-        # Create index for efficient lookups
-        self.db.execute("CREATE INDEX idx_stops_id ON stops(stop_id)")
-        
-        # Load stops into memory as Stop objects
-        result = self.db.execute("""
-            SELECT * FROM stops
-        """).fetchdf()
+                stop_id,
+                stop_name,
+                stop_lat,
+                stop_lon,
+                COALESCE(location_type, NULL) as location_type,
+                COALESCE(parent_station, NULL) as parent_station,
+                COALESCE(platform_code, NULL) as platform_code,
+                COALESCE(stop_timezone, NULL) as timezone
+            FROM read_parquet(?)
+        """
+        result = self.db.execute(query, [str(parquet_path)]).fetchdf()
         
         # Create Stop objects
         for _, row in result.iterrows():
             stop = Stop(
-                id=str(row['stop_id']),
-                name=row['stop_name'],
-                lat=float(row['stop_lat']),
-                lon=float(row['stop_lon']),
-                translations=translations.get(str(row['stop_id']), {}),
-                location_type=int(row['location_type']) if pd.notna(row['location_type']) else None,
-                parent_station=str(row['parent_station']) if pd.notna(row['parent_station']) else None,
-                platform_code=str(row['platform_code']) if pd.notna(row['platform_code']) else None,
-                timezone=str(row['stop_timezone']) if pd.notna(row['stop_timezone']) else None
+                id=row["stop_id"],
+                name=row["stop_name"],
+                lat=row["stop_lat"],
+                lon=row["stop_lon"],
+                translations=self.translations.get(row["stop_id"], {}),
+                location_type=None if pd.isna(row["location_type"]) else row["location_type"],
+                parent_station=None if pd.isna(row["parent_station"]) else row["parent_station"],
+                platform_code=None if pd.isna(row["platform_code"]) else row["platform_code"],
+                timezone=None if pd.isna(row["timezone"]) else row["timezone"]
             )
             self.stops[stop.id] = stop
-            
-        logger.info(f"Loaded {len(self.stops)} stops")
     
     def _load_stop_times(self) -> None:
         """Load stop times data into DuckDB using parallel processing."""
@@ -336,18 +281,20 @@ class ParquetGTFSLoader:
         self.db.execute("CREATE INDEX idx_trips_id ON trips(trip_id)")
         self.db.execute("CREATE INDEX idx_trips_route_id ON trips(route_id)")
     
-    def _load_routes(self) -> None:
-        """Load routes data into DuckDB."""
+    def _load_routes(self) -> List[Route]:
+        """Load routes from the database and create Route objects.
+        
+        Returns:
+            List of Route objects.
+        """
+        # First load routes into DuckDB
         parquet_path = self._csv_to_parquet('routes.txt')
         if not parquet_path:
-            return
-            
-        # First load all columns
+            return []
+        
+        # Create routes table
         self.db.execute(f"""
             CREATE TABLE routes AS 
-            WITH raw_routes AS (
-                SELECT * FROM parquet_scan('{parquet_path}')
-            )
             SELECT 
                 route_id,
                 route_short_name,
@@ -356,11 +303,126 @@ class ParquetGTFSLoader:
                 route_color,
                 route_text_color,
                 agency_id
-            FROM raw_routes
+            FROM parquet_scan('{parquet_path}')
         """)
         
         # Create index
         self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
+        
+        # Get all routes with their trips
+        query = """
+            SELECT 
+                r.route_id,
+                r.route_long_name,
+                r.route_short_name,
+                r.route_type,
+                r.route_color,
+                r.route_text_color,
+                r.agency_id,
+                t.trip_id,
+                t.service_id,
+                t.trip_headsign,
+                t.direction_id,
+                t.shape_id
+            FROM routes r
+            JOIN trips t ON r.route_id = t.route_id
+            ORDER BY r.route_id, t.direction_id
+        """
+        result = self.db.execute(query).fetchdf()
+        
+        # Group by route_id and direction_id
+        routes = []
+        for (route_id, direction_id), group in result.groupby(['route_id', 'direction_id']):
+            first_row = group.iloc[0]
+            trip_id = first_row['trip_id']
+            
+            # Get stops for this trip
+            route_stops = self._create_route_stops(trip_id)
+            if not route_stops:
+                continue
+            
+            # Get service days for this route
+            service_ids = set(group['service_id'].dropna())
+            service_days = self._get_service_days(service_ids)
+            if not service_days:
+                continue
+            
+            # Create trips for this route
+            trips = []
+            for _, row in group.iterrows():
+                trip = Trip(
+                    id=row['trip_id'],
+                    route_id=row['route_id'],
+                    service_id=row['service_id'],
+                    headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
+                    direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
+                    shape_id=row['shape_id'] if pd.notna(row['shape_id']) else None
+                )
+                trips.append(trip)
+            
+            # Create route object
+            route = Route(
+                route_id=route_id,
+                route_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else first_row['route_short_name'],
+                trip_id=trip_id,
+                stops=route_stops,
+                service_days=service_days,
+                short_name=first_row['route_short_name'] if pd.notna(first_row['route_short_name']) else None,
+                long_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else None,
+                route_type=first_row['route_type'] if pd.notna(first_row['route_type']) else None,
+                color=first_row['route_color'] if pd.notna(first_row['route_color']) else None,
+                text_color=first_row['route_text_color'] if pd.notna(first_row['route_text_color']) else None,
+                agency_id=first_row['agency_id'] if pd.notna(first_row['agency_id']) else None,
+                direction_id=str(direction_id) if pd.notna(direction_id) else None,
+                service_ids=list(service_ids),
+                trips=trips
+            )
+            routes.append(route)
+        
+        return routes
+    
+    def _create_route_stops(self, trip_id: str) -> List[RouteStop]:
+        """Create RouteStop objects for a trip.
+        
+        Args:
+            trip_id: The trip ID to get stops for.
+            
+        Returns:
+            List of RouteStop objects ordered by stop_sequence.
+        """
+        # Get stop times for this trip
+        query = """
+            SELECT 
+                stop_id,
+                arrival_time,
+                departure_time,
+                CAST(stop_sequence AS INTEGER) as stop_sequence
+            FROM stop_times
+            WHERE trip_id = ?
+            ORDER BY stop_sequence
+        """
+        result = self.db.execute(query, [trip_id]).fetchdf()
+        
+        if result.empty:
+            return []
+        
+        # Create RouteStop objects
+        route_stops = []
+        for _, row in result.iterrows():
+            stop_id = row['stop_id']
+            if stop_id not in self.stops:
+                logger.warning(f"Stop {stop_id} not found in stops dictionary")
+                continue
+                
+            route_stop = RouteStop(
+                stop=self.stops[stop_id],
+                arrival_time=row['arrival_time'],
+                departure_time=row['departure_time'],
+                stop_sequence=int(row['stop_sequence'])  # Ensure integer type
+            )
+            route_stops.append(route_stop)
+        
+        return route_stops
     
     def _load_calendar(self) -> None:
         """Load calendar data into DuckDB using parallel processing."""
@@ -402,17 +464,31 @@ class ParquetGTFSLoader:
                 /*+ PARALLEL({num_threads}) */
             """)
     
-    def load_feed(self) -> None:
-        """Load all GTFS data into DuckDB."""
+    def load_feed(self) -> Optional[FlixbusFeed]:
+        """Load the GTFS feed into DuckDB and return a FlixbusFeed object."""
         logger.info("Loading GTFS feed into DuckDB...")
         
-        self._load_stops()
-        self._load_routes()
-        self._load_trips()
-        self._load_stop_times()
-        self._load_calendar()
-        
-        logger.info("GTFS feed loaded successfully")
+        try:
+            # Load translations first
+            self.translations = load_translations(self.data_dir)
+            
+            # Load all components
+            self._load_stops()
+            self._load_stop_times()
+            self._load_trips()
+            
+            # Load routes
+            routes = self._load_routes()
+            
+            logger.info("GTFS feed loaded successfully")
+            return FlixbusFeed(
+                stops=self.stops,
+                routes=routes,
+                translations=self.translations
+            )
+        except Exception as e:
+            logger.error(f"Error loading GTFS feed: {e}")
+            return None
     
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Dict]:
         """Find all routes between two stations."""
@@ -509,15 +585,24 @@ class ParquetGTFSLoader:
             }
             
             for _, row in trip_df.iterrows():
-                route['stops'].append({
-                    'id': row['stop_id'],
-                    'name': row['stop_name'],
-                    'lat': float(row['stop_lat']),
-                    'lon': float(row['stop_lon']),
-                    'arrival_time': row['arrival_time'],
-                    'departure_time': row['departure_time'],
-                    'sequence': int(row['stop_sequence'])
-                })
+                # Create Stop object
+                stop = Stop(
+                    id=row['stop_id'],
+                    name=row['stop_name'],
+                    lat=float(row['stop_lat']),
+                    lon=float(row['stop_lon']),
+                    translations=self.stops[row['stop_id']].translations if row['stop_id'] in self.stops else {}
+                )
+                
+                # Create RouteStop object
+                route_stop = RouteStop(
+                    stop=stop,
+                    arrival_time=row['arrival_time'],
+                    departure_time=row['departure_time'],
+                    stop_sequence=int(row['stop_sequence'])
+                )
+                
+                route['stops'].append(route_stop)
             
             routes.append(route)
         
@@ -528,3 +613,46 @@ class ParquetGTFSLoader:
         if self.db:
             self.db.close()
             self.db = None 
+    
+    def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
+        """Get service days for a set of service IDs.
+        
+        Args:
+            service_ids: Set of service IDs to get service days for.
+            
+        Returns:
+            Set of service days.
+        """
+        service_days = set()
+        for service_id in service_ids:
+            # Check calendar.txt first
+            calendar_query = """
+                SELECT 
+                    monday, tuesday, wednesday, thursday, friday, saturday, sunday
+                FROM calendar
+                WHERE service_id = ?
+            """
+            calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
+            
+            if not calendar_result.empty:
+                row = calendar_result.iloc[0]
+                if row['monday']: service_days.add('monday')
+                if row['tuesday']: service_days.add('tuesday')
+                if row['wednesday']: service_days.add('wednesday')
+                if row['thursday']: service_days.add('thursday')
+                if row['friday']: service_days.add('friday')
+                if row['saturday']: service_days.add('saturday')
+                if row['sunday']: service_days.add('sunday')
+            else:
+                # Check calendar_dates.txt for type 1 exceptions
+                calendar_dates_query = """
+                    SELECT date
+                    FROM calendar_dates
+                    WHERE service_id = ? AND exception_type = 1
+                """
+                dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
+                for _, date_row in dates_result.iterrows():
+                    weekday = datetime.strptime(str(date_row['date']), '%Y%m%d').strftime('%A').lower()
+                    service_days.add(weekday)
+        
+        return service_days 

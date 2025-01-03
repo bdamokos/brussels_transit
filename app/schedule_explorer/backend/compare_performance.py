@@ -13,6 +13,9 @@ from . import gtfs_loader
 from . import gtfs_parquet
 from .gtfs_loader import Stop
 import os
+from app.schedule_explorer.backend.gtfs_loader import RouteStop
+from app.schedule_explorer.backend import gtfs_loader, gtfs_parquet
+from app.schedule_explorer.backend.gtfs_loader import FlixbusFeed
 
 # Set up logging
 logging.basicConfig(
@@ -31,65 +34,48 @@ def measure_memory() -> Dict[str, float]:
         'vms': memory_info.vms / 1024 / 1024   # MB
     }
 
-def test_original_implementation(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]:
-    """Test the original GTFS loader implementation."""
-    metrics = {}
+def test_original_implementation(data_dir: str) -> Optional[FlixbusFeed]:
+    """Test the original implementation."""
+    logger = logging.getLogger(__name__)
     
-    # Measure initial memory
-    metrics['initial_memory'] = measure_memory()
-    
-    # Measure load time
-    start_time = time.time()
-    feed = gtfs_loader.load_feed(data_dir)
-    load_time = time.time() - start_time
-    metrics['load_time'] = load_time
-    
-    # Measure memory after loading
-    metrics['after_load_memory'] = measure_memory()
-    
-    # Measure route search time
-    start_time = time.time()
-    routes = feed.find_routes_between_stations(start_id, end_id)
-    search_time = time.time() - start_time
-    metrics['search_time'] = search_time
-    
-    # Record results
-    metrics['num_routes_found'] = len(routes)
-    metrics['final_memory'] = measure_memory()
-    
-    return metrics
+    try:
+        # Load feed
+        start_time = time.time()
+        feed = gtfs_loader.load_feed(data_dir)
+        end_time = time.time()
+        
+        if not feed:
+            logger.error("Failed to load original feed")
+            return None
+        
+        logger.info(f"Original load time: {end_time - start_time:.4f} seconds")
+        return feed
+    except Exception as e:
+        logger.error(f"Error testing original implementation: {e}")
+        return None
 
-def test_parquet_implementation(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]:
-    """Test the new Parquet-based GTFS loader implementation."""
-    metrics = {}
+def test_parquet_implementation(data_dir: str) -> Optional[FlixbusFeed]:
+    """Test the Parquet implementation."""
+    logger = logging.getLogger(__name__)
     
-    # Measure initial memory
-    metrics['initial_memory'] = measure_memory()
-    
-    # Initialize loader and measure conversion time
-    start_time = time.time()
-    loader = gtfs_parquet.ParquetGTFSLoader(data_dir)
-    loader.load_feed()
-    load_time = time.time() - start_time
-    metrics['load_time'] = load_time
-    
-    # Measure memory after loading
-    metrics['after_load_memory'] = measure_memory()
-    
-    # Measure route search time
-    start_time = time.time()
-    routes = loader.find_routes_between_stations(start_id, end_id)
-    search_time = time.time() - start_time
-    metrics['search_time'] = search_time
-    
-    # Record results
-    metrics['num_routes_found'] = len(routes)
-    metrics['final_memory'] = measure_memory()
-    
-    # Clean up
-    loader.close()
-    
-    return metrics
+    try:
+        # Initialize loader
+        loader = gtfs_parquet.ParquetGTFSLoader(data_dir)
+        
+        # Load feed
+        start_time = time.time()
+        feed = loader.load_feed()
+        end_time = time.time()
+        
+        if not feed:
+            logger.error("Failed to load Parquet feed")
+            return None
+        
+        logger.info(f"Parquet load time: {end_time - start_time:.4f} seconds")
+        return feed
+    except Exception as e:
+        logger.error(f"Error testing Parquet implementation: {e}")
+        return None
 
 def compare_translations(data_dir: Path) -> Dict[str, Any]:
     """Compare translation loading between implementations."""
@@ -203,70 +189,81 @@ def compare_stops(original_stops: Dict[str, Stop], parquet_stops: Dict[str, Stop
     else:
         logger.info("No differences found in stops")
 
-def run_comparison(data_dir: Path, test_original: bool = True) -> None:
-    """Run performance comparison between original and Parquet implementations."""
-    logger.info("Starting performance comparison")
-    logger.info(f"Data directory: {data_dir}")
+def compare_route_stops(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare route stops between original and Parquet implementations."""
+    logger.info("\n=== Route Stop Comparison ===")
     
-    # Test original implementation first
-    original_feed = None
-    if test_original:
-        t0 = time.time()
-        translations = gtfs_loader.load_translations(data_dir)
-        original_time = time.time() - t0
-        original_num_translations = sum(len(trans) for trans in translations.values())
-        original_num_records = len(translations)
-        logger.info(f"\n=== Translation Loading Comparison ===")
-        logger.info(f"Original: {{'time': {original_time}, 'num_translations': {original_num_translations}, 'num_records': {original_num_records}}}")
+    # Get a sample trip ID that exists in both feeds
+    sample_trip = next(iter(original_feed.trips.keys()))
+    
+    # Get route stops for this trip from both implementations
+    original_route = next((r for r in original_feed.routes if r.trip_id == sample_trip), None)
+    parquet_route = next((r for r in parquet_feed.routes if r.trip_id == sample_trip), None)
+    
+    if not original_route or not parquet_route:
+        logger.error(f"Could not find matching route for trip {sample_trip}")
+        return
+    
+    # Compare number of stops
+    logger.info(f"Original: {len(original_route.stops)} stops")
+    logger.info(f"Parquet: {len(parquet_route.stops)} stops")
+    
+    if len(original_route.stops) != len(parquet_route.stops):
+        logger.error("Different number of stops!")
+        return
+    
+    # Compare each stop in sequence
+    differences = []
+    for i, (orig_stop, parq_stop) in enumerate(zip(original_route.stops, parquet_route.stops)):
+        # Compare stop IDs
+        if orig_stop.stop.id != parq_stop.stop.id:
+            differences.append(f"Stop {i}: ID mismatch - Original: {orig_stop.stop.id}, Parquet: {parq_stop.stop.id}")
+            continue
+            
+        # Compare times
+        if orig_stop.arrival_time != parq_stop.arrival_time:
+            differences.append(f"Stop {i} ({orig_stop.stop.id}): Arrival time mismatch - Original: {orig_stop.arrival_time}, Parquet: {parq_stop.arrival_time}")
         
-        # Load original feed
-        t0 = time.time()
-        original_feed = gtfs_loader.load_feed(data_dir)
-        original_load_time = time.time() - t0
-        logger.info(f"Original implementation load time: {original_load_time:.2f}s")
+        if orig_stop.departure_time != parq_stop.departure_time:
+            differences.append(f"Stop {i} ({orig_stop.stop.id}): Departure time mismatch - Original: {orig_stop.departure_time}, Parquet: {parq_stop.departure_time}")
+        
+        # Compare sequence
+        if orig_stop.stop_sequence != parq_stop.stop_sequence:
+            differences.append(f"Stop {i} ({orig_stop.stop.id}): Sequence mismatch - Original: {orig_stop.stop_sequence}, Parquet: {parq_stop.stop_sequence}")
     
-    # Test Parquet implementation
-    t0 = time.time()
-    parquet_translations = gtfs_parquet.load_translations(data_dir)
-    parquet_time = time.time() - t0
-    parquet_num_translations = sum(len(trans) for trans in parquet_translations.values())
-    parquet_num_records = len(parquet_translations)
-    logger.info(f"Parquet: {{'time': {parquet_time}, 'num_translations': {parquet_num_translations}, 'num_records': {parquet_num_records}}}")
+    if differences:
+        logger.error("Found differences in route stops:")
+        for diff in differences:
+            logger.error(diff)
+    else:
+        logger.info("All route stops match exactly")
+
+def run_comparison(data_dir: str, test_original: bool = True):
+    """Run a performance comparison between the original and Parquet implementations."""
+    logger = logging.getLogger(__name__)
     
-    # Compare translations
-    if test_original and translations == parquet_translations:
-        logger.info("No differences found in translations")
-    elif test_original:
-        logger.warning("Found differences in translations")
-        # Add detailed comparison if needed
+    # Test Parquet implementation first
+    logger.info("Testing Parquet implementation...")
+    parquet_feed = test_parquet_implementation(data_dir)
+    if not parquet_feed:
+        logger.error("Parquet implementation test failed")
+        return
     
-    # Test Parquet implementation for full feed loading
-    logger.info("\n=== Testing Parquet Implementation ===")
-    t0 = time.time()
-    parquet_loader = gtfs_parquet.ParquetGTFSLoader(data_dir)
-    parquet_loader.load_feed()
-    load_time = time.time() - t0
+    if not test_original:
+        logger.info("Skipping original implementation test")
+        return
     
-    # Test route search
-    t0 = time.time()
-    routes = parquet_loader.find_routes_between_stations("8814001", "8833001")
-    search_time = time.time() - t0
+    # Test original implementation
+    logger.info("Testing original implementation...")
+    original_feed = test_original_implementation(data_dir)
+    if not original_feed:
+        logger.error("Original implementation test failed")
+        return
     
-    # Get memory usage
-    process = psutil.Process()
-    peak_memory = process.memory_info().rss / (1024 * 1024)  # Convert to MB
-    
-    logger.info("Parquet implementation results:")
-    logger.info(f"Load time: {load_time:.2f}s")
-    logger.info(f"Search time: {search_time:.2f}s")
-    logger.info(f"Peak memory: {peak_memory:.2f}MB")
-    logger.info(f"Routes found: {len(routes)}")
-    
-    # Compare stops if original implementation was tested
-    if test_original and original_feed:
-        compare_stops(original_feed.stops, parquet_loader.stops)
-    
-    parquet_loader.close()
+    # Compare results
+    logger.info("Comparing implementations...")
+    compare_stops(original_feed.stops, parquet_feed.stops)
+    compare_route_stops(original_feed, parquet_feed)
 
 if __name__ == "__main__":
     # Get data directory from environment or use default
