@@ -140,13 +140,13 @@ class ParquetGTFSLoader:
             /*+ PARALLEL({num_threads}) */
         """)
         
-        # Create indices in parallel
+        # Create optimized indices for route search
         self.db.execute(f"""
-            CREATE INDEX idx_stop_times_trip_id ON stop_times(trip_id)
+            CREATE INDEX idx_stop_times_trip_stop ON stop_times(trip_id, stop_id)
             /*+ PARALLEL({num_threads}) */
         """)
         self.db.execute(f"""
-            CREATE INDEX idx_stop_times_stop_id ON stop_times(stop_id)
+            CREATE INDEX idx_stop_times_stop_seq ON stop_times(stop_id, stop_sequence)
             /*+ PARALLEL({num_threads}) */
         """)
     
@@ -256,80 +256,42 @@ class ParquetGTFSLoader:
         logger.info("GTFS feed loaded successfully")
     
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Dict]:
-        """
-        Find all routes between two stations.
-        
-        Args:
-            start_id: Starting station ID
-            end_id: Ending station ID
-            
-        Returns:
-            List of routes connecting the stations
-        """
+        """Find all routes between two stations."""
         query = """
-        WITH route_stops AS (
-            SELECT DISTINCT
+        WITH RECURSIVE 
+        potential_trips AS (
+            -- First find direct trips between stations
+            SELECT DISTINCT t.trip_id, t.route_id, MIN(st1.stop_sequence) as start_seq
+            FROM stop_times st1
+            JOIN stop_times st2 ON st1.trip_id = st2.trip_id 
+                AND st1.stop_sequence < st2.stop_sequence
+            JOIN trips t ON t.trip_id = st1.trip_id
+            WHERE st1.stop_id = ?
+                AND st2.stop_id = ?
+            GROUP BY t.trip_id, t.route_id
+        ),
+        route_details AS (
+            SELECT 
                 r.route_id,
                 r.route_short_name,
                 r.route_long_name,
                 t.trip_id,
-                t.service_id,
                 t.trip_headsign,
                 st.stop_sequence,
                 st.stop_id,
-                st.arrival_time,
-                st.departure_time,
                 s.stop_name,
                 s.stop_lat,
-                s.stop_lon
-            FROM routes r
-            JOIN trips t ON t.route_id = r.route_id
-            JOIN stop_times st ON st.trip_id = t.trip_id
+                s.stop_lon,
+                st.arrival_time,
+                st.departure_time
+            FROM potential_trips pt
+            JOIN trips t ON t.trip_id = pt.trip_id
+            JOIN routes r ON r.route_id = pt.route_id
+            JOIN stop_times st ON st.trip_id = pt.trip_id 
+                AND st.stop_sequence >= pt.start_seq
             JOIN stops s ON s.stop_id = st.stop_id
-        ),
-        valid_trips AS (
-            SELECT DISTINCT
-                rs1.trip_id,
-                rs1.route_id,
-                rs1.route_short_name,
-                rs1.route_long_name,
-                rs1.trip_headsign,
-                rs1.stop_sequence as start_seq,
-                rs2.stop_sequence as end_seq
-            FROM route_stops rs1
-            JOIN route_stops rs2 ON rs1.trip_id = rs2.trip_id
-            WHERE rs1.stop_id = ? 
-            AND rs2.stop_id = ?
-            AND rs1.stop_sequence < rs2.stop_sequence  -- Ensure correct direction
-        ),
-        trip_stops AS (
-            SELECT 
-                vt.*,
-                rs.stop_id,
-                rs.stop_name,
-                rs.stop_lat,
-                rs.stop_lon,
-                rs.arrival_time,
-                rs.departure_time,
-                rs.stop_sequence
-            FROM valid_trips vt
-            JOIN route_stops rs ON rs.trip_id = vt.trip_id
-            WHERE rs.stop_sequence BETWEEN vt.start_seq AND vt.end_seq
         )
-        SELECT DISTINCT
-            trip_id,
-            route_id,
-            route_short_name,
-            route_long_name,
-            trip_headsign,
-            stop_id,
-            stop_name,
-            stop_lat,
-            stop_lon,
-            arrival_time,
-            departure_time,
-            stop_sequence
-        FROM trip_stops
+        SELECT * FROM route_details
         ORDER BY trip_id, stop_sequence
         LIMIT 1000  -- Reasonable limit
         """
