@@ -260,26 +260,23 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
             
-        # First load all columns
+        # Create trips table
         self.db.execute(f"""
             CREATE TABLE trips AS 
-            WITH raw_trips AS (
-                SELECT * FROM parquet_scan('{parquet_path}')
-            )
             SELECT 
                 route_id,
                 service_id,
                 trip_id,
-                trip_headsign,
-                direction_id,
-                block_id,
-                shape_id
-            FROM raw_trips
+                COALESCE(trip_headsign, NULL) as trip_headsign,
+                COALESCE(direction_id, '0') as direction_id,
+                COALESCE(block_id, NULL) as block_id,
+                COALESCE(shape_id, NULL) as shape_id
+            FROM parquet_scan('{parquet_path}')
         """)
         
-        # Create indices
+        # Create index
         self.db.execute("CREATE INDEX idx_trips_id ON trips(trip_id)")
-        self.db.execute("CREATE INDEX idx_trips_route_id ON trips(route_id)")
+        self.db.execute("CREATE INDEX idx_trips_route ON trips(route_id)")
     
     def _load_routes(self) -> List[Route]:
         """Load routes from the database and create Route objects.
@@ -473,9 +470,11 @@ class ParquetGTFSLoader:
             self.translations = load_translations(self.data_dir)
             
             # Load all components
+            self._setup_db()  # Set up DuckDB configuration
             self._load_stops()
             self._load_stop_times()
             self._load_trips()
+            self._load_calendar()
             
             # Load routes
             routes = self._load_routes()
@@ -615,27 +614,47 @@ class ParquetGTFSLoader:
             self.db = None 
     
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
-        """Get service days for a set of service IDs.
-        
-        Args:
-            service_ids: Set of service IDs to get service days for.
-            
-        Returns:
-            Set of service days.
-        """
+        """Get the service days for a set of service IDs."""
         service_days = set()
+        
+        # First check calendar_dates.txt for type 1 exceptions (added service)
+        calendar_dates_query = """
+            SELECT service_id, date, exception_type
+            FROM calendar_dates
+            WHERE service_id = ?
+        """
+        
+        # Check calendar_dates for type 1 exceptions first
         for service_id in service_ids:
-            # Check calendar.txt first
-            calendar_query = """
-                SELECT 
-                    monday, tuesday, wednesday, thursday, friday, saturday, sunday
-                FROM calendar
-                WHERE service_id = ?
-            """
+            dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
+            if not dates_result.empty:
+                # Only consider type 1 exceptions (additions)
+                additions = dates_result[dates_result['exception_type'] == 1]
+                for _, row in additions.iterrows():
+                    date = datetime.strptime(str(row['date']), '%Y%m%d')
+                    weekday = date.strftime('%A').lower()
+                    service_days.add(weekday)
+        
+        # Then check calendar.txt for regular service
+        calendar_query = """
+            SELECT 
+                service_id,
+                monday, tuesday, wednesday, thursday, friday, saturday, sunday,
+                start_date, end_date
+            FROM calendar
+            WHERE service_id = ?
+        """
+        
+        has_regular_calendar = False
+        for service_id in service_ids:
+            # Check regular calendar
             calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
-            
             if not calendar_result.empty:
                 row = calendar_result.iloc[0]
+                # Only consider this calendar if it has at least one day set to 1
+                if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
+                       row['friday'], row['saturday'], row['sunday']]):
+                    has_regular_calendar = True
                 if row['monday']: service_days.add('monday')
                 if row['tuesday']: service_days.add('tuesday')
                 if row['wednesday']: service_days.add('wednesday')
@@ -643,16 +662,26 @@ class ParquetGTFSLoader:
                 if row['friday']: service_days.add('friday')
                 if row['saturday']: service_days.add('saturday')
                 if row['sunday']: service_days.add('sunday')
-            else:
-                # Check calendar_dates.txt for type 1 exceptions
-                calendar_dates_query = """
-                    SELECT date
-                    FROM calendar_dates
-                    WHERE service_id = ? AND exception_type = 1
-                """
+        
+        # If we have regular calendar, check for type 2 exceptions (removals)
+        if has_regular_calendar:
+            for service_id in service_ids:
                 dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
-                for _, date_row in dates_result.iterrows():
-                    weekday = datetime.strptime(str(date_row['date']), '%Y%m%d').strftime('%A').lower()
-                    service_days.add(weekday)
+                if not dates_result.empty:
+                    removals = dates_result[dates_result['exception_type'] == 2]
+                    if not removals.empty:
+                        # Group removals by weekday
+                        removals_by_day = {}
+                        for _, row in removals.iterrows():
+                            date = datetime.strptime(str(row['date']), '%Y%m%d')
+                            weekday = date.strftime('%A').lower()
+                            if weekday not in removals_by_day:
+                                removals_by_day[weekday] = set()
+                            removals_by_day[weekday].add(row['service_id'])
+                        
+                        # Remove days that are completely excluded by type 2 exceptions
+                        for day, removed_services in removals_by_day.items():
+                            if removed_services == service_ids:  # All services have this day removed
+                                service_days.discard(day)
         
         return service_days 

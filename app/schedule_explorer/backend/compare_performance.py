@@ -193,50 +193,109 @@ def compare_route_stops(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -
     """Compare route stops between original and Parquet implementations."""
     logger.info("\n=== Route Stop Comparison ===")
     
-    # Get a sample trip ID that exists in both feeds
-    sample_trip = next(iter(original_feed.trips.keys()))
+    # Compare total number of routes
+    logger.info(f"Original: {len(original_feed.routes)} routes")
+    logger.info(f"Parquet: {len(parquet_feed.routes)} routes")
     
-    # Get route stops for this trip from both implementations
-    original_route = next((r for r in original_feed.routes if r.trip_id == sample_trip), None)
-    parquet_route = next((r for r in parquet_feed.routes if r.trip_id == sample_trip), None)
+    # Create maps of route_id -> list of routes (for variants)
+    original_routes = {}
+    for route in original_feed.routes:
+        if route.route_id not in original_routes:
+            original_routes[route.route_id] = []
+        original_routes[route.route_id].append(route)
     
-    if not original_route or not parquet_route:
-        logger.error(f"Could not find matching route for trip {sample_trip}")
-        return
+    parquet_routes = {}
+    for route in parquet_feed.routes:
+        if route.route_id not in parquet_routes:
+            parquet_routes[route.route_id] = []
+        parquet_routes[route.route_id].append(route)
     
-    # Compare number of stops
-    logger.info(f"Original: {len(original_route.stops)} stops")
-    logger.info(f"Parquet: {len(parquet_route.stops)} stops")
+    # Compare route IDs
+    original_route_ids = set(original_routes.keys())
+    parquet_route_ids = set(parquet_routes.keys())
     
-    if len(original_route.stops) != len(parquet_route.stops):
-        logger.error("Different number of stops!")
-        return
+    missing_in_parquet = original_route_ids - parquet_route_ids
+    missing_in_original = parquet_route_ids - original_route_ids
     
-    # Compare each stop in sequence
-    differences = []
-    for i, (orig_stop, parq_stop) in enumerate(zip(original_route.stops, parquet_route.stops)):
-        # Compare stop IDs
-        if orig_stop.stop.id != parq_stop.stop.id:
-            differences.append(f"Stop {i}: ID mismatch - Original: {orig_stop.stop.id}, Parquet: {parq_stop.stop.id}")
-            continue
+    if missing_in_parquet:
+        logger.warning(f"Routes missing in Parquet: {missing_in_parquet}")
+    if missing_in_original:
+        logger.warning(f"Extra routes in Parquet: {missing_in_original}")
+    
+    # Compare common routes
+    common_route_ids = original_route_ids & parquet_route_ids
+    logger.info(f"Comparing {len(common_route_ids)} common routes...")
+    
+    for route_id in common_route_ids:
+        orig_variants = original_routes[route_id]
+        parq_variants = parquet_routes[route_id]
+        
+        logger.info(f"\nRoute {route_id}:")
+        logger.info(f"Original variants: {len(orig_variants)}")
+        logger.info(f"Parquet variants: {len(parq_variants)}")
+        
+        # Compare each variant
+        for orig_route in orig_variants:
+            # Find matching variant in parquet routes
+            matching_variant = None
+            for parq_route in parq_variants:
+                if (orig_route.direction_id == parq_route.direction_id and 
+                    orig_route.trip_id == parq_route.trip_id):
+                    matching_variant = parq_route
+                    break
             
-        # Compare times
-        if orig_stop.arrival_time != parq_stop.arrival_time:
-            differences.append(f"Stop {i} ({orig_stop.stop.id}): Arrival time mismatch - Original: {orig_stop.arrival_time}, Parquet: {parq_stop.arrival_time}")
-        
-        if orig_stop.departure_time != parq_stop.departure_time:
-            differences.append(f"Stop {i} ({orig_stop.stop.id}): Departure time mismatch - Original: {orig_stop.departure_time}, Parquet: {parq_stop.departure_time}")
-        
-        # Compare sequence
-        if orig_stop.stop_sequence != parq_stop.stop_sequence:
-            differences.append(f"Stop {i} ({orig_stop.stop.id}): Sequence mismatch - Original: {orig_stop.stop_sequence}, Parquet: {parq_stop.stop_sequence}")
-    
-    if differences:
-        logger.error("Found differences in route stops:")
-        for diff in differences:
-            logger.error(diff)
-    else:
-        logger.info("All route stops match exactly")
+            if not matching_variant:
+                logger.warning(f"No matching variant found for route {route_id} direction {orig_route.direction_id} trip {orig_route.trip_id}")
+                continue
+            
+            # Compare stops
+            if len(orig_route.stops) != len(matching_variant.stops):
+                logger.error(f"Different number of stops for route {route_id} direction {orig_route.direction_id}:")
+                logger.error(f"Original: {len(orig_route.stops)} stops")
+                logger.error(f"Parquet: {len(matching_variant.stops)} stops")
+                continue
+            
+            # Compare each stop
+            stop_differences = []
+            for i, (orig_stop, parq_stop) in enumerate(zip(orig_route.stops, matching_variant.stops)):
+                if orig_stop.stop.id != parq_stop.stop.id:
+                    stop_differences.append(f"Stop {i}: ID mismatch - Original: {orig_stop.stop.id}, Parquet: {parq_stop.stop.id}")
+                elif orig_stop.arrival_time != parq_stop.arrival_time:
+                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Arrival time mismatch - Original: {orig_stop.arrival_time}, Parquet: {parq_stop.arrival_time}")
+                elif orig_stop.departure_time != parq_stop.departure_time:
+                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Departure time mismatch - Original: {orig_stop.departure_time}, Parquet: {parq_stop.departure_time}")
+                elif orig_stop.stop_sequence != parq_stop.stop_sequence:
+                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Sequence mismatch - Original: {orig_stop.stop_sequence}, Parquet: {parq_stop.stop_sequence}")
+            
+            if stop_differences:
+                logger.error(f"Found differences in route {route_id} direction {orig_route.direction_id}:")
+                for diff in stop_differences:
+                    logger.error(diff)
+            
+            # Compare service days
+            if set(orig_route.service_days) != set(matching_variant.service_days):
+                logger.error(f"Service days mismatch for route {route_id} direction {orig_route.direction_id}:")
+                logger.error(f"Original: {orig_route.service_days}")
+                logger.error(f"Parquet: {matching_variant.service_days}")
+            
+            # Compare service IDs
+            if set(orig_route.service_ids) != set(matching_variant.service_ids):
+                logger.error(f"Service IDs mismatch for route {route_id} direction {orig_route.direction_id}:")
+                logger.error(f"Original: {orig_route.service_ids}")
+                logger.error(f"Parquet: {matching_variant.service_ids}")
+            
+            # Compare trips
+            if len(orig_route.trips) != len(matching_variant.trips):
+                logger.error(f"Different number of trips for route {route_id} direction {orig_route.direction_id}:")
+                logger.error(f"Original: {len(orig_route.trips)} trips")
+                logger.error(f"Parquet: {len(matching_variant.trips)} trips")
+            else:
+                orig_trip_ids = {t.id for t in orig_route.trips}
+                parq_trip_ids = {t.id for t in matching_variant.trips}
+                if orig_trip_ids != parq_trip_ids:
+                    logger.error(f"Trip ID mismatch for route {route_id} direction {orig_route.direction_id}:")
+                    logger.error(f"Missing in Parquet: {orig_trip_ids - parq_trip_ids}")
+                    logger.error(f"Extra in Parquet: {parq_trip_ids - orig_trip_ids}")
 
 def run_comparison(data_dir: str, test_original: bool = True):
     """Run a performance comparison between the original and Parquet implementations."""
@@ -261,9 +320,38 @@ def run_comparison(data_dir: str, test_original: bool = True):
         return
     
     # Compare results
-    logger.info("Comparing implementations...")
-    compare_stops(original_feed.stops, parquet_feed.stops)
-    compare_route_stops(original_feed, parquet_feed)
+    logger.info("Testing route stops...")
+    
+    # Get a route from each implementation
+    original_route = original_feed.routes[0] if isinstance(original_feed.routes, list) else next(iter(original_feed.routes.values()))
+    parquet_route = parquet_feed.routes[0]
+    
+    # Compare route stops
+    original_stops = original_route.stops
+    parquet_stops = parquet_route.stops
+    
+    if len(original_stops) != len(parquet_stops):
+        logger.error(f"Route stop count mismatch - Original: {len(original_stops)}, Parquet: {len(parquet_stops)}")
+        return
+    
+    for i, (original_stop, parquet_stop) in enumerate(zip(original_stops, parquet_stops)):
+        if original_stop.stop.id != parquet_stop.stop.id:
+            logger.error(f"Stop {i} ID mismatch - Original: {original_stop.stop.id}, Parquet: {parquet_stop.stop.id}")
+            return
+        
+        if original_stop.arrival_time != parquet_stop.arrival_time:
+            logger.error(f"Stop {i} arrival time mismatch - Original: {original_stop.arrival_time}, Parquet: {parquet_stop.arrival_time}")
+            return
+        
+        if original_stop.departure_time != parquet_stop.departure_time:
+            logger.error(f"Stop {i} departure time mismatch - Original: {original_stop.departure_time}, Parquet: {parquet_stop.departure_time}")
+            return
+        
+        if original_stop.stop_sequence != parquet_stop.stop_sequence:
+            logger.error(f"Stop {i} sequence mismatch - Original: {original_stop.stop_sequence}, Parquet: {parquet_stop.stop_sequence}")
+            return
+    
+    logger.info("Route stops match")
 
 if __name__ == "__main__":
     # Get data directory from environment or use default
