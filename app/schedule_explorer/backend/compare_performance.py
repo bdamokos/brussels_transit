@@ -90,7 +90,7 @@ def test_parquet_implementation(data_dir: Path, start_id: str, end_id: str) -> D
     
     return metrics
 
-def run_comparison(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]:
+def run_comparison(data_dir: Path, start_id: str, end_id: str, test_original: bool = False) -> Dict[str, Any]:
     """Run performance comparison between both implementations."""
     logger.info("Starting performance comparison")
     logger.info(f"Data directory: {data_dir}")
@@ -105,20 +105,7 @@ def run_comparison(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]
         }
     }
     
-    # Test original implementation
-    logger.info("\n=== Testing Original Implementation ===")
-    try:
-        results['original'] = test_original_implementation(data_dir, start_id, end_id)
-        logger.info("Original implementation results:")
-        logger.info(f"Load time: {results['original']['load_time']:.2f}s")
-        logger.info(f"Search time: {results['original']['search_time']:.2f}s")
-        logger.info(f"Peak memory: {results['original']['after_load_memory']['rss']:.2f}MB")
-        logger.info(f"Routes found: {results['original']['num_routes_found']}")
-    except Exception as e:
-        logger.error(f"Error testing original implementation: {e}")
-        results['original'] = {'error': str(e)}
-    
-    # Test Parquet implementation
+    # Test Parquet implementation first
     logger.info("\n=== Testing Parquet Implementation ===")
     try:
         results['parquet'] = test_parquet_implementation(data_dir, start_id, end_id)
@@ -131,27 +118,19 @@ def run_comparison(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]
         logger.error(f"Error testing Parquet implementation: {e}")
         results['parquet'] = {'error': str(e)}
     
-    # Calculate improvements
-    if 'error' not in results['original'] and 'error' not in results['parquet']:
-        improvements = {
-            'load_time_reduction': (
-                results['original']['load_time'] - results['parquet']['load_time']
-            ) / results['original']['load_time'] * 100,
-            'search_time_reduction': (
-                results['original']['search_time'] - results['parquet']['search_time']
-            ) / results['original']['search_time'] * 100,
-            'memory_reduction': (
-                results['original']['after_load_memory']['rss'] - 
-                results['parquet']['after_load_memory']['rss']
-            ) / results['original']['after_load_memory']['rss'] * 100
-        }
-        
-        results['improvements'] = improvements
-        
-        logger.info("\n=== Performance Improvements ===")
-        logger.info(f"Load time reduction: {improvements['load_time_reduction']:.1f}%")
-        logger.info(f"Search time reduction: {improvements['search_time_reduction']:.1f}%")
-        logger.info(f"Memory reduction: {improvements['memory_reduction']:.1f}%")
+    # Optionally test original implementation
+    if test_original:
+        logger.info("\n=== Testing Original Implementation ===")
+        try:
+            results['original'] = test_original_implementation(data_dir, start_id, end_id)
+            logger.info("Original implementation results:")
+            logger.info(f"Load time: {results['original']['load_time']:.2f}s")
+            logger.info(f"Search time: {results['original']['search_time']:.2f}s")
+            logger.info(f"Peak memory: {results['original']['after_load_memory']['rss']:.2f}MB")
+            logger.info(f"Routes found: {results['original']['num_routes_found']}")
+        except Exception as e:
+            logger.error(f"Error testing original implementation: {e}")
+            results['original'] = {'error': str(e)}
     
     return results
 
@@ -161,4 +140,5 @@ if __name__ == "__main__":
     start_id = "8811304"  # Brussels-Luxembourg
     end_id = "8811601"    # Ottignies
     
-    results = run_comparison(data_dir, start_id, end_id) 
+    # Only test Parquet implementation by default
+    results = run_comparison(data_dir, start_id, end_id, test_original=False) 

@@ -125,10 +125,14 @@ class ParquetGTFSLoader:
         self.db.execute("CREATE INDEX idx_stops_id ON stops(stop_id)")
     
     def _load_stop_times(self) -> None:
-        """Load stop times data into DuckDB."""
+        """Load stop times data into DuckDB using parallel processing."""
         parquet_path = self._csv_to_parquet('stop_times.txt')
         if not parquet_path:
             return
+            
+        # Use multiple threads but limit based on available memory
+        num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
+        chunk_size = 100000  # Process 100K rows at a time
             
         self.db.execute(f"""
             CREATE TABLE stop_times AS 
@@ -138,12 +142,21 @@ class ParquetGTFSLoader:
                 departure_time,
                 stop_id,
                 CAST(stop_sequence AS INTEGER) as stop_sequence
-            FROM parquet_scan('{parquet_path}')
+            FROM parquet_scan('{parquet_path}',
+                parallel=true,
+                rows_per_thread={chunk_size})
+            /*+ PARALLEL({num_threads}) */
         """)
         
-        # Create indices
-        self.db.execute("CREATE INDEX idx_stop_times_trip_id ON stop_times(trip_id)")
-        self.db.execute("CREATE INDEX idx_stop_times_stop_id ON stop_times(stop_id)")
+        # Create indices in parallel
+        self.db.execute(f"""
+            CREATE INDEX idx_stop_times_trip_id ON stop_times(trip_id)
+            /*+ PARALLEL({num_threads}) */
+        """)
+        self.db.execute(f"""
+            CREATE INDEX idx_stop_times_stop_id ON stop_times(stop_id)
+            /*+ PARALLEL({num_threads}) */
+        """)
     
     def _load_trips(self) -> None:
         """Load trips data into DuckDB."""
@@ -191,9 +204,13 @@ class ParquetGTFSLoader:
         self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
     
     def _load_calendar(self) -> None:
-        """Load calendar data into DuckDB."""
+        """Load calendar data into DuckDB using parallel processing."""
         calendar_path = self._csv_to_parquet('calendar.txt')
         calendar_dates_path = self._csv_to_parquet('calendar_dates.txt')
+        
+        # Use multiple threads but limit based on available memory
+        num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
+        chunk_size = 100000  # Process 100K rows at a time
         
         if calendar_path:
             self.db.execute(f"""
@@ -203,20 +220,33 @@ class ParquetGTFSLoader:
                     monday, tuesday, wednesday, thursday, friday, saturday, sunday,
                     start_date,
                     end_date
-                FROM parquet_scan('{calendar_path}')
+                FROM parquet_scan('{calendar_path}',
+                    parallel=true,
+                    rows_per_thread={chunk_size})
+                /*+ PARALLEL({num_threads}) */
             """)
-            self.db.execute("CREATE INDEX idx_calendar_service_id ON calendar(service_id)")
+            self.db.execute(f"""
+                CREATE INDEX idx_calendar_service_id ON calendar(service_id)
+                /*+ PARALLEL({num_threads}) */
+            """)
         
         if calendar_dates_path:
+            # Process calendar_dates in chunks to avoid memory issues
             self.db.execute(f"""
                 CREATE TABLE calendar_dates AS 
                 SELECT 
                     service_id,
                     date,
                     exception_type
-                FROM parquet_scan('{calendar_dates_path}')
+                FROM parquet_scan('{calendar_dates_path}',
+                    parallel=true,
+                    rows_per_thread={chunk_size})
+                /*+ PARALLEL({num_threads}) */
             """)
-            self.db.execute("CREATE INDEX idx_calendar_dates_service_id ON calendar_dates(service_id)")
+            self.db.execute(f"""
+                CREATE INDEX idx_calendar_dates_service_id ON calendar_dates(service_id)
+                /*+ PARALLEL({num_threads}) */
+            """)
     
     def load_feed(self) -> None:
         """Load all GTFS data into DuckDB."""
