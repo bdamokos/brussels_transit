@@ -75,7 +75,7 @@ class ParquetGTFSLoader:
             table = pa.csv.read_csv(
                 csv_path,
                 read_options=pa.csv.ReadOptions(
-                    block_size=1024 * 1024,  # 1MB chunks
+                    block_size=8192,  # 8KB chunks as recommended
                     use_threads=True
                 ),
                 convert_options=pa.csv.ConvertOptions(
@@ -84,11 +84,13 @@ class ParquetGTFSLoader:
                 )
             )
             
-            # Write with compression
+            # Write with optimized settings
             pq.write_table(
                 table,
                 parquet_path,
                 compression='SNAPPY',  # Fast compression
+                row_group_size=524288,  # 512KB row groups for RPi
+                data_page_size=8192,   # 8KB pages as recommended
                 use_dictionary=True,
                 dictionary_pagesize_limit=512 * 1024  # 512KB
             )
@@ -107,23 +109,22 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
             
+        # First load all columns
         self.db.execute(f"""
             CREATE TABLE stops AS 
+            WITH raw_stops AS (
+                SELECT * FROM parquet_scan('{parquet_path}')
+            )
             SELECT 
                 stop_id,
-                stop_code,
                 stop_name,
-                stop_desc,
                 CAST(stop_lat AS DOUBLE) as stop_lat,
                 CAST(stop_lon AS DOUBLE) as stop_lon,
-                zone_id,
-                stop_url,
                 location_type,
                 parent_station,
-                stop_timezone,
-                wheelchair_boarding,
-                platform_code
-            FROM parquet_scan('{parquet_path}')
+                platform_code,
+                stop_timezone
+            FROM raw_stops
         """)
         
         # Create index
@@ -137,7 +138,6 @@ class ParquetGTFSLoader:
             
         # Use multiple threads but limit based on available memory
         num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
-        chunk_size = 100000  # Process 100K rows at a time
             
         self.db.execute(f"""
             CREATE TABLE stop_times AS 
@@ -147,9 +147,7 @@ class ParquetGTFSLoader:
                 departure_time,
                 stop_id,
                 CAST(stop_sequence AS INTEGER) as stop_sequence
-            FROM parquet_scan('{parquet_path}',
-                parallel=true,
-                rows_per_thread={chunk_size})
+            FROM parquet_scan('{parquet_path}')
             /*+ PARALLEL({num_threads}) */
         """)
         
@@ -169,20 +167,21 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
             
+        # First load all columns
         self.db.execute(f"""
             CREATE TABLE trips AS 
+            WITH raw_trips AS (
+                SELECT * FROM parquet_scan('{parquet_path}')
+            )
             SELECT 
                 route_id,
                 service_id,
                 trip_id,
                 trip_headsign,
-                trip_short_name,
                 direction_id,
                 block_id,
-                shape_id,
-                wheelchair_accessible,
-                bikes_allowed
-            FROM parquet_scan('{parquet_path}')
+                shape_id
+            FROM raw_trips
         """)
         
         # Create indices
@@ -195,20 +194,21 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
             
+        # First load all columns
         self.db.execute(f"""
             CREATE TABLE routes AS 
+            WITH raw_routes AS (
+                SELECT * FROM parquet_scan('{parquet_path}')
+            )
             SELECT 
                 route_id,
-                agency_id,
                 route_short_name,
                 route_long_name,
-                route_desc,
                 route_type,
-                route_url,
                 route_color,
                 route_text_color,
-                route_sort_order
-            FROM parquet_scan('{parquet_path}')
+                agency_id
+            FROM raw_routes
         """)
         
         # Create index
@@ -221,7 +221,6 @@ class ParquetGTFSLoader:
         
         # Use multiple threads but limit based on available memory
         num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
-        chunk_size = 100000  # Process 100K rows at a time
         
         if calendar_path:
             self.db.execute(f"""
@@ -231,9 +230,7 @@ class ParquetGTFSLoader:
                     monday, tuesday, wednesday, thursday, friday, saturday, sunday,
                     start_date,
                     end_date
-                FROM parquet_scan('{calendar_path}',
-                    parallel=true,
-                    rows_per_thread={chunk_size})
+                FROM parquet_scan('{calendar_path}')
                 /*+ PARALLEL({num_threads}) */
             """)
             self.db.execute(f"""
@@ -249,9 +246,7 @@ class ParquetGTFSLoader:
                     service_id,
                     date,
                     exception_type
-                FROM parquet_scan('{calendar_dates_path}',
-                    parallel=true,
-                    rows_per_thread={chunk_size})
+                FROM parquet_scan('{calendar_dates_path}')
                 /*+ PARALLEL({num_threads}) */
             """)
             self.db.execute(f"""

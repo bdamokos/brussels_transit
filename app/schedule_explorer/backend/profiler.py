@@ -1,154 +1,124 @@
-import cProfile
-import pstats
-import io
-import psutil
-import time
+"""
+Performance profiling utilities for GTFS data loading and querying.
+"""
+
 import logging
+import time
+import psutil
 import tracemalloc
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
-from .gtfs_loader import load_feed, FlixbusFeed
+import cProfile
+import pstats
+import io
 
 logger = logging.getLogger("schedule_explorer.profiler")
 
 class PerformanceMetrics:
+    """Collects and logs performance metrics."""
+    
     def __init__(self):
         self.start_time = time.time()
-        self.measurements: Dict[str, Any] = {}
+        self.metrics = {}
+        tracemalloc.start()
+        self.process = psutil.Process()
+    
+    def measure_memory(self) -> Dict[str, float]:
+        """Get current memory usage in MB."""
+        memory_info = self.process.memory_info()
+        current, peak = tracemalloc.get_traced_memory()
+        return {
+            'rss': memory_info.rss / 1024 / 1024,
+            'vms': memory_info.vms / 1024 / 1024,
+            'peak': peak / 1024 / 1024,
+            'current': current / 1024 / 1024
+        }
+    
+    def log_metrics(self, name: str, value: Any):
+        """Log a metric with its value."""
+        self.metrics[name] = value
+        if isinstance(value, (int, float)):
+            logger.info(f"{name}: {value:.2f}")
+        else:
+            logger.info(f"{name}: {value}")
+    
+    def profile_function(self, func, *args, **kwargs) -> Any:
+        """Profile a function execution."""
+        pr = cProfile.Profile()
+        result = pr.runcall(func, *args, **kwargs)
         
-    def measure_memory(self, label: str):
-        process = psutil.Process()
-        memory_info = process.memory_info()
-        self.measurements[f"{label}_memory_rss"] = memory_info.rss / 1024 / 1024  # MB
-        self.measurements[f"{label}_memory_vms"] = memory_info.vms / 1024 / 1024  # MB
+        s = io.StringIO()
+        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+        ps.print_stats(20)  # Top 20 functions
         
-    def measure_time(self, label: str):
-        self.measurements[f"{label}_time"] = time.time() - self.start_time
-        
-    def log_metrics(self):
-        logger.info("Performance Metrics:")
-        for key, value in self.measurements.items():
-            if isinstance(value, (int, float)):
-                if "memory" in key:
-                    logger.info(f"{key}: {value:.2f} MB")
-                else:
-                    logger.info(f"{key}: {value:.2f} seconds")
-            else:
-                logger.info(f"{key}: {value}")
+        self.log_metrics(f"{func.__name__}_profile", s.getvalue())
+        return result
 
-def profile_feed_loading(data_dir: Path) -> Dict[str, float]:
-    """Profile the GTFS feed loading process."""
-    metrics = PerformanceMetrics()
-    
-    # Start memory tracking
-    tracemalloc.start()
-    
-    # Measure initial state
-    metrics.measure_memory("initial")
-    metrics.measure_time("start")
-    
-    # Profile the load_feed function
-    pr = cProfile.Profile()
-    pr.enable()
-    
-    # Load the feed
-    feed = load_feed(data_dir)
-    
-    pr.disable()
-    
-    # Measure after loading
-    metrics.measure_memory("after_load")
-    metrics.measure_time("load_complete")
-    
-    # Get memory snapshot
-    current, peak = tracemalloc.get_traced_memory()
-    metrics.measurements["peak_memory"] = peak / 1024 / 1024  # MB
-    metrics.measurements["current_memory"] = current / 1024 / 1024  # MB
-    
-    # Stop memory tracking
-    tracemalloc.stop()
-    
-    # Get detailed stats
-    s = io.StringIO()
-    ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
-    ps.print_stats(20)  # Print top 20 functions
-    metrics.measurements["profile_stats"] = s.getvalue()
-    
-    # Analyze feed contents
-    metrics.measurements["num_stops"] = len(feed.stops)
-    metrics.measurements["num_routes"] = len(feed.routes)
-    metrics.measurements["num_trips"] = len(feed.trips)
-    metrics.measurements["num_calendar_dates"] = len(feed.calendar_dates)
-    
-    # Log all metrics
-    metrics.log_metrics()
-    
-    # Log detailed profiling stats
-    logger.info("\nDetailed Profile Stats:")
-    logger.info(metrics.measurements["profile_stats"])
-    
-    return metrics.measurements
-
-def profile_route_search(feed: FlixbusFeed, start_id: str, end_id: str) -> Dict[str, float]:
-    """Profile route search operations."""
+def profile_feed_loading(data_dir: Path) -> Dict[str, Any]:
+    """Profile GTFS feed loading process."""
     metrics = PerformanceMetrics()
     
     # Measure initial state
-    metrics.measure_memory("initial")
-    metrics.measure_time("start")
-    
-    # Profile the search operation
-    pr = cProfile.Profile()
-    pr.enable()
-    
-    routes = feed.find_routes_between_stations(start_id, end_id)
-    
-    pr.disable()
-    
-    # Measure after search
-    metrics.measure_memory("after_search")
-    metrics.measure_time("search_complete")
-    
-    # Get detailed stats
-    s = io.StringIO()
-    ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
-    ps.print_stats(20)
-    metrics.measurements["profile_stats"] = s.getvalue()
-    
-    # Record results
-    metrics.measurements["num_routes_found"] = len(routes)
-    
-    # Log all metrics
-    metrics.log_metrics()
-    
-    # Log detailed profiling stats
-    logger.info("\nDetailed Profile Stats:")
-    logger.info(metrics.measurements["profile_stats"])
-    
-    return metrics.measurements
-
-def run_full_profile(data_dir: Path, sample_start_id: str, sample_end_id: str):
-    """Run a full profiling session."""
-    logger.info("Starting full profiling session")
-    logger.info(f"Data directory: {data_dir}")
+    initial_memory = metrics.measure_memory()
+    metrics.log_metrics("initial_memory_mb", initial_memory['rss'])
     
     # Profile feed loading
-    logger.info("\n=== Profiling Feed Loading ===")
-    load_metrics = profile_feed_loading(data_dir)
+    from .gtfs_loader import load_feed
+    feed = metrics.profile_function(load_feed, data_dir)
     
-    # Get the feed again for route search profiling
-    feed = load_feed(data_dir)
+    # Measure final state
+    final_memory = metrics.measure_memory()
+    load_time = time.time() - metrics.start_time
+    
+    # Log results
+    metrics.log_metrics("load_time_seconds", load_time)
+    metrics.log_metrics("peak_memory_mb", final_memory['peak'])
+    metrics.log_metrics("memory_increase_mb", final_memory['rss'] - initial_memory['rss'])
+    
+    # Log feed statistics
+    metrics.log_metrics("num_stops", len(feed.stops))
+    metrics.log_metrics("num_routes", len(feed.routes))
+    metrics.log_metrics("num_trips", len(feed.trips))
+    metrics.log_metrics("num_calendar_dates", len(feed.calendar_dates) if feed.calendar_dates else 0)
+    
+    return metrics.metrics
+
+def profile_route_search(feed, start_id: str, end_id: str) -> Dict[str, Any]:
+    """Profile route search operation."""
+    metrics = PerformanceMetrics()
+    
+    # Measure initial state
+    initial_memory = metrics.measure_memory()
+    metrics.log_metrics("initial_memory_mb", initial_memory['rss'])
     
     # Profile route search
-    logger.info("\n=== Profiling Route Search ===")
-    search_metrics = profile_route_search(feed, sample_start_id, sample_end_id)
+    routes = metrics.profile_function(feed.find_routes_between_stations, start_id, end_id)
     
-    # Combine metrics
-    all_metrics = {
-        "load": load_metrics,
-        "search": search_metrics,
-        "timestamp": datetime.now().isoformat()
+    # Measure final state
+    final_memory = metrics.measure_memory()
+    search_time = time.time() - metrics.start_time
+    
+    # Log results
+    metrics.log_metrics("search_time_seconds", search_time)
+    metrics.log_metrics("peak_memory_mb", final_memory['peak'])
+    metrics.log_metrics("memory_increase_mb", final_memory['rss'] - initial_memory['rss'])
+    metrics.log_metrics("routes_found", len(routes))
+    
+    return metrics.metrics
+
+def run_full_profile(data_dir: Path, start_id: str, end_id: str) -> Dict[str, Any]:
+    """Run complete profiling session."""
+    results = {
+        'feed_loading': profile_feed_loading(data_dir),
+        'route_search': None
     }
     
-    return all_metrics 
+    # Only profile route search if feed loading succeeded
+    if 'feed' in results['feed_loading']:
+        results['route_search'] = profile_route_search(
+            results['feed_loading']['feed'],
+            start_id,
+            end_id
+        )
+    
+    return results 
