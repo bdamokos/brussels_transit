@@ -1336,25 +1336,33 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
 
 
 def load_feed(
-    data_dir: str = "Flixbus/gtfs_generic_eu", target_stops: Set[str] = None
+    data_dir: str | Path = None, target_stops: Set[str] = None
 ) -> FlixbusFeed:
     """
     Load GTFS feed from the specified directory.
     If target_stops is provided, only loads routes that contain those stops.
+
+    Args:
+        data_dir: Path to the GTFS data directory. Can be either a string or Path object.
+        target_stops: Optional set of stop IDs to filter routes by.
+
+    Returns:
+        FlixbusFeed object containing the loaded GTFS data.
+
+    Raises:
+        ValueError: If data_dir is None or does not exist.
     """
     start_time = time.time()
-    logger.info(f"Loading GTFS feed from: {data_dir}")
+    if not data_dir:
+        raise ValueError("No data directory provided to load_feed()")
+    
+    # Convert data_dir to Path if it's a string
+    data_path = Path(data_dir)
 
-    # Start from the current file's location
-    current_path = Path(os.path.dirname(os.path.abspath(__file__)))
+    if not data_path.exists():
+        raise ValueError(f"Data directory does not exist: {data_path}")
 
-    # Navigate up to the project root (where cache directory is)
-    project_root = current_path
-    while project_root.name != "STIB":
-        project_root = project_root.parent
-
-    # Look in the cache directory
-    data_path = project_root / "cache" / data_dir
+    logger.info(f"Loading GTFS feed from: {data_path}")
 
     # Check if we have a valid cache
     cache_file = data_path / ".gtfs_cache"
