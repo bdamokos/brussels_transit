@@ -60,6 +60,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
 # Global variables
 feed: Optional[FlixbusFeed] = None
 current_provider: Optional[str] = None
@@ -1946,3 +1951,4 @@ async def find_route_by_name(
             )
 
     return matching_routes
+
