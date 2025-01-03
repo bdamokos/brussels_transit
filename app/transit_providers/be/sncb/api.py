@@ -99,6 +99,53 @@ def get_directory_size(directory: Path) -> float:
             total_size += path.stat().st_size
     return total_size / (1024 * 1024)
 
+def _load_stop_times_cache() -> None:
+    """Load stop times from GTFS data into cache"""
+    global _stop_times_cache, _stop_times_cache_update
+
+    try:
+        gtfs_path = _get_current_gtfs_path()
+        if not gtfs_path:
+            return
+
+        stop_times_file = gtfs_path / "stop_times.txt"
+        if not stop_times_file.exists():
+            return
+
+        new_cache = {}
+        with open(stop_times_file, "r", encoding="utf-8") as f:
+            header = next(f).strip().split(",")
+            trip_id_index = header.index("trip_id")
+            stop_id_index = header.index("stop_id")
+            stop_sequence_index = header.index("stop_sequence")
+
+            for line in f:
+                fields = line.strip().split(",")
+                trip_id = fields[trip_id_index].strip('"')
+                stop_id = fields[stop_id_index].strip('"')
+                # Remove any suffix after underscore (e.g. 8814001_7 -> 8814001)
+                base_stop_id = stop_id.split("_")[0]
+
+                if trip_id not in new_cache:
+                    new_cache[trip_id] = []
+
+                new_cache[trip_id].append(
+                    {
+                        "stop_id": base_stop_id,
+                        "stop_sequence": int(fields[stop_sequence_index]),
+                    }
+                )
+
+        # Sort stops by sequence for each trip
+        for trip_id in new_cache:
+            new_cache[trip_id].sort(key=lambda x: x["stop_sequence"])
+
+        _stop_times_cache = new_cache
+        _stop_times_cache_update = datetime.now(timezone.utc)
+        logger.info(f"Updated stop times cache with {len(_stop_times_cache)} trips")
+
+    except Exception as e:
+        logger.error(f"Error loading stop times cache: {e}")
 
 def _load_trips_cache() -> None:
     """Load trip information from GTFS data into cache, including non-monitored stops with LRU caching."""
@@ -1311,50 +1358,3 @@ except RuntimeError:
 loop.run_until_complete(_ensure_caches_initialized())
 
 
-def _load_stop_times_cache() -> None:
-    """Load stop times from GTFS data into cache"""
-    global _stop_times_cache, _stop_times_cache_update
-
-    try:
-        gtfs_path = _get_current_gtfs_path()
-        if not gtfs_path:
-            return
-
-        stop_times_file = gtfs_path / "stop_times.txt"
-        if not stop_times_file.exists():
-            return
-
-        new_cache = {}
-        with open(stop_times_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            stop_id_index = header.index("stop_id")
-            stop_sequence_index = header.index("stop_sequence")
-
-            for line in f:
-                fields = line.strip().split(",")
-                trip_id = fields[trip_id_index].strip('"')
-                stop_id = fields[stop_id_index].strip('"')
-                # Remove any suffix after underscore (e.g. 8814001_7 -> 8814001)
-                base_stop_id = stop_id.split("_")[0]
-
-                if trip_id not in new_cache:
-                    new_cache[trip_id] = []
-
-                new_cache[trip_id].append(
-                    {
-                        "stop_id": base_stop_id,
-                        "stop_sequence": int(fields[stop_sequence_index]),
-                    }
-                )
-
-        # Sort stops by sequence for each trip
-        for trip_id in new_cache:
-            new_cache[trip_id].sort(key=lambda x: x["stop_sequence"])
-
-        _stop_times_cache = new_cache
-        _stop_times_cache_update = datetime.now(timezone.utc)
-        logger.info(f"Updated stop times cache with {len(_stop_times_cache)} trips")
-
-    except Exception as e:
-        logger.error(f"Error loading stop times cache: {e}")
