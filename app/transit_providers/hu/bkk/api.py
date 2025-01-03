@@ -362,14 +362,6 @@ class GTFSManager:
             return None
 
 
-# Initialize GTFSManager at module load
-try:
-    gtfs_manager = GTFSManager()
-except Exception as e:
-    logger.error(f"Failed to initialize GTFSManager: {e}")
-    gtfs_manager = None
-
-
 def _load_stop_times_cache() -> None:
     """Load scheduled stop times for monitored routes into cache"""
     global _stop_times_cache, _last_cache_update
@@ -1912,21 +1904,23 @@ async def get_line_colors(
         return {}
 
 
-# Initialize GTFSManager
-gtfs_manager = GTFSManager()
+def initialize_provider():
+    """Initialize the BKK provider's GTFSManager and caches.
+    This should only be called when the provider is enabled."""
+    global gtfs_manager
+    try:
+        gtfs_manager = GTFSManager()
+        # Initialize caches
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_ensure_caches_initialized())
+        logger.info("BKK provider initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize BKK provider: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        gtfs_manager = None
 
-
-# Initialize caches at module load
 async def _ensure_caches_initialized():
     """Ensure caches are initialized"""
     if not _caches_initialized:
         await _initialize_caches()
-
-
-# Create event loop and run initialization
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-loop.run_until_complete(_ensure_caches_initialized())

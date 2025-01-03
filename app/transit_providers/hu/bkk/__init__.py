@@ -26,6 +26,7 @@ from .api import (
     get_route_shapes,
     get_route_variants_api,
     get_line_colors,
+    initialize_provider,
 )
 
 provider_config = get_provider_config("bkk")
@@ -67,10 +68,6 @@ class BKKProvider(TransitProvider):
             f"BKK provider initialized with endpoints: {list(self.endpoints.keys())}"
         )
 
-        # Initialize caches
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(api._ensure_caches_initialized())
-
     async def get_waiting_times(self, stop_id: str) -> Dict[str, Any]:
         """Get waiting times for a stop"""
         return await get_waiting_times(stop_id)
@@ -79,6 +76,9 @@ class BKKProvider(TransitProvider):
 # Only create and register provider if it's enabled and not already registered
 if "bkk" in get_config("ENABLED_PROVIDERS", []) and "bkk" not in PROVIDERS:
     try:
+        # Initialize the provider's GTFSManager and caches first
+        initialize_provider()
+        # Then create and register the provider
         provider = BKKProvider()
         register_provider("bkk", provider)
         logger.info("BKK provider registered successfully")
