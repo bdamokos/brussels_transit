@@ -355,7 +355,8 @@ def run_comparison(data_dir: str, test_original: bool = True):
 
 if __name__ == "__main__":
     # Get data directory from environment or use default
-    data_dir = Path(os.getenv("GTFS_DATA_DIR", "/Users/bence/Developer/STIB/downloads/mdb-1859_Societe_nationale_des_chemins_de_fer_belges_NMBS_SNCB/mdb-1859-202501020029"))
+    
+    data_dir = Path(os.getenv("GTFS_DATA_DIR", "downloads/mdb-1859_Societe_nationale_des_chemins_de_fer_belges_NMBS_SNCB/mdb-1859-202501020029"))
     
     # Test both implementations by default
     run_comparison(data_dir, test_original=True) 
