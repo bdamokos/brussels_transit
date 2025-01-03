@@ -27,6 +27,23 @@ class Translation:
     translation: str
     language: str
 
+@dataclass
+class Stop:
+    """
+    Represents a stop from stops.txt
+    STIB: stop_id, stop_name, stop_lat, stop_lon, location_type, parent_station
+    Flixbus: stop_id, stop_name, stop_lat, stop_lon, stop_timezone, platform_code
+    """
+    id: str
+    name: str
+    lat: float
+    lon: float
+    translations: Dict[str, str] = field(default_factory=dict)  # language -> translated name
+    location_type: Optional[int] = None
+    parent_station: Optional[str] = None
+    platform_code: Optional[str] = None
+    timezone: Optional[str] = None
+
 def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
     """
     Load translations from translations.txt if it exists.
@@ -149,6 +166,9 @@ class ParquetGTFSLoader:
         # Initialize DuckDB connection with optimized settings
         self.db = duckdb.connect(":memory:")
         self._setup_db()
+        
+        # Initialize data structures
+        self.stops: Dict[str, Stop] = {}
     
     def _setup_db(self):
         """Set up DuckDB configuration for optimal performance."""
@@ -206,31 +226,57 @@ class ParquetGTFSLoader:
             return None
     
     def _load_stops(self) -> None:
-        """Load stops data into DuckDB."""
+        """Load stops data into DuckDB and create Stop objects."""
         parquet_path = self._csv_to_parquet('stops.txt')
         if not parquet_path:
             return
             
-        # First load all columns
+        # Load translations first
+        translations = load_translations(self.data_dir)
+        logger.info(f"Loaded translations for {len(translations)} stops")
+            
+        # Load stops with all fields
         self.db.execute(f"""
             CREATE TABLE stops AS 
             WITH raw_stops AS (
                 SELECT * FROM parquet_scan('{parquet_path}')
             )
             SELECT 
-                stop_id,
-                stop_name,
+                stop_id::VARCHAR as stop_id,
+                stop_name::VARCHAR as stop_name,
                 CAST(stop_lat AS DOUBLE) as stop_lat,
                 CAST(stop_lon AS DOUBLE) as stop_lon,
-                location_type,
-                parent_station,
-                platform_code,
-                stop_timezone
+                TRY_CAST(location_type AS INTEGER) as location_type,
+                NULLIF(parent_station, '') as parent_station,
+                NULLIF(platform_code, '') as platform_code,
+                NULLIF(stop_timezone, '') as stop_timezone
             FROM raw_stops
         """)
         
-        # Create index
+        # Create index for efficient lookups
         self.db.execute("CREATE INDEX idx_stops_id ON stops(stop_id)")
+        
+        # Load stops into memory as Stop objects
+        result = self.db.execute("""
+            SELECT * FROM stops
+        """).fetchdf()
+        
+        # Create Stop objects
+        for _, row in result.iterrows():
+            stop = Stop(
+                id=str(row['stop_id']),
+                name=row['stop_name'],
+                lat=float(row['stop_lat']),
+                lon=float(row['stop_lon']),
+                translations=translations.get(str(row['stop_id']), {}),
+                location_type=int(row['location_type']) if pd.notna(row['location_type']) else None,
+                parent_station=str(row['parent_station']) if pd.notna(row['parent_station']) else None,
+                platform_code=str(row['platform_code']) if pd.notna(row['platform_code']) else None,
+                timezone=str(row['stop_timezone']) if pd.notna(row['stop_timezone']) else None
+            )
+            self.stops[stop.id] = stop
+            
+        logger.info(f"Loaded {len(self.stops)} stops")
     
     def _load_stop_times(self) -> None:
         """Load stop times data into DuckDB using parallel processing."""

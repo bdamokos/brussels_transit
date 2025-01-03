@@ -7,11 +7,12 @@ import logging
 import time
 import psutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
-
-from .gtfs_loader import load_feed as load_feed_original
-from .gtfs_parquet import ParquetGTFSLoader
+from . import gtfs_loader
+from . import gtfs_parquet
+from .gtfs_loader import Stop
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -39,7 +40,7 @@ def test_original_implementation(data_dir: Path, start_id: str, end_id: str) -> 
     
     # Measure load time
     start_time = time.time()
-    feed = load_feed_original(data_dir)
+    feed = gtfs_loader.load_feed(data_dir)
     load_time = time.time() - start_time
     metrics['load_time'] = load_time
     
@@ -67,7 +68,7 @@ def test_parquet_implementation(data_dir: Path, start_id: str, end_id: str) -> D
     
     # Initialize loader and measure conversion time
     start_time = time.time()
-    loader = ParquetGTFSLoader(data_dir)
+    loader = gtfs_parquet.ParquetGTFSLoader(data_dir)
     loader.load_feed()
     load_time = time.time() - start_time
     metrics['load_time'] = load_time
@@ -149,65 +150,127 @@ def compare_translations(data_dir: Path) -> Dict[str, Any]:
     
     return results
 
-def run_comparison(data_dir: Path, start_id: str, end_id: str, test_original: bool = False) -> Dict[str, Any]:
-    """Run performance comparison between both implementations."""
+def compare_stops(original_stops: Dict[str, Stop], parquet_stops: Dict[str, Stop]) -> None:
+    """Compare stops between original and Parquet implementations."""
+    logger.info("\n=== Stop Loading Comparison ===")
+    
+    # Compare number of stops
+    logger.info(f"Original: {len(original_stops)} stops")
+    logger.info(f"Parquet: {len(parquet_stops)} stops")
+    
+    # Compare stop IDs
+    original_ids = set(original_stops.keys())
+    parquet_ids = set(parquet_stops.keys())
+    
+    missing_in_parquet = original_ids - parquet_ids
+    missing_in_original = parquet_ids - original_ids
+    
+    if missing_in_parquet:
+        logger.warning(f"Stops missing in Parquet: {missing_in_parquet}")
+    if missing_in_original:
+        logger.warning(f"Extra stops in Parquet: {missing_in_original}")
+        
+    # Compare stop attributes for common stops
+    common_ids = original_ids & parquet_ids
+    differences = []
+    
+    for stop_id in common_ids:
+        orig_stop = original_stops[stop_id]
+        parq_stop = parquet_stops[stop_id]
+        
+        # Compare each attribute
+        if orig_stop.name != parq_stop.name:
+            differences.append(f"Stop {stop_id}: Name mismatch - Original: {orig_stop.name}, Parquet: {parq_stop.name}")
+        if abs(orig_stop.lat - parq_stop.lat) > 1e-6:
+            differences.append(f"Stop {stop_id}: Latitude mismatch - Original: {orig_stop.lat}, Parquet: {parq_stop.lat}")
+        if abs(orig_stop.lon - parq_stop.lon) > 1e-6:
+            differences.append(f"Stop {stop_id}: Longitude mismatch - Original: {orig_stop.lon}, Parquet: {parq_stop.lon}")
+        if orig_stop.translations != parq_stop.translations:
+            differences.append(f"Stop {stop_id}: Translation mismatch - Original: {orig_stop.translations}, Parquet: {parq_stop.translations}")
+        if orig_stop.location_type != parq_stop.location_type:
+            differences.append(f"Stop {stop_id}: Location type mismatch - Original: {orig_stop.location_type}, Parquet: {parq_stop.location_type}")
+        if orig_stop.parent_station != parq_stop.parent_station:
+            differences.append(f"Stop {stop_id}: Parent station mismatch - Original: {orig_stop.parent_station}, Parquet: {parq_stop.parent_station}")
+        if orig_stop.platform_code != parq_stop.platform_code:
+            differences.append(f"Stop {stop_id}: Platform code mismatch - Original: {orig_stop.platform_code}, Parquet: {parq_stop.platform_code}")
+        if orig_stop.timezone != parq_stop.timezone:
+            differences.append(f"Stop {stop_id}: Timezone mismatch - Original: {orig_stop.timezone}, Parquet: {parq_stop.timezone}")
+    
+    if differences:
+        logger.warning("Found differences in stops:")
+        for diff in differences:
+            logger.warning(diff)
+    else:
+        logger.info("No differences found in stops")
+
+def run_comparison(data_dir: Path, test_original: bool = True) -> None:
+    """Run performance comparison between original and Parquet implementations."""
     logger.info("Starting performance comparison")
     logger.info(f"Data directory: {data_dir}")
     
-    results = {
-        'timestamp': datetime.now().isoformat(),
-        'data_dir': str(data_dir),
-        'translations': compare_translations(data_dir),
-        'test_route': {
-            'start_id': start_id,
-            'end_id': end_id
-        }
-    }
-    
-    # Log translation comparison results
-    if results['translations']['original'] and results['translations']['parquet']:
-        logger.info("\n=== Translation Loading Comparison ===")
-        logger.info(f"Original: {results['translations']['original']}")
-        logger.info(f"Parquet: {results['translations']['parquet']}")
-        if results['translations']['differences']:
-            logger.warning(f"Found differences: {results['translations']['differences']}")
-        else:
-            logger.info("No differences found in translations")
-    
-    # Test Parquet implementation first
-    logger.info("\n=== Testing Parquet Implementation ===")
-    try:
-        results['parquet'] = test_parquet_implementation(data_dir, start_id, end_id)
-        logger.info("Parquet implementation results:")
-        logger.info(f"Load time: {results['parquet']['load_time']:.2f}s")
-        logger.info(f"Search time: {results['parquet']['search_time']:.2f}s")
-        logger.info(f"Peak memory: {results['parquet']['after_load_memory']['rss']:.2f}MB")
-        logger.info(f"Routes found: {results['parquet']['num_routes_found']}")
-    except Exception as e:
-        logger.error(f"Error testing Parquet implementation: {e}")
-        results['parquet'] = {'error': str(e)}
-    
-    # Optionally test original implementation
+    # Test original implementation first
+    original_feed = None
     if test_original:
-        logger.info("\n=== Testing Original Implementation ===")
-        try:
-            results['original'] = test_original_implementation(data_dir, start_id, end_id)
-            logger.info("Original implementation results:")
-            logger.info(f"Load time: {results['original']['load_time']:.2f}s")
-            logger.info(f"Search time: {results['original']['search_time']:.2f}s")
-            logger.info(f"Peak memory: {results['original']['after_load_memory']['rss']:.2f}MB")
-            logger.info(f"Routes found: {results['original']['num_routes_found']}")
-        except Exception as e:
-            logger.error(f"Error testing original implementation: {e}")
-            results['original'] = {'error': str(e)}
+        t0 = time.time()
+        translations = gtfs_loader.load_translations(data_dir)
+        original_time = time.time() - t0
+        original_num_translations = sum(len(trans) for trans in translations.values())
+        original_num_records = len(translations)
+        logger.info(f"\n=== Translation Loading Comparison ===")
+        logger.info(f"Original: {{'time': {original_time}, 'num_translations': {original_num_translations}, 'num_records': {original_num_records}}}")
+        
+        # Load original feed
+        t0 = time.time()
+        original_feed = gtfs_loader.load_feed(data_dir)
+        original_load_time = time.time() - t0
+        logger.info(f"Original implementation load time: {original_load_time:.2f}s")
     
-    return results
+    # Test Parquet implementation
+    t0 = time.time()
+    parquet_translations = gtfs_parquet.load_translations(data_dir)
+    parquet_time = time.time() - t0
+    parquet_num_translations = sum(len(trans) for trans in parquet_translations.values())
+    parquet_num_records = len(parquet_translations)
+    logger.info(f"Parquet: {{'time': {parquet_time}, 'num_translations': {parquet_num_translations}, 'num_records': {parquet_num_records}}}")
+    
+    # Compare translations
+    if test_original and translations == parquet_translations:
+        logger.info("No differences found in translations")
+    elif test_original:
+        logger.warning("Found differences in translations")
+        # Add detailed comparison if needed
+    
+    # Test Parquet implementation for full feed loading
+    logger.info("\n=== Testing Parquet Implementation ===")
+    t0 = time.time()
+    parquet_loader = gtfs_parquet.ParquetGTFSLoader(data_dir)
+    parquet_loader.load_feed()
+    load_time = time.time() - t0
+    
+    # Test route search
+    t0 = time.time()
+    routes = parquet_loader.find_routes_between_stations("8814001", "8833001")
+    search_time = time.time() - t0
+    
+    # Get memory usage
+    process = psutil.Process()
+    peak_memory = process.memory_info().rss / (1024 * 1024)  # Convert to MB
+    
+    logger.info("Parquet implementation results:")
+    logger.info(f"Load time: {load_time:.2f}s")
+    logger.info(f"Search time: {search_time:.2f}s")
+    logger.info(f"Peak memory: {peak_memory:.2f}MB")
+    logger.info(f"Routes found: {len(routes)}")
+    
+    # Compare stops if original implementation was tested
+    if test_original and original_feed:
+        compare_stops(original_feed.stops, parquet_loader.stops)
+    
+    parquet_loader.close()
 
 if __name__ == "__main__":
-    # Example usage
-    data_dir = Path(__file__).parent.parent.parent.parent / "downloads" / "mdb-1859_Societe_nationale_des_chemins_de_fer_belges_NMBS_SNCB" / "mdb-1859-202501020029"
-    start_id = "8811304"  # Brussels-Luxembourg
-    end_id = "8811601"    # Ottignies
+    # Get data directory from environment or use default
+    data_dir = Path(os.getenv("GTFS_DATA_DIR", "/Users/bence/Developer/STIB/downloads/mdb-1859_Societe_nationale_des_chemins_de_fer_belges_NMBS_SNCB/mdb-1859-202501020029"))
     
-    # Only test Parquet implementation by default
-    results = run_comparison(data_dir, start_id, end_id, test_original=False) 
+    # Test both implementations by default
+    run_comparison(data_dir, test_original=True) 
