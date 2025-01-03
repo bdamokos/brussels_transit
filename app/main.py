@@ -11,9 +11,6 @@ import html
 import json
 from datetime import datetime, timedelta
 import pytz
-from collections import defaultdict
-from get_stop_names import get_stop_names
-from routes import get_route_data
 import asyncio
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -21,15 +18,10 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional
 from inspect import signature, Parameter
 import inspect
-from locate_vehicles import process_vehicle_positions, interpolate_position
-from validate_stops import validate_line_stops
-from locate_vehicles import process_vehicle_positions
-from collections import defaultdict
 import logging
-from utils import RateLimiter, get_client
 from flask import jsonify
-from transit_providers import PROVIDERS, get_provider_path, get_provider_from_path
-from config import get_config, get_required_config
+from transit_providers import PROVIDERS, get_provider_from_path
+from config import get_config
 from dataclasses import asdict
 import os
 from pathlib import Path
@@ -85,16 +77,10 @@ LOCATION_UPDATE_INTERVAL = get_config("LOCATION_UPDATE_INTERVAL")
 WALKING_SPEED = get_config("WALKING_SPEED")
 
 # Update API URLs
-API_CONFIG = get_config("API_CONFIG")
-API_URL = f"{API_CONFIG['STIB_API_URL']}/waiting-time-rt-production/records"
-STOPS_API_URL = f"{API_CONFIG['STIB_API_URL']}/stop-details-production/records"
-MESSAGES_API_URL = (
-    f"{API_CONFIG['STIB_API_URL']}/travellers-information-rt-production/records"
-)
+API_CONFIG = get_config("API_CONFIG", {})
 
-CACHE_DIR = get_config("CACHE_DIR")
-STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
-CACHE_DURATION = get_config("CACHE_DURATION")
+CACHE_DIR = get_config("CACHE_DIR", "cache")
+CACHE_DURATION = get_config("CACHE_DURATION", 3600)
 
 # Create cache directory if it doesn't exist
 # CACHE_DIR.mkdir(exist_ok=True)
@@ -104,8 +90,8 @@ PORT = get_config("PORT")
 # In-memory cache for service messages
 service_messages_cache = {"timestamp": None, "data": None}
 
-
-TIMEZONE = pytz.timezone(get_config("TIMEZONE"))
+local_timezone = datetime.now().astimezone().tzname()
+TIMEZONE = pytz.timezone(local_timezone)
 
 
 class APIError(Exception):
@@ -125,7 +111,7 @@ waiting_times_cache = {}
 WAITING_TIMES_CACHE_DURATION = timedelta(seconds=30)
 
 # Add these near the top with other cache variables
-ROUTES_CACHE_FILE = CACHE_DIR / "routes.json"
+ROUTES_CACHE_FILE = Path(CACHE_DIR) / "routes.json"
 
 
 # Initialize routes_cache at startup

@@ -9,7 +9,7 @@ from config import get_config
 
 # Get configuration
 API_CONFIG = get_config("API_CONFIG")
-STOPS_API_URL = API_CONFIG["STIB_STOPS_API_URL"]
+STOPS_API_URL = API_CONFIG["STIB_STOPS_API_URL", ""]
 API_KEY = get_config("STIB_API_KEY")
 CACHE_DIR = get_config("CACHE_DIR")
 STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
@@ -39,7 +39,7 @@ def load_cached_stops():
 
 
 # Load cached stops at startup
-cached_stops = load_cached_stops()
+cached_stops = load_cached_stops() if STOPS_API_URL else {}
 logger.debug(f"Loaded {len(cached_stops)} stops from cache for STIB")
 
 
