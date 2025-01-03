@@ -40,8 +40,22 @@ def run_apps():
         # Schedule Explorer frontend
         frontend_dir = Path(__file__).parent / "app" / "schedule_explorer" / "frontend"
         frontend_process = subprocess.Popen(
-            [sys.executable, "-m", "http.server", "8080", "--directory", "."],
-            cwd=frontend_dir,
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "schedule_explorer.frontend.static:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080",
+                "--workers",
+                "1",
+                "--timeout-keep-alive",
+                "30",
+            ],
+            cwd=app_dir,
+            env=env,
         )
         processes.append(("Schedule Explorer frontend (port 8080)", frontend_process))
         print("Schedule Explorer frontend started on port 8080")
@@ -60,6 +74,12 @@ def run_apps():
                 "0.0.0.0",
                 "--port",
                 "8000",
+                "--workers",
+                "2",
+                "--timeout-keep-alive",
+                "30",
+                "--lifespan",
+                "on",
             ],
             cwd=backend_dir,
             env=env,
