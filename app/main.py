@@ -40,6 +40,8 @@ from transit_providers.config import get_provider_config
 from functools import lru_cache
 import niquests as requests
 import re
+import socket
+import netifaces
 
 # Get loggers
 logger = logging.getLogger("main")
@@ -1177,14 +1179,30 @@ if __name__ == "__main__":
 
     # Add debug logging
     import socket
+    import netifaces
 
     # Get all network interfaces
     hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
+    
+    # Find the first non-loopback IPv4 address
+    network_ip = None
+    for interface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(interface)
+        if netifaces.AF_INET in addrs:  # IPv4 addresses
+            for addr in addrs[netifaces.AF_INET]:
+                ip = addr['addr']
+                if not ip.startswith('127.'):  # Skip loopback addresses
+                    network_ip = ip
+                    break
+        if network_ip:
+            break
+
+    if not network_ip:
+        network_ip = "Unable to detect network IP"
 
     print(f"\nServer Information:")
     print(f"Hostname: {hostname}")
-    print(f"Local IP: {local_ip}")
+    print(f"Network IP: {network_ip}")
 
     config.bind = [f"0.0.0.0:{PORT}"]
     config.accesslog = "-"
@@ -1192,6 +1210,6 @@ if __name__ == "__main__":
 
     print(f"\nTry accessing the server at:")
     print(f"  Local: http://127.0.0.1:{PORT}")
-    print(f"  Network: http://{local_ip}:{PORT}")
+    print(f"  Network: http://{network_ip}:{PORT}")
 
     asyncio.run(serve(app, config))
