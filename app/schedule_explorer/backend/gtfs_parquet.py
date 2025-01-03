@@ -10,11 +10,124 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
 from typing import Dict, List, Optional, Set
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import pandas as pd
 import os
 
 logger = logging.getLogger("schedule_explorer.gtfs_parquet")
+
+@dataclass
+class Translation:
+    """
+    Represents a translation from translations.txt (STIB specific)
+    trans_id/record_id, translation, lang
+    """
+    record_id: str
+    translation: str
+    language: str
+
+def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
+    """
+    Load translations from translations.txt if it exists.
+    Handles both translation formats:
+    1. Simple format: trans_id,translation,lang
+    2. Table-based format: table_name,field_name,language,translation,record_id[,record_sub_id,field_value]
+
+    Returns a dictionary mapping stop_id to a dictionary of language codes to translations.
+    """
+    translations_file = gtfs_dir / "translations.txt"
+    if not translations_file.exists():
+        logger.warning(f"No translations file found at {translations_file}")
+        return {}
+
+    translations: Dict[str, Dict[str, str]] = {}
+    
+    try:
+        # First, determine which format we're dealing with by reading the header
+        with open(translations_file, "r", encoding="utf-8") as f:
+            header = f.readline().strip().split(",")
+
+        db = duckdb.connect(":memory:")
+
+        if "table_name" in header:  # Table-based format
+            logger.info("Using table-based format for translations")
+
+            # Load translations and stops
+            db.execute(f"""
+                CREATE VIEW translations AS 
+                SELECT * FROM read_csv_auto('{translations_file}', header=true);
+                
+                CREATE VIEW stops AS 
+                SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
+            """)
+
+            # Filter for stop name translations and join with stops
+            db.execute("""
+                WITH stop_translations AS (
+                    SELECT 
+                        COALESCE(field_value, record_id) as original_name,
+                        language,
+                        translation
+                    FROM translations
+                    WHERE table_name = 'stops' 
+                    AND field_name = 'stop_name'
+                    AND translation IS NOT NULL
+                    AND language IS NOT NULL
+                ),
+                name_to_ids AS (
+                    SELECT 
+                        stop_name,
+                        stop_id::VARCHAR as stop_id
+                    FROM stops
+                )
+                SELECT 
+                    n.stop_id,
+                    t.language,
+                    t.translation
+                FROM stop_translations t
+                JOIN name_to_ids n ON t.original_name = n.stop_name;
+            """)
+            result = db.fetchdf()
+
+        else:  # Simple format
+            logger.info("Using simple format for translations")
+
+            # Load translations and stops
+            db.execute(f"""
+                CREATE VIEW translations AS 
+                SELECT * FROM read_csv_auto('{translations_file}', header=true);
+                
+                CREATE VIEW stops AS 
+                SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
+            """)
+
+            # Join translations with stops based on stop_name matching trans_id
+            db.execute("""
+                SELECT 
+                    s.stop_id::VARCHAR as stop_id,
+                    t.lang as language,
+                    t.translation
+                FROM stops s
+                JOIN translations t ON s.stop_name = t.trans_id
+                WHERE t.translation IS NOT NULL 
+                AND t.lang IS NOT NULL;
+            """)
+            result = db.fetchdf()
+
+        # Process results into the required format
+        for _, row in result.iterrows():
+            stop_id = str(row['stop_id'])
+            if stop_id not in translations:
+                translations[stop_id] = {}
+            translations[stop_id][row['language']] = row['translation']
+
+        logger.info(f"Created translations map with {len(translations)} entries")
+        return translations
+
+    except Exception as e:
+        logger.warning(f"Error loading translations: {e}")
+        return {}
 
 class ParquetGTFSLoader:
     """
