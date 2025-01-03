@@ -70,7 +70,7 @@ PROVIDER_ID_PATTERN = re.compile(r"^[a-zA-Z]+-\d+$")
 FILTER_VEHICLES = True
 
 # Get API key from environment variable
-API_KEY = get_required_config("STIB_API_KEY")
+#API_KEY = get_required_config("STIB_API_KEY")
 
 # Get provider configs
 stib_config = get_provider_config("stib")
@@ -233,10 +233,10 @@ async def index():
 
 
 # Add error handling for missing API key
-if not API_KEY:
-    raise ValueError(
-        "STIB_API_KEY not found in environment variables. Please add it to your .env file."
-    )
+# if not API_KEY:
+#     raise ValueError(
+#         "STIB_API_KEY not found in environment variables. Please add it to your .env file."
+#     )
 
 
 # Add this function near the top of your file, after creating the Flask app
