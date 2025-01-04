@@ -5,7 +5,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import asyncio
 
-from app.transit_providers.be.stib.get_stop_names import get_stop_names
 import logging
 from app.utils import RateLimiter, get_client
 from app.config import get_config
