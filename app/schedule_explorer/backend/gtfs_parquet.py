@@ -149,6 +149,77 @@ class ParquetGTFSLoader:
     Loads and manages GTFS data using Parquet files and DuckDB for efficient querying.
     """
     
+    # Column type definitions for GTFS files
+    column_types = {
+        'stop_times.txt': {
+            'trip_id': 'VARCHAR',
+            'arrival_time': 'VARCHAR',
+            'departure_time': 'VARCHAR',
+            'stop_id': 'VARCHAR',
+            'stop_sequence': 'INTEGER',
+            'stop_headsign': 'VARCHAR',
+            'pickup_type': 'INTEGER',
+            'drop_off_type': 'INTEGER',
+            'continuous_pickup': 'INTEGER',
+            'continuous_drop_off': 'INTEGER',
+            'shape_dist_traveled': 'DOUBLE',
+            'timepoint': 'INTEGER'
+        },
+        'trips.txt': {
+            'route_id': 'VARCHAR',
+            'service_id': 'VARCHAR',
+            'trip_id': 'VARCHAR',
+            'trip_headsign': 'VARCHAR',
+            'trip_short_name': 'VARCHAR',
+            'direction_id': 'INTEGER',
+            'block_id': 'VARCHAR',
+            'shape_id': 'VARCHAR',
+            'wheelchair_accessible': 'INTEGER',
+            'bikes_allowed': 'INTEGER'
+        },
+        'routes.txt': {
+            'route_id': 'VARCHAR',
+            'route_short_name': 'VARCHAR',
+            'route_long_name': 'VARCHAR',
+            'route_type': 'INTEGER',
+            'route_color': 'VARCHAR',
+            'route_text_color': 'VARCHAR',
+            'agency_id': 'VARCHAR'
+        },
+        'stops.txt': {
+            'stop_id': 'VARCHAR',
+            'stop_code': 'VARCHAR',
+            'stop_name': 'VARCHAR',
+            'stop_desc': 'VARCHAR',
+            'stop_lat': 'DOUBLE',
+            'stop_lon': 'DOUBLE',
+            'zone_id': 'VARCHAR',
+            'stop_url': 'VARCHAR',
+            'location_type': 'INTEGER',
+            'parent_station': 'VARCHAR',
+            'stop_timezone': 'VARCHAR',
+            'wheelchair_boarding': 'INTEGER',
+            'platform_code': 'VARCHAR'
+        },
+        'calendar.txt': {
+            'service_id': 'VARCHAR',
+            'monday': 'INTEGER',
+            'tuesday': 'INTEGER',
+            'wednesday': 'INTEGER',
+            'thursday': 'INTEGER',
+            'friday': 'INTEGER',
+            'saturday': 'INTEGER',
+            'sunday': 'INTEGER',
+            'start_date': 'VARCHAR',
+            'end_date': 'VARCHAR'
+        },
+        'calendar_dates.txt': {
+            'service_id': 'VARCHAR',
+            'date': 'VARCHAR',
+            'exception_type': 'INTEGER'
+        }
+    }
+    
     def __init__(self, data_dir: str | Path = None):
         """Initialize the loader with the GTFS data directory."""
         self.data_dir = Path(data_dir) if data_dir else Path.cwd()
@@ -163,12 +234,115 @@ class ParquetGTFSLoader:
         total_memory = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
         memory_limit = max(128 * 1024 * 1024, total_memory // 8)  # Use 12.5% of system memory or at least 128MB
         
-        self.db.execute(f"SET memory_limit='{memory_limit}B'")
-        self.db.execute("SET enable_progress_bar=false")
-        self.db.execute("PRAGMA threads=4")  # Limit thread usage
-        self.db.execute("PRAGMA memory_limit='1GB'")  # Hard limit
-        self.db.execute("PRAGMA temp_directory='.tmp'")  # Use temp directory for spilling
-    
+        # Create a unique temporary directory for this instance
+        temp_dir = Path(tempfile.gettempdir()) / f"duckdb_temp_{uuid.uuid4()}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Using temporary directory: {temp_dir}")
+        
+        try:
+            self.db.execute(f"SET memory_limit='{memory_limit}B'")
+            self.db.execute("SET enable_progress_bar=false")
+            self.db.execute("PRAGMA threads=4")  # Limit thread usage
+            self.db.execute("PRAGMA memory_limit='1GB'")  # Hard limit
+            self.db.execute(f"PRAGMA temp_directory='{temp_dir}'")  # Use our temp directory
+            
+            # Store the temp directory path for cleanup
+            self._temp_dir = temp_dir
+            
+        except Exception as e:
+            logger.error(f"Error setting up DuckDB: {e}", exc_info=True)
+            # Clean up if setup fails
+            try:
+                shutil.rmtree(str(temp_dir))
+            except:
+                pass
+            raise
+
+    def _validate_gtfs_data(self, csv_path: Path, filename: str) -> bool:
+        """Validate and clean GTFS data before conversion.
+        
+        Args:
+            csv_path: Path to the CSV file
+            filename: Name of the file being processed
+            
+        Returns:
+            bool: True if validation passed (or has recoverable errors), False if critical failure
+        """
+        try:
+            # Read the first few rows to check data
+            df = pd.read_csv(csv_path, nrows=5)
+            has_warnings = False
+            
+            # Check for required columns based on file type
+            required_columns = {
+                'stop_times.txt': ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'],
+                'trips.txt': ['route_id', 'service_id', 'trip_id'],
+                'routes.txt': ['route_id', 'route_type'],
+                'stops.txt': ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'],
+                'calendar.txt': ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
+                'calendar_dates.txt': ['service_id', 'date', 'exception_type']
+            }
+            
+            if filename in required_columns:
+                missing_cols = [col for col in required_columns[filename] if col not in df.columns]
+                if missing_cols:
+                    logger.error(f"Missing required columns in {filename}: {missing_cols}")
+                    return False  # This is a critical error
+            
+            # Specific validations for each file type
+            if filename == 'stop_times.txt':
+                # Check for valid time format (HH:MM:SS)
+                time_pattern = r'^([0-9]{1,2}|[0-9]{3,}):([0-5][0-9]):([0-5][0-9])$'
+                for col in ['arrival_time', 'departure_time']:
+                    invalid_times = df[~df[col].str.match(time_pattern, na=True)]
+                    if not invalid_times.empty:
+                        logger.warning(f"Invalid time format found in {col} - these rows will be ignored")
+                        has_warnings = True
+                
+                # Check for negative values in numeric columns
+                numeric_cols = ['stop_sequence', 'pickup_type', 'drop_off_type']
+                for col in numeric_cols:
+                    if col in df.columns:
+                        negative_vals = df[df[col] < 0]
+                        if not negative_vals.empty:
+                            logger.warning(f"Negative values found in {col} - these will be treated as NULL")
+                            has_warnings = True
+            
+            elif filename == 'stops.txt':
+                # Validate lat/lon ranges
+                invalid_lat = df[(df['stop_lat'] < -90) | (df['stop_lat'] > 90)]
+                invalid_lon = df[(df['stop_lon'] < -180) | (df['stop_lon'] > 180)]
+                if not invalid_lat.empty or not invalid_lon.empty:
+                    logger.warning(f"Invalid lat/lon values found in {filename} - these stops will be ignored")
+                    has_warnings = True
+            
+            elif filename == 'calendar.txt':
+                # Validate binary values for weekdays
+                weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                for day in weekdays:
+                    invalid_vals = df[~df[day].isin([0, 1])]
+                    if not invalid_vals.empty:
+                        logger.warning(f"Invalid values found in {day} column - non-binary values will be treated as 0")
+                        has_warnings = True
+                
+                # Validate date format (YYYYMMDD)
+                date_pattern = r'^[0-9]{8}$'
+                for col in ['start_date', 'end_date']:
+                    invalid_dates = df[~df[col].astype(str).str.match(date_pattern, na=True)]
+                    if not invalid_dates.empty:
+                        logger.warning(f"Invalid date format found in {col} - these rows will be ignored")
+                        has_warnings = True
+            
+            if has_warnings:
+                logger.warning(f"Validation completed for {filename} with warnings - proceeding with data loading")
+            else:
+                logger.info(f"Validation completed for {filename} successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating {filename}: {e}")
+            return False
+
     def _csv_to_parquet(self, filename: str) -> Optional[Path]:
         """Convert a CSV file to Parquet format using DuckDB."""
         csv_path = self.data_dir / filename
@@ -178,216 +352,31 @@ class ParquetGTFSLoader:
         
         try:
             # Validate data before conversion
-            if filename == 'stop_times.txt':
-                df = pd.read_csv(csv_path)
-                negative_rows = df[(df[['stop_sequence', 'pickup_type', 'drop_off_type']] < 0).any(axis=1)]
-                if not negative_rows.empty:
-                    logger.warning(f"Negative values found in {filename}. Skipping {len(negative_rows)} rows.")
-                    df = df.drop(negative_rows.index)
-                    df.to_csv(csv_path, index=False)
+            if not self._validate_gtfs_data(csv_path, filename):
+                logger.error(f"Validation failed for {filename}")
+                return None
 
-            # Create a unique temporary directory for this process
-            temp_dir = Path(tempfile.gettempdir()) / f"gtfs_parquet_{uuid.uuid4()}"
-            temp_dir.mkdir(exist_ok=True)
+            # Create a subdirectory in our temp directory for this file
+            file_temp_dir = self._temp_dir / f"parquet_{uuid.uuid4()}"
+            file_temp_dir.mkdir(parents=True, exist_ok=True)
             
             # Use the temporary directory for the parquet file
-            parquet_path = temp_dir / f"{filename}.parquet"
-            
-            # Define column types based on the file
-            column_types = {
-                'stop_times.txt': {
-                    'trip_id': 'VARCHAR',
-                    'arrival_time': 'VARCHAR',  # Handle times > 24:00:00
-                    'departure_time': 'VARCHAR',  # Handle times > 24:00:00
-                    'stop_id': 'VARCHAR',
-                    'stop_sequence': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'stop_headsign': 'VARCHAR',
-                    'pickup_type': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'drop_off_type': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'continuous_pickup': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'continuous_drop_off': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'shape_dist_traveled': 'DOUBLE',
-                    'timepoint': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'start_service_area_id': 'VARCHAR',
-                    'end_service_area_id': 'VARCHAR',
-                    'start_service_area_radius': 'DOUBLE',
-                    'end_service_area_radius': 'DOUBLE',
-                    'pickup_area_id': 'VARCHAR',
-                    'drop_off_area_id': 'VARCHAR',
-                    'pickup_service_area_radius': 'DOUBLE',
-                    'drop_off_service_area_radius': 'DOUBLE'
-                },
-                'trips.txt': {
-                    'route_id': 'VARCHAR',
-                    'service_id': 'VARCHAR',
-                    'trip_id': 'VARCHAR',
-                    'trip_headsign': 'VARCHAR',
-                    'trip_short_name': 'VARCHAR',
-                    'direction_id': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'block_id': 'VARCHAR',
-                    'shape_id': 'VARCHAR',
-                    'wheelchair_accessible': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'bikes_allowed': 'BIGINT'  # Changed from INTEGER to BIGINT
-                },
-                'routes.txt': {
-                    'agency_id': 'VARCHAR',
-                    'route_id': 'VARCHAR',
-                    'route_short_name': 'VARCHAR',
-                    'route_long_name': 'VARCHAR',
-                    'route_type': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'route_desc': 'VARCHAR',
-                    'route_color': 'VARCHAR',
-                    'route_text_color': 'VARCHAR',
-                    'route_sort_order': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'route_url': 'VARCHAR',
-                    'continuous_pickup': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'continuous_drop_off': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'network_id': 'VARCHAR'
-                },
-                'shapes.txt': {
-                    'shape_id': 'VARCHAR',
-                    'shape_pt_lat': 'DOUBLE',
-                    'shape_pt_lon': 'DOUBLE',
-                    'shape_pt_sequence': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'shape_dist_traveled': 'DOUBLE'
-                },
-                'stops.txt': {
-                    'stop_id': 'VARCHAR',
-                    'stop_code': 'VARCHAR',
-                    'stop_name': 'VARCHAR',
-                    'stop_desc': 'VARCHAR',
-                    'stop_lat': 'DOUBLE',
-                    'stop_lon': 'DOUBLE',
-                    'zone_id': 'VARCHAR',
-                    'stop_url': 'VARCHAR',
-                    'location_type': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'parent_station': 'VARCHAR',
-                    'stop_timezone': 'VARCHAR',
-                    'wheelchair_boarding': 'INTEGER',
-                    'level_id': 'VARCHAR',
-                    'platform_code': 'VARCHAR',
-                    'entrance_restriction': 'INTEGER',
-                    'exit_restriction': 'INTEGER',
-                    'entry_doors': 'VARCHAR',
-                    'exit_doors': 'VARCHAR',
-                    'signposted_as': 'VARCHAR',
-                    'tts_stop_name': 'VARCHAR'
-                },
-                'calendar.txt': {
-                    'service_id': 'VARCHAR',
-                    'monday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'tuesday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'wednesday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'thursday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'friday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'saturday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'sunday': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'start_date': 'VARCHAR',
-                    'end_date': 'VARCHAR'
-                },
-                'calendar_dates.txt': {
-                    'service_id': 'VARCHAR',
-                    'date': 'VARCHAR',
-                    'exception_type': 'BIGINT'  # Changed from INTEGER to BIGINT
-                },
-                'fare_attributes.txt': {
-                    'fare_id': 'VARCHAR',
-                    'price': 'DOUBLE',
-                    'currency_type': 'VARCHAR',
-                    'payment_method': 'INTEGER',
-                    'transfers': 'INTEGER',
-                    'agency_id': 'VARCHAR',
-                    'transfer_duration': 'INTEGER'
-                },
-                'fare_rules.txt': {
-                    'fare_id': 'VARCHAR',
-                    'route_id': 'VARCHAR',
-                    'origin_id': 'VARCHAR',
-                    'destination_id': 'VARCHAR',
-                    'contains_id': 'VARCHAR'
-                },
-                'frequencies.txt': {
-                    'trip_id': 'VARCHAR',
-                    'start_time': 'VARCHAR',
-                    'end_time': 'VARCHAR',
-                    'headway_secs': 'INTEGER',
-                    'exact_times': 'INTEGER'
-                },
-                'transfers.txt': {
-                    'from_stop_id': 'VARCHAR',
-                    'to_stop_id': 'VARCHAR',
-                    'transfer_type': 'INTEGER',
-                    'min_transfer_time': 'INTEGER',
-                    'from_route_id': 'VARCHAR',
-                    'to_route_id': 'VARCHAR',
-                    'from_trip_id': 'VARCHAR',
-                    'to_trip_id': 'VARCHAR'
-                },
-                'pathways.txt': {
-                    'pathway_id': 'VARCHAR',
-                    'from_stop_id': 'VARCHAR',
-                    'to_stop_id': 'VARCHAR',
-                    'pathway_mode': 'INTEGER',
-                    'is_bidirectional': 'INTEGER',
-                    'length': 'DOUBLE',
-                    'traversal_time': 'INTEGER',
-                    'stair_count': 'INTEGER',
-                    'max_slope': 'DOUBLE',
-                    'min_width': 'DOUBLE',
-                    'signposted_as': 'VARCHAR',
-                    'reversed_signposted_as': 'VARCHAR',
-                    'entrance_restriction': 'INTEGER',
-                    'exit_restriction': 'INTEGER'
-                },
-                'levels.txt': {
-                    'level_id': 'VARCHAR',
-                    'level_index': 'DOUBLE',
-                    'level_name': 'VARCHAR'
-                },
-                'feed_info.txt': {
-                    'feed_publisher_name': 'VARCHAR',
-                    'feed_publisher_url': 'VARCHAR',
-                    'feed_lang': 'VARCHAR',
-                    'default_lang': 'VARCHAR',
-                    'feed_start_date': 'VARCHAR',
-                    'feed_end_date': 'VARCHAR',
-                    'feed_version': 'VARCHAR',
-                    'feed_contact_email': 'VARCHAR',
-                    'feed_contact_url': 'VARCHAR'
-                },
-                'translations.txt': {
-                    'table_name': 'VARCHAR',
-                    'field_name': 'VARCHAR',
-                    'language': 'VARCHAR',
-                    'translation': 'VARCHAR',
-                    'record_id': 'VARCHAR',
-                    'record_sub_id': 'VARCHAR',
-                    'field_value': 'VARCHAR'
-                },
-                'attributions.txt': {
-                    'attribution_id': 'VARCHAR',
-                    'agency_id': 'VARCHAR',
-                    'route_id': 'VARCHAR',
-                    'trip_id': 'VARCHAR',
-                    'organization_name': 'VARCHAR',
-                    'is_producer': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'is_operator': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'is_authority': 'BIGINT',  # Changed from INTEGER to BIGINT
-                    'attribution_url': 'VARCHAR',
-                    'attribution_email': 'VARCHAR',
-                    'attribution_phone': 'VARCHAR'
-                }
-            }
-            
-            # Get column types for this file
-            types = column_types.get(filename, {})
-            if not types:
-                logger.warning(f"No type definitions for {filename}, using auto-detection")
+            parquet_path = file_temp_dir / f"{filename}.parquet"
             
             # First read the header to get actual columns
             with open(csv_path, 'r', encoding='utf-8') as f:
                 header = f.readline().strip().split(',')
                 header = [col.strip('"') for col in header]  # Remove quotes if present
+
+            # Create a new connection for each file to avoid state issues
+            db = duckdb.connect(":memory:")
+            db.execute("SET enable_progress_bar=false")
+            db.execute("PRAGMA threads=4")
+            db.execute("PRAGMA memory_limit='1GB'")
+            db.execute(f"PRAGMA temp_directory='{self._temp_dir}'")  # Use our temp directory
+
+            # Get column types for this file
+            types = self.column_types.get(filename, {})
             
             # Filter type specs to only include columns that exist in the file
             type_specs = []
@@ -395,59 +384,72 @@ class ParquetGTFSLoader:
                 col_type = types.get(col, 'VARCHAR')  # Default to VARCHAR if type not specified
                 type_specs.append(f"{col} {col_type}")
             
-            # Create a temporary table from the CSV with explicit types
+            # Create a temporary table with explicit types
             table_name = f"temp_{filename.replace('.', '_')}"
             
-            if type_specs:
-                # Create table with explicit types
-                self.db.execute(f"""
-                    CREATE TABLE {table_name} (
-                        {', '.join(type_specs)}
-                    )
-                """)
-                
-                # Load data with COPY
-                self.db.execute(f"""
+            # Create table with explicit types
+            create_table_sql = f"""
+                CREATE TABLE {table_name} (
+                    {', '.join(type_specs)}
+                )
+            """
+            db.execute(create_table_sql)
+            
+            # Load data with COPY, handling invalid data
+            try:
+                db.execute(f"""
                     COPY {table_name} FROM '{csv_path}' (
                         AUTO_DETECT FALSE,
                         HEADER TRUE,
                         DELIMITER ',',
-                        QUOTE '"'
+                        QUOTE '"',
+                        IGNORE_ERRORS TRUE
                     )
                 """)
-            else:
-                # Fallback to auto-detection for files without type definitions
-                self.db.execute(f"""
-                CREATE TABLE {table_name} AS 
-                    SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=-1)
+            except Exception as e:
+                logger.warning(f"Error during COPY operation for {filename}: {e}")
+                # Try to load with auto-detection as fallback
+                db.execute(f"DROP TABLE IF EXISTS {table_name}")
+                db.execute(f"""
+                    CREATE TABLE {table_name} AS 
+                    SELECT * FROM read_csv_auto(
+                        '{csv_path}',
+                        header=true,
+                        sample_size=-1,
+                        ignore_errors=true
+                    )
+                """)
+            
+            # Write to Parquet using DuckDB's COPY command with compression
+            db.execute(f"""
+                COPY {table_name} TO '{parquet_path}' (
+                    FORMAT 'parquet',
+                    COMPRESSION 'SNAPPY'
+                )
             """)
             
-            # Write to Parquet using DuckDB's COPY command
-            self.db.execute(f"""
-                COPY {table_name} TO '{parquet_path}' (FORMAT 'parquet', COMPRESSION 'SNAPPY')
-            """)
-            
-            # Drop temporary table
-            self.db.execute(f"DROP TABLE {table_name}")
+            # Drop temporary table and close connection
+            db.execute(f"DROP TABLE {table_name}")
+            db.close()
             
             # Move the file to its final destination
             final_path = self.data_dir / f"{filename}.parquet"
             shutil.move(str(parquet_path), str(final_path))
             
-            # Clean up temporary directory
-            temp_dir.rmdir()
-            
             return final_path
+            
         except Exception as e:
-            logger.error(f"Error converting {filename} to Parquet: {e}")
+            logger.error(f"Error converting {filename} to Parquet: {e}", exc_info=True)
             return None
         finally:
-            # Ensure cleanup of temporary resources
+            # Clean up temporary resources
             try:
-                if 'temp_dir' in locals() and temp_dir.exists():
-                    shutil.rmtree(str(temp_dir))
+                if 'file_temp_dir' in locals() and file_temp_dir.exists():
+                    shutil.rmtree(str(file_temp_dir))
+                if 'db' in locals():
+                    db.close()
             except Exception as cleanup_error:
-                logger.warning(f"Error cleaning up temporary directory: {cleanup_error}")
+                logger.warning(f"Error cleaning up temporary resources: {cleanup_error}")
     
     def _load_stops(self) -> None:
         """Load stops from stops.txt into memory."""
@@ -515,40 +517,49 @@ class ParquetGTFSLoader:
         # Use multiple threads but limit based on available memory
         num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
         logger.info(f"Loading stop times with {num_threads} threads")
+        
+        try:
+            # Drop existing table and indices if they exist
+            self.db.execute("DROP TABLE IF EXISTS stop_times")
+            self.db.execute("DROP INDEX IF EXISTS idx_stop_times_trip_stop")
+            self.db.execute("DROP INDEX IF EXISTS idx_stop_times_stop_seq")
             
-        self.db.execute(f"""
-            CREATE TABLE stop_times AS 
-            SELECT 
-                trip_id,
-                arrival_time,
-                departure_time,
-                stop_id,
-                CAST(stop_sequence AS INTEGER) as stop_sequence
-            FROM parquet_scan('{parquet_path}')
-            /*+ PARALLEL({num_threads}) */
-        """)
-        
-        # Log table info
-        count = self.db.execute("SELECT COUNT(*) FROM stop_times").fetchone()[0]
-        logger.info(f"Loaded {count} stop times")
-        
-        # Sample some data
-        sample = self.db.execute("SELECT * FROM stop_times LIMIT 5").fetchdf()
-        logger.info("Sample stop times:")
-        for _, row in sample.iterrows():
-            logger.info(f"  Trip {row['trip_id']}: Stop {row['stop_id']} at {row['arrival_time']}")
-        
-        # Create optimized indices for route search
-        logger.info("Creating indices...")
-        self.db.execute(f"""
-            CREATE INDEX idx_stop_times_trip_stop ON stop_times(trip_id, stop_id)
-            /*+ PARALLEL({num_threads}) */
-        """)
-        self.db.execute(f"""
-            CREATE INDEX idx_stop_times_stop_seq ON stop_times(stop_id, stop_sequence)
-            /*+ PARALLEL({num_threads}) */
-        """)
-        logger.info("Stop times loading complete")
+            # Create stop_times table
+            self.db.execute(f"""
+                CREATE TABLE stop_times AS 
+                SELECT 
+                    trip_id,
+                    arrival_time,
+                    departure_time,
+                    stop_id,
+                    CAST(stop_sequence AS INTEGER) as stop_sequence
+                FROM parquet_scan('{parquet_path}')
+                /*+ PARALLEL({num_threads}) */
+            """)
+            
+            # Log table info
+            count = self.db.execute("SELECT COUNT(*) FROM stop_times").fetchone()[0]
+            logger.info(f"Loaded {count} stop times")
+            
+            # Create optimized indices for route search
+            logger.info("Creating indices...")
+            self.db.execute(f"""
+                CREATE INDEX idx_stop_times_trip_stop ON stop_times(trip_id, stop_id)
+                /*+ PARALLEL({num_threads}) */
+            """)
+            self.db.execute(f"""
+                CREATE INDEX idx_stop_times_stop_seq ON stop_times(stop_id, stop_sequence)
+                /*+ PARALLEL({num_threads}) */
+            """)
+            logger.info("Stop times loading complete")
+            
+        except Exception as e:
+            logger.error(f"Error loading stop times: {e}", exc_info=True)
+            # Try to clean up if something went wrong
+            self.db.execute("DROP TABLE IF EXISTS stop_times")
+            self.db.execute("DROP INDEX IF EXISTS idx_stop_times_trip_stop")
+            self.db.execute("DROP INDEX IF EXISTS idx_stop_times_stop_seq")
+            raise  # Re-raise the exception to be handled by the caller
     
     def _load_trips(self) -> None:
         """Load trips data into DuckDB."""
@@ -562,22 +573,22 @@ class ParquetGTFSLoader:
         try:
             # First try with all optional fields
             self.db.execute(f"""
-            CREATE TABLE trips AS 
+            CREATE TABLE IF NOT EXISTS trips AS 
             SELECT 
                 route_id,
                 service_id,
                 trip_id,
-                    COALESCE(trip_headsign, NULL) as trip_headsign,
-                    COALESCE(direction_id, '0') as direction_id,
-                    COALESCE(block_id, NULL) as block_id,
-                    COALESCE(shape_id, NULL) as shape_id
-                FROM parquet_scan('{parquet_path}')
+                COALESCE(trip_headsign, NULL) as trip_headsign,
+                COALESCE(direction_id, '0') as direction_id,
+                COALESCE(block_id, NULL) as block_id,
+                COALESCE(shape_id, NULL) as shape_id
+            FROM parquet_scan('{parquet_path}')
             """)
         except Exception as e:
             logger.debug(f"Failed to create trips table with all fields: {e}")
             # If that fails, try with only required fields
             self.db.execute(f"""
-                CREATE TABLE trips AS 
+                CREATE TABLE IF NOT EXISTS trips AS 
                 SELECT 
                     route_id,
                     service_id,
@@ -589,22 +600,14 @@ class ParquetGTFSLoader:
             """)
             # Add missing optional columns with NULL values
             self.db.execute("""
-                ALTER TABLE trips ADD COLUMN block_id VARCHAR
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS block_id VARCHAR
             """)
             
-        # Get some sample trips for logging
-        sample_trips = self.db.execute("""
-            SELECT trip_id, route_id, service_id
-            FROM trips
-            LIMIT 5
-        """).fetchdf()
-        
-        logger.info(f"Loaded {len(self.db.execute('SELECT * FROM trips').fetchdf())} trips")
-        logger.info("Sample trips:")
-        for _, row in sample_trips.iterrows():
-            logger.info(f"  Trip {row['trip_id']}: Route {row['route_id']}, Service {row['service_id']}")
-            
+        # Create indices
         logger.info("Creating indices...")
+        self.db.execute("DROP INDEX IF EXISTS trips_trip_id_idx")
+        self.db.execute("DROP INDEX IF EXISTS trips_route_id_idx")
+        self.db.execute("DROP INDEX IF EXISTS trips_service_id_idx")
         self.db.execute("""
             CREATE INDEX trips_trip_id_idx ON trips(trip_id);
             CREATE INDEX trips_route_id_idx ON trips(route_id);
@@ -678,30 +681,21 @@ class ParquetGTFSLoader:
         logger.info("Loading routes table...")
         # Create routes table
         self.db.execute(f"""
-            CREATE TABLE routes AS 
+            CREATE TABLE IF NOT EXISTS routes AS 
             SELECT 
                 route_id,
-                route_short_name,
-                route_long_name,
+                COALESCE(route_short_name, '') as route_short_name,
+                COALESCE(route_long_name, '') as route_long_name,
                 route_type,
-                route_color,
-                route_text_color,
-                agency_id
+                COALESCE(route_color, '') as route_color,
+                COALESCE(route_text_color, '') as route_text_color,
+                COALESCE(agency_id, NULL) as agency_id
             FROM parquet_scan('{parquet_path}')
         """)
         
-        # Log table info
-        count = self.db.execute("SELECT COUNT(*) FROM routes").fetchone()[0]
-        logger.info(f"Loaded {count} routes")
-        
-        # Sample some data
-        sample = self.db.execute("SELECT * FROM routes LIMIT 5").fetchdf()
-        logger.info("Sample routes:")
-        for _, row in sample.iterrows():
-            logger.info(f"  Route {row['route_id']}: {row['route_long_name'] or row['route_short_name']}")
-        
         # Create index
         logger.info("Creating route index...")
+        self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
         self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
         
         # Load shapes
@@ -908,18 +902,27 @@ class ParquetGTFSLoader:
         logger.info("Loading GTFS feed into DuckDB...")
         
         try:
-            # Load translations first
+            # Set up DuckDB configuration first
+            self._setup_db()
+
+            # Load translations first (doesn't require DuckDB)
             self.translations = load_translations(self.data_dir)
             
-            # Load all components
-            self._setup_db()  # Set up DuckDB configuration
-            self._load_stops()
-            self._load_stop_times()
-            self._load_trips()
-            self._load_calendar()
+            # Load all components in correct order
+            logger.info("Loading stops...")
+            self._load_stops()  # Creates stops table and populates self.stops dictionary
             
-            # Load routes
-            routes = self._load_routes()
+            logger.info("Loading stop_times...")
+            self._load_stop_times()  # Creates stop_times table
+            
+            logger.info("Loading trips...")
+            self._load_trips()  # Creates trips table
+            
+            logger.info("Loading calendar...")
+            self._load_calendar()  # Creates calendar and calendar_dates tables
+            
+            logger.info("Loading routes...")
+            routes = self._load_routes()  # Uses all previous tables
             
             # Get calendars and calendar dates
             calendars = self._get_calendars()
@@ -934,132 +937,247 @@ class ParquetGTFSLoader:
                 calendar_dates=calendar_dates
             )
         except Exception as e:
-            logger.error(f"Error loading GTFS feed: {e}")
+            logger.error(f"Error loading GTFS feed: {e}", exc_info=True)
             return None
+        finally:
+            # Clean up any temporary tables
+            try:
+                self.db.execute("DROP TABLE IF EXISTS temp_stops")
+                self.db.execute("DROP TABLE IF EXISTS temp_trips")
+                self.db.execute("DROP TABLE IF EXISTS temp_routes")
+            except:
+                pass
     
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Dict]:
         """Find all routes between two stations."""
-        query = """
-        WITH RECURSIVE 
-        stop_pairs AS (
-            -- Find all possible stop time pairs for the stations
-            SELECT 
-                st1.trip_id,
-                st1.stop_sequence as start_seq,
-                st2.stop_sequence as end_seq,
-                st1.departure_time as start_time,
-                st2.arrival_time as end_time
-            FROM stop_times st1
-            JOIN stop_times st2 ON st1.trip_id = st2.trip_id 
-                AND st1.stop_sequence < st2.stop_sequence
-            WHERE st1.stop_id = ?
-                AND st2.stop_id = ?
-        ),
-        valid_trips AS (
-            -- Get valid trips with their route info
-            SELECT DISTINCT 
-                sp.trip_id,
-                t.route_id,
-                sp.start_seq,
-                sp.end_seq,
-                sp.start_time,
-                sp.end_time
-            FROM stop_pairs sp
-            JOIN trips t ON t.trip_id = sp.trip_id
-        ),
-        route_stops AS (
-            -- Get all intermediate stops for valid trips
-            SELECT 
-                vt.trip_id,
-                vt.route_id,
-                st.stop_sequence,
-                st.stop_id,
-                st.arrival_time,
-                st.departure_time
-            FROM valid_trips vt
-            JOIN stop_times st ON st.trip_id = vt.trip_id
-                AND st.stop_sequence BETWEEN vt.start_seq AND vt.end_seq
-        ),
-        route_details AS (
-            -- Combine with route and stop information
-            SELECT 
-                r.route_id,
-                r.route_short_name,
-                r.route_long_name,
-                t.trip_id,
-                t.trip_headsign,
-                rs.stop_sequence,
-                rs.stop_id,
-                s.stop_name,
-                s.stop_lat,
-                s.stop_lon,
-                rs.arrival_time,
-                rs.departure_time
-            FROM route_stops rs
-            JOIN trips t ON t.trip_id = rs.trip_id
-            JOIN routes r ON r.route_id = rs.route_id
-            JOIN stops s ON s.stop_id = rs.stop_id
-        )
-        SELECT * FROM route_details
-        ORDER BY trip_id, stop_sequence
-        """
-        
+        if not start_id or not end_id:
+            logger.warning("Invalid station IDs provided")
+            return []
+
+        if start_id not in self.stops:
+            logger.warning(f"Start station not found: {start_id}")
+            return []
+            
+        if end_id not in self.stops:
+            logger.warning(f"End station not found: {end_id}")
+            return []
+
         try:
-            result = self.db.execute(query, [start_id, end_id]).fetchdf()
-            return self._process_route_results(result)
+            logger.info(f"Searching for routes between stations {start_id} and {end_id}")
+            
+            # First check if the tables exist
+            tables_exist = self.db.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'stop_times'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'trips'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'routes'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'stops'
+                )
+            """).fetchone()[0]
+            
+            if not tables_exist:
+                logger.error("Required tables do not exist. Make sure the GTFS feed is loaded properly.")
+                return []
+
+            query = """
+            WITH RECURSIVE 
+            stop_pairs AS (
+                -- Find all possible stop time pairs for the stations
+                SELECT 
+                    st1.trip_id,
+                    st1.stop_sequence as start_seq,
+                    st2.stop_sequence as end_seq,
+                    st1.departure_time as start_time,
+                    st2.arrival_time as end_time
+                FROM stop_times st1
+                JOIN stop_times st2 ON st1.trip_id = st2.trip_id 
+                    AND st1.stop_sequence < st2.stop_sequence
+                WHERE st1.stop_id = ?
+                    AND st2.stop_id = ?
+            ),
+            valid_trips AS (
+                -- Get valid trips with their route info
+                SELECT DISTINCT 
+                    sp.trip_id,
+                    t.route_id,
+                    sp.start_seq,
+                    sp.end_seq,
+                    sp.start_time,
+                    sp.end_time
+                FROM stop_pairs sp
+                JOIN trips t ON t.trip_id = sp.trip_id
+            ),
+            route_stops AS (
+                -- Get all intermediate stops for valid trips
+                SELECT 
+                    vt.trip_id,
+                    vt.route_id,
+                    st.stop_sequence,
+                    st.stop_id,
+                    st.arrival_time,
+                    st.departure_time
+                FROM valid_trips vt
+                JOIN stop_times st ON st.trip_id = vt.trip_id
+                    AND st.stop_sequence BETWEEN vt.start_seq AND vt.end_seq
+            ),
+            route_details AS (
+                -- Combine with route and stop information
+                SELECT 
+                    r.route_id,
+                    COALESCE(r.route_short_name, '') as route_short_name,
+                    COALESCE(r.route_long_name, '') as route_long_name,
+                    t.trip_id,
+                    COALESCE(t.trip_headsign, '') as trip_headsign,
+                    rs.stop_sequence,
+                    rs.stop_id,
+                    s.stop_name,
+                    s.stop_lat,
+                    s.stop_lon,
+                    rs.arrival_time,
+                    rs.departure_time
+                FROM route_stops rs
+                JOIN trips t ON t.trip_id = rs.trip_id
+                JOIN routes r ON r.route_id = rs.route_id
+                JOIN stops s ON s.stop_id = rs.stop_id
+            )
+            SELECT * FROM route_details
+            ORDER BY trip_id, stop_sequence
+            """
+            
+            result = self.db.execute(query, [start_id, end_id])
+            if result is None:
+                logger.warning("Query returned None result")
+                return []
+                
+            df = result.fetchdf()
+            if df is None:
+                logger.warning("Failed to fetch results as DataFrame")
+                return []
+                
+            if df.empty:
+                logger.info(f"No routes found between stations {start_id} and {end_id}")
+                return []
+                
+            # Log some statistics about the results
+            trip_count = len(df['trip_id'].unique())
+            route_count = len(df['route_id'].unique())
+            logger.info(f"Found {trip_count} trips on {route_count} routes between stations")
+                
+            return self._process_route_results(df)
+            
         except Exception as e:
-            logger.error(f"Error finding routes between stations: {e}")
+            logger.error(f"Error finding routes between stations: {e}", exc_info=True)
             return []
     
     def _process_route_results(self, df: pd.DataFrame) -> List[Dict]:
         """Process the route search results into a structured format."""
-        if df.empty:
+        if df is None or df.empty:
+            logger.warning("No route results to process")
             return []
             
         routes = []
-        for trip_id in df['trip_id'].unique():
-            trip_df = df[df['trip_id'] == trip_id].copy()
-            
-            # Ensure stops are in sequence
-            trip_df.sort_values('stop_sequence', inplace=True)
-            
-            route = {
-                'route_id': trip_df['route_id'].iloc[0],
-                'route_name': trip_df['route_long_name'].iloc[0] or trip_df['route_short_name'].iloc[0],
-                'trip_id': trip_id,
-                'headsign': trip_df['trip_headsign'].iloc[0],
-                'stops': []
-            }
-            
-            for _, row in trip_df.iterrows():
-                # Create Stop object
-                stop = Stop(
-                    id=row['stop_id'],
-                    name=row['stop_name'],
-                    lat=float(row['stop_lat']),
-                    lon=float(row['stop_lon']),
-                    translations=self.stops[row['stop_id']].translations if row['stop_id'] in self.stops else {}
-                )
+        try:
+            # Get unique trip IDs and process each trip
+            trip_ids = df['trip_id'].unique()
+            if trip_ids is None or len(trip_ids) == 0:
+                logger.warning("No valid trips found in results")
+                return []
                 
-                # Create RouteStop object
-                route_stop = RouteStop(
-                    stop=stop,
-                    arrival_time=row['arrival_time'],
-                    departure_time=row['departure_time'],
-                    stop_sequence=int(row['stop_sequence'])
-                )
+            for trip_id in trip_ids:
+                if pd.isna(trip_id):
+                    logger.debug(f"Skipping invalid trip ID: {trip_id}")
+                    continue
+                    
+                trip_df = df[df['trip_id'] == trip_id].copy()
+                if trip_df.empty:
+                    logger.debug(f"No data found for trip {trip_id}")
+                    continue
                 
-                route['stops'].append(route_stop)
+                # Ensure stops are in sequence
+                trip_df.sort_values('stop_sequence', inplace=True)
+                
+                # Get route info, with fallbacks for missing data
+                try:
+                    route = {
+                        'route_id': str(trip_df['route_id'].iloc[0]),
+                        'route_name': (
+                            str(trip_df['route_long_name'].iloc[0]) if not pd.isna(trip_df['route_long_name'].iloc[0]) else
+                            str(trip_df['route_short_name'].iloc[0]) if not pd.isna(trip_df['route_short_name'].iloc[0]) else
+                            f"Route {str(trip_df['route_id'].iloc[0])}"
+                        ),
+                        'trip_id': str(trip_id),
+                        'headsign': str(trip_df['trip_headsign'].iloc[0]) if not pd.isna(trip_df['trip_headsign'].iloc[0]) else None,
+                        'stops': []
+                    }
+                except Exception as e:
+                    logger.error(f"Error creating route info for trip {trip_id}: {e}", exc_info=True)
+                    continue
+                
+                valid_stops = []  # Collect valid stops first
+                for _, row in trip_df.iterrows():
+                    try:
+                        stop_id = str(row['stop_id'])
+                        if pd.isna(stop_id) or stop_id not in self.stops:
+                            logger.warning(f"Invalid stop ID {stop_id} for trip {trip_id}")
+                            continue
+                            
+                        # Create Stop object
+                        stop = Stop(
+                            id=stop_id,
+                            name=str(row['stop_name']),
+                            lat=float(row['stop_lat']),
+                            lon=float(row['stop_lon']),
+                            translations=self.stops[stop_id].translations if stop_id in self.stops else {}
+                        )
+                        
+                        # Create RouteStop object
+                        route_stop = RouteStop(
+                            stop=stop,
+                            arrival_time=str(row['arrival_time']),
+                            departure_time=str(row['departure_time']),
+                            stop_sequence=int(row['stop_sequence'])
+                        )
+                        
+                        valid_stops.append(route_stop)
+                    except Exception as e:
+                        logger.error(f"Error processing stop for trip {trip_id}: {e}", exc_info=True)
+                        continue
+                
+                if len(valid_stops) >= 2:  # Only add routes with at least 2 stops
+                    route['stops'] = valid_stops
+                    routes.append(route)
+                else:
+                    logger.warning(f"Trip {trip_id} has fewer than 2 valid stops, skipping")
             
-            routes.append(route)
-        
-        return routes
+            if not routes:
+                logger.warning("No valid routes found after processing")
+            else:
+                logger.info(f"Found {len(routes)} valid routes")
+                
+            return routes
+            
+        except Exception as e:
+            logger.error(f"Error processing route results: {e}", exc_info=True)
+            return []
     
     def close(self):
-        """Close the DuckDB connection."""
-        if self.db:
-            self.db.close()
-            self.db = None 
+        """Close the DuckDB connection and clean up temporary files."""
+        try:
+            if self.db:
+                self.db.close()
+                self.db = None
+        finally:
+            # Clean up temporary directory
+            if hasattr(self, '_temp_dir') and self._temp_dir.exists():
+                try:
+                    shutil.rmtree(str(self._temp_dir))
+                    logger.debug(f"Cleaned up temporary directory: {self._temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory: {e}")
+                self._temp_dir = None
     
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
         """Get the service days for a set of service IDs."""

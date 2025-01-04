@@ -1141,33 +1141,64 @@ async def get_destinations(
 
         # Find all routes that start from this station
         destinations = set()
+        if not feed.routes:
+            logger.warning("No routes found in feed")
+            return []
+            
         for route in feed.routes:
-            # Get all stops in this route
-            stops = route.get_stops_between(station_id, None)
-
-            # If this station is in the route
-            if stops and stops[0].stop.id == station_id:
-                # Add all subsequent stops as potential destinations
-                for stop in stops[1:]:
-                    destinations.add(stop.stop.id)
+            if route is None:
+                logger.debug("Skipping None route")
+                continue
+                
+            try:
+                # Get all stops in this route
+                stops = route.get_stops_between(station_id, None)
+                
+                # If this station is in the route
+                if stops and stops[0].stop.id == station_id:
+                    # Add all subsequent stops as potential destinations
+                    for stop in stops[1:]:
+                        if stop and stop.stop and stop.stop.id:
+                            destinations.add(stop.stop.id)
+                            
+            except Exception as e:
+                logger.error(f"Error processing route {route.route_id if route else 'unknown'}: {e}", exc_info=True)
+                continue
 
         # Convert to response format
-        return [
-            StationResponse(
-                id=stop_id,
-                name=(
-                    feed.get_stop_name(stop_id, language)
-                    if language
-                    else feed.stops[stop_id].name
-                ),
-                location=Location(
-                    lat=feed.stops[stop_id].lat, lon=feed.stops[stop_id].lon
-                ),
-                translations=feed.stops[stop_id].translations,
-            )
-            for stop_id in destinations
-            if stop_id in feed.stops
-        ]
+        responses = []
+        for stop_id in destinations:
+            try:
+                if stop_id not in feed.stops:
+                    logger.warning(f"Stop {stop_id} not found in feed.stops")
+                    continue
+                    
+                stop = feed.stops[stop_id]
+                if stop is None:
+                    logger.warning(f"Stop {stop_id} is None in feed.stops")
+                    continue
+                    
+                name = feed.get_stop_name(stop_id, language) if language else stop.name
+                if pd.isna(name) or not name:
+                    logger.warning(f"Invalid name for stop {stop_id}")
+                    continue
+                    
+                responses.append(
+                    StationResponse(
+                        id=stop_id,
+                        name=name,
+                        location=Location(
+                            lat=stop.lat,
+                            lon=stop.lon
+                        ),
+                        translations=stop.translations,
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error creating response for stop {stop_id}: {e}", exc_info=True)
+                continue
+                
+        return responses
 
 
 @app.get(
