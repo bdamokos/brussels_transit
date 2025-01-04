@@ -72,7 +72,7 @@ async def load_line_stops(line: str) -> Dict:
         try:
             from routes import get_route_data
         except ImportError:
-            from app.routes import get_route_data
+            from app.transit_providers.be.stib.routes import get_route_data
 
         # Fetch the route data which includes stops
         route_data = await get_route_data(line)
