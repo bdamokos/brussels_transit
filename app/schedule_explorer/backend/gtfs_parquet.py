@@ -1331,3 +1331,19 @@ class ParquetGTFSLoader:
         
         return calendar_dates 
 
+
+def load_feed(data_dir: str | Path = None) -> Optional[FlixbusFeed]:
+    """Load a GTFS feed from the specified directory.
+    
+    Args:
+        data_dir: Directory containing GTFS files. If None, uses current directory.
+        
+    Returns:
+        A FlixbusFeed object if successful, None otherwise.
+    """
+    loader = ParquetGTFSLoader(data_dir)
+    try:
+        return loader.load_feed()
+    finally:
+        loader.close()
+

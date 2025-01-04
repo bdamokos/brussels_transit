@@ -30,7 +30,7 @@ from asyncio import (
     get_running_loop,
 )
 import time
-from schedule_explorer.backend.gtfs_loader import load_translations
+from schedule_explorer.backend.gtfs_parquet import load_translations
 
 # Export public API functions
 __all__ = [
