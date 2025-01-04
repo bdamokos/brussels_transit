@@ -518,18 +518,15 @@ class ParquetGTFSLoader:
         """)
         logger.info("Stop times loading complete")
     
-    def _load_trips(self) -> Dict[str, Trip]:
-        """Load trips from trips.txt into memory using DuckDB.
-        
-        Returns:
-            Dictionary mapping trip_id to Trip objects.
-        """
+    def _load_trips(self) -> None:
+        """Load trips data into DuckDB."""
         parquet_path = self._csv_to_parquet('trips.txt')
         if not parquet_path:
             logger.error("Failed to convert trips.txt to Parquet")
-            return {}
-        
+            return
+            
         logger.info("Loading trips table...")
+        # Create trips table
         try:
             # First try with all optional fields
             self.db.execute(f"""
@@ -581,36 +578,7 @@ class ParquetGTFSLoader:
             CREATE INDEX trips_route_id_idx ON trips(route_id);
             CREATE INDEX trips_service_id_idx ON trips(service_id);
         """)
-        
-        # Convert to Trip objects
-        trips = {}
-        result = self.db.execute("""
-            SELECT 
-                trip_id,
-                route_id,
-                service_id,
-                trip_headsign,
-                direction_id,
-                block_id,
-                shape_id
-            FROM trips
-        """).fetchdf()
-        
-        for _, row in result.iterrows():
-            trip_id = str(row['trip_id'])
-            trips[trip_id] = Trip(
-                id=trip_id,
-                route_id=str(row['route_id']),
-                service_id=str(row['service_id']),
-                headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
-                direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
-                block_id=str(row['block_id']) if pd.notna(row['block_id']) else None,
-                shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
-                stop_times=[]  # Stop times will be loaded separately
-            )
-        
-        logger.info(f"Created {len(trips)} Trip objects")
-        return trips
+        logger.info("Trips loading complete")
     
     def _load_shapes(self) -> Dict[str, Shape]:
         """Load shapes from shapes.txt into memory.
@@ -872,9 +840,15 @@ class ParquetGTFSLoader:
                 CREATE TABLE calendar AS 
                 SELECT 
                     service_id,
-                    monday, tuesday, wednesday, thursday, friday, saturday, sunday,
-                    start_date,
-                    end_date
+                    CAST(monday AS BOOLEAN) as monday,
+                    CAST(tuesday AS BOOLEAN) as tuesday,
+                    CAST(wednesday AS BOOLEAN) as wednesday,
+                    CAST(thursday AS BOOLEAN) as thursday,
+                    CAST(friday AS BOOLEAN) as friday,
+                    CAST(saturday AS BOOLEAN) as saturday,
+                    CAST(sunday AS BOOLEAN) as sunday,
+                    strptime(start_date, '%Y%m%d') as start_date,
+                    strptime(end_date, '%Y%m%d') as end_date
                 FROM parquet_scan('{calendar_path}')
                 /*+ PARALLEL({num_threads}) */
             """)
@@ -884,13 +858,12 @@ class ParquetGTFSLoader:
             """)
         
         if calendar_dates_path:
-            # Process calendar_dates in chunks to avoid memory issues
             self.db.execute(f"""
                 CREATE TABLE calendar_dates AS 
                 SELECT 
                     service_id,
-                    date,
-                    exception_type
+                    strptime(date, '%Y%m%d') as date,
+                    CAST(exception_type AS INTEGER) as exception_type
                 FROM parquet_scan('{calendar_dates_path}')
                 /*+ PARALLEL({num_threads}) */
             """)
@@ -911,19 +884,23 @@ class ParquetGTFSLoader:
             self._setup_db()  # Set up DuckDB configuration
             self._load_stops()
             self._load_stop_times()
-            trips = self._load_trips()  # Load trips
+            self._load_trips()
             self._load_calendar()
             
             # Load routes
             routes = self._load_routes()
+            
+            # Get calendars and calendar dates
+            calendars = self._get_calendars()
+            calendar_dates = self._get_calendar_dates()
             
             logger.info("GTFS feed loaded successfully")
             return FlixbusFeed(
                 stops=self.stops,
                 routes=routes,
                 translations=self.translations,
-                trips=trips,  # Add trips to feed
-                stop_times_dict={}  # We don't need this since we're using DuckDB for stop times
+                calendars=calendars,
+                calendar_dates=calendar_dates
             )
         except Exception as e:
             logger.error(f"Error loading GTFS feed: {e}")
@@ -1093,8 +1070,7 @@ class ParquetGTFSLoader:
                     # Only consider type 1 exceptions (additions)
                     additions = dates_result[dates_result['exception_type'] == 1]
                     for _, row in additions.iterrows():
-                        date = datetime.strptime(str(row['date']), '%Y%m%d')
-                        weekday = date.strftime('%A').lower()
+                        weekday = row['date'].strftime('%A').lower()
                         service_days.add(weekday)
                         logger.debug(f"Added service day {weekday} from calendar_dates for service {service_id}")
         
@@ -1138,8 +1114,7 @@ class ParquetGTFSLoader:
                             # Group removals by weekday
                             removals_by_day = {}
                             for _, row in removals.iterrows():
-                                date = datetime.strptime(str(row['date']), '%Y%m%d')
-                                weekday = date.strftime('%A').lower()
+                                weekday = row['date'].strftime('%A').lower()
                                 if weekday not in removals_by_day:
                                     removals_by_day[weekday] = set()
                                 removals_by_day[weekday].add(row['service_id'])
@@ -1167,9 +1142,18 @@ class ParquetGTFSLoader:
             SELECT 
                 trip_id,
                 stop_id,
-                arrival_time,
-                departure_time,
-                CAST(stop_sequence AS INTEGER) as stop_sequence
+                -- Handle times that might exceed 24:00:00 (service past midnight)
+                CASE 
+                    WHEN arrival_time ~ '^[0-9]{1,2}:[0-9]{2}:[0-9]{2}$' 
+                    THEN arrival_time 
+                    ELSE REGEXP_REPLACE(arrival_time, '^([0-9]{2,3}):', '\1:')
+                END as arrival_time,
+                CASE 
+                    WHEN departure_time ~ '^[0-9]{1,2}:[0-9]{2}:[0-9]{2}$' 
+                    THEN departure_time 
+                    ELSE REGEXP_REPLACE(departure_time, '^([0-9]{2,3}):', '\1:')
+                END as departure_time,
+                stop_sequence
             FROM stop_times
             WHERE trip_id = ?
             ORDER BY stop_sequence
@@ -1187,8 +1171,8 @@ class ParquetGTFSLoader:
             stop_time = StopTime(
                 trip_id=str(row['trip_id']),
                 stop_id=str(row['stop_id']),
-                arrival_time=row['arrival_time'],
-                departure_time=row['departure_time'],
+                arrival_time=str(row['arrival_time']),
+                departure_time=str(row['departure_time']),
                 stop_sequence=int(row['stop_sequence'])
             )
             stop_times.append(stop_time)
@@ -1270,3 +1254,73 @@ class ParquetGTFSLoader:
             return trips
             
         return [] 
+    
+    def _get_calendars(self) -> Dict[str, Calendar]:
+        """Get calendars from DuckDB as Calendar objects."""
+        calendars = {}
+        
+        # Check if calendar table exists
+        has_calendar = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar'
+            )
+        """).fetchone()[0]
+        
+        if has_calendar:
+            result = self.db.execute("""
+                SELECT 
+                    service_id,
+                    monday, tuesday, wednesday, thursday, friday, saturday, sunday,
+                    start_date,
+                    end_date
+                FROM calendar
+            """).fetchdf()
+            
+            for _, row in result.iterrows():
+                calendars[str(row['service_id'])] = Calendar(
+                    service_id=str(row['service_id']),
+                    monday=bool(row['monday']),
+                    tuesday=bool(row['tuesday']),
+                    wednesday=bool(row['wednesday']),
+                    thursday=bool(row['thursday']),
+                    friday=bool(row['friday']),
+                    saturday=bool(row['saturday']),
+                    sunday=bool(row['sunday']),
+                    start_date=row['start_date'],
+                    end_date=row['end_date']
+                )
+        
+        return calendars
+    
+    def _get_calendar_dates(self) -> List[CalendarDate]:
+        """Get calendar dates from DuckDB as CalendarDate objects."""
+        calendar_dates = []
+        
+        # Check if calendar_dates table exists
+        has_calendar_dates = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar_dates'
+            )
+        """).fetchone()[0]
+        
+        if has_calendar_dates:
+            result = self.db.execute("""
+                SELECT 
+                    service_id,
+                    date,
+                    exception_type
+                FROM calendar_dates
+            """).fetchdf()
+            
+            for _, row in result.iterrows():
+                calendar_dates.append(CalendarDate(
+                    service_id=str(row['service_id']),
+                    date=row['date'],
+                    exception_type=int(row['exception_type'])
+                ))
+        
+        return calendar_dates 

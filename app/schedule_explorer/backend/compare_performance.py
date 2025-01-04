@@ -431,6 +431,94 @@ def compare_trips(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None
     else:
         logger.info("No differences found in trips")
 
+def compare_calendars(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare calendar data between original and Parquet implementations."""
+    logger.info("\n=== Calendar Loading Comparison ===")
+    
+    # Compare regular calendars
+    logger.info("Comparing regular calendars...")
+    original_calendars = original_feed.calendars
+    parquet_calendars = parquet_feed.calendars
+    
+    # Compare number of calendars
+    logger.info(f"Original: {len(original_calendars)} calendars")
+    logger.info(f"Parquet: {len(parquet_calendars)} calendars")
+    
+    # Compare service IDs
+    original_service_ids = set(original_calendars.keys())
+    parquet_service_ids = set(parquet_calendars.keys())
+    
+    missing_in_parquet = original_service_ids - parquet_service_ids
+    missing_in_original = parquet_service_ids - original_service_ids
+    
+    if missing_in_parquet:
+        logger.warning(f"Services missing in Parquet: {missing_in_parquet}")
+    if missing_in_original:
+        logger.warning(f"Extra services in Parquet: {missing_in_original}")
+    
+    # Compare calendar attributes for common services
+    common_ids = original_service_ids & parquet_service_ids
+    differences = []
+    
+    for service_id in common_ids:
+        orig_cal = original_calendars[service_id]
+        parq_cal = parquet_calendars[service_id]
+        
+        # Compare each attribute
+        if orig_cal.monday != parq_cal.monday:
+            differences.append(f"Service {service_id}: Monday mismatch - Original: {orig_cal.monday}, Parquet: {parq_cal.monday}")
+        if orig_cal.tuesday != parq_cal.tuesday:
+            differences.append(f"Service {service_id}: Tuesday mismatch - Original: {orig_cal.tuesday}, Parquet: {parq_cal.tuesday}")
+        if orig_cal.wednesday != parq_cal.wednesday:
+            differences.append(f"Service {service_id}: Wednesday mismatch - Original: {orig_cal.wednesday}, Parquet: {parq_cal.wednesday}")
+        if orig_cal.thursday != parq_cal.thursday:
+            differences.append(f"Service {service_id}: Thursday mismatch - Original: {orig_cal.thursday}, Parquet: {parq_cal.thursday}")
+        if orig_cal.friday != parq_cal.friday:
+            differences.append(f"Service {service_id}: Friday mismatch - Original: {orig_cal.friday}, Parquet: {parq_cal.friday}")
+        if orig_cal.saturday != parq_cal.saturday:
+            differences.append(f"Service {service_id}: Saturday mismatch - Original: {orig_cal.saturday}, Parquet: {parq_cal.saturday}")
+        if orig_cal.sunday != parq_cal.sunday:
+            differences.append(f"Service {service_id}: Sunday mismatch - Original: {orig_cal.sunday}, Parquet: {parq_cal.sunday}")
+        if orig_cal.start_date != parq_cal.start_date:
+            differences.append(f"Service {service_id}: Start date mismatch - Original: {orig_cal.start_date}, Parquet: {parq_cal.start_date}")
+        if orig_cal.end_date != parq_cal.end_date:
+            differences.append(f"Service {service_id}: End date mismatch - Original: {orig_cal.end_date}, Parquet: {parq_cal.end_date}")
+    
+    if differences:
+        logger.warning("Found differences in calendars:")
+        for diff in differences:
+            logger.warning(diff)
+    else:
+        logger.info("No differences found in regular calendars")
+    
+    # Compare calendar dates (exceptions)
+    logger.info("\nComparing calendar dates (exceptions)...")
+    original_dates = original_feed.calendar_dates
+    parquet_dates = parquet_feed.calendar_dates
+    
+    logger.info(f"Original: {len(original_dates)} exceptions")
+    logger.info(f"Parquet: {len(parquet_dates)} exceptions")
+    
+    # Create sets of (service_id, date, exception_type) tuples for comparison
+    original_date_set = {(cd.service_id, cd.date.date(), cd.exception_type) for cd in original_dates}
+    parquet_date_set = {(cd.service_id, cd.date.date(), cd.exception_type) for cd in parquet_dates}
+    
+    missing_exceptions = original_date_set - parquet_date_set
+    extra_exceptions = parquet_date_set - original_date_set
+    
+    if missing_exceptions:
+        logger.warning("Exceptions missing in Parquet:")
+        for service_id, date, exception_type in missing_exceptions:
+            logger.warning(f"  Service {service_id}: {date} (type {exception_type})")
+    
+    if extra_exceptions:
+        logger.warning("Extra exceptions in Parquet:")
+        for service_id, date, exception_type in extra_exceptions:
+            logger.warning(f"  Service {service_id}: {date} (type {exception_type})")
+    
+    if not (missing_exceptions or extra_exceptions):
+        logger.info("No differences found in calendar dates")
+
 def run_comparison(data_dir: str, test_original: bool = True):
     """Run a performance comparison between the original and Parquet implementations."""
     logger = logging.getLogger(__name__)
@@ -527,6 +615,9 @@ def run_comparison(data_dir: str, test_original: bool = True):
                 return
         
         logger.info("Shapes match")
+
+    # Compare calendars
+    compare_calendars(original_feed, parquet_feed)
 
 if __name__ == "__main__":
     # Get data directory from environment or use default
