@@ -8,6 +8,22 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 @dataclass
+class Agency:
+    """
+    Represents an agency from agency.txt
+    Required fields: agency_id, agency_name, agency_url, agency_timezone
+    Optional fields: agency_lang, agency_phone, agency_fare_url, agency_email
+    """
+    agency_id: str
+    agency_name: str
+    agency_url: str
+    agency_timezone: str
+    agency_lang: Optional[str] = None
+    agency_phone: Optional[str] = None
+    agency_fare_url: Optional[str] = None
+    agency_email: Optional[str] = None
+
+@dataclass
 class Translation:
     """
     Represents a translation from translations.txt (STIB specific)
@@ -142,4 +158,15 @@ class FlixbusFeed:
     """
     stops: Dict[str, Stop]
     routes: List[Route]
-    translations: Dict[str, Dict[str, str]] 
+    translations: Dict[str, Dict[str, str]]
+    trips: Dict[str, Trip] = field(default_factory=dict)
+    stop_times_dict: Dict[str, List[Dict]] = field(default_factory=dict)
+    calendars: Dict[str, Calendar] = field(default_factory=dict)
+    calendar_dates: List[CalendarDate] = field(default_factory=list)
+    agencies: Dict[str, Agency] = field(default_factory=dict)  # agency_id -> Agency
+    _feed: Optional["FlixbusFeed"] = field(default=None, repr=False)
+
+    def __post_init__(self):
+        """Set feed reference on all routes"""
+        for route in self.routes:
+            route._feed = self 

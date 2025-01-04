@@ -518,15 +518,18 @@ class ParquetGTFSLoader:
         """)
         logger.info("Stop times loading complete")
     
-    def _load_trips(self) -> None:
-        """Load trips data into DuckDB."""
+    def _load_trips(self) -> Dict[str, Trip]:
+        """Load trips from trips.txt into memory using DuckDB.
+        
+        Returns:
+            Dictionary mapping trip_id to Trip objects.
+        """
         parquet_path = self._csv_to_parquet('trips.txt')
         if not parquet_path:
             logger.error("Failed to convert trips.txt to Parquet")
-            return
-            
+            return {}
+        
         logger.info("Loading trips table...")
-        # Create trips table
         try:
             # First try with all optional fields
             self.db.execute(f"""
@@ -578,7 +581,36 @@ class ParquetGTFSLoader:
             CREATE INDEX trips_route_id_idx ON trips(route_id);
             CREATE INDEX trips_service_id_idx ON trips(service_id);
         """)
-        logger.info("Trips loading complete")
+        
+        # Convert to Trip objects
+        trips = {}
+        result = self.db.execute("""
+            SELECT 
+                trip_id,
+                route_id,
+                service_id,
+                trip_headsign,
+                direction_id,
+                block_id,
+                shape_id
+            FROM trips
+        """).fetchdf()
+        
+        for _, row in result.iterrows():
+            trip_id = str(row['trip_id'])
+            trips[trip_id] = Trip(
+                id=trip_id,
+                route_id=str(row['route_id']),
+                service_id=str(row['service_id']),
+                headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
+                direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
+                block_id=str(row['block_id']) if pd.notna(row['block_id']) else None,
+                shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
+                stop_times=[]  # Stop times will be loaded separately
+            )
+        
+        logger.info(f"Created {len(trips)} Trip objects")
+        return trips
     
     def _load_shapes(self) -> Dict[str, Shape]:
         """Load shapes from shapes.txt into memory.
@@ -879,7 +911,7 @@ class ParquetGTFSLoader:
             self._setup_db()  # Set up DuckDB configuration
             self._load_stops()
             self._load_stop_times()
-            self._load_trips()
+            trips = self._load_trips()  # Load trips
             self._load_calendar()
             
             # Load routes
@@ -889,7 +921,9 @@ class ParquetGTFSLoader:
             return FlixbusFeed(
                 stops=self.stops,
                 routes=routes,
-                translations=self.translations
+                translations=self.translations,
+                trips=trips,  # Add trips to feed
+                stop_times_dict={}  # We don't need this since we're using DuckDB for stop times
             )
         except Exception as e:
             logger.error(f"Error loading GTFS feed: {e}")
@@ -1135,7 +1169,7 @@ class ParquetGTFSLoader:
                 stop_id,
                 arrival_time,
                 departure_time,
-                stop_sequence
+                CAST(stop_sequence AS INTEGER) as stop_sequence
             FROM stop_times
             WHERE trip_id = ?
             ORDER BY stop_sequence
