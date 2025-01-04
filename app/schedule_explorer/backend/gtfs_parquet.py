@@ -9,10 +9,13 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Union
 from datetime import datetime, timedelta
 import pandas as pd
 import os
+import tempfile
+import uuid
+import shutil
 
 from .gtfs_models import (
     Translation,
@@ -26,6 +29,7 @@ from .gtfs_models import (
     Route,
     FlixbusFeed,
 )
+from .models import BoundingBox, StationResponse, Location
 
 logger = logging.getLogger("schedule_explorer.gtfs_parquet")
 
@@ -55,17 +59,17 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
 
         db = duckdb.connect(":memory:")
 
-        # Load translations and stops
+            # Load translations and stops
         logger.info(f"Loading translations from {translations_file}")
         logger.info(f"Loading stops from {gtfs_dir}/stops.txt")
         
         db.execute(f"""
-            CREATE VIEW translations AS 
-            SELECT * FROM read_csv_auto('{translations_file}', header=true);
-            
-            CREATE VIEW stops AS 
-            SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
-        """)
+                CREATE VIEW translations AS 
+                SELECT * FROM read_csv_auto('{translations_file}', header=true);
+                
+                CREATE VIEW stops AS 
+                SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
+            """)
 
         # Sample the data to understand what we're working with
         trans_sample = db.execute("SELECT * FROM translations LIMIT 5").fetchdf()
@@ -173,6 +177,22 @@ class ParquetGTFSLoader:
             return None
         
         try:
+            # Validate data before conversion
+            if filename == 'stop_times.txt':
+                df = pd.read_csv(csv_path)
+                negative_rows = df[(df[['stop_sequence', 'pickup_type', 'drop_off_type']] < 0).any(axis=1)]
+                if not negative_rows.empty:
+                    logger.warning(f"Negative values found in {filename}. Skipping {len(negative_rows)} rows.")
+                    df = df.drop(negative_rows.index)
+                    df.to_csv(csv_path, index=False)
+
+            # Create a unique temporary directory for this process
+            temp_dir = Path(tempfile.gettempdir()) / f"gtfs_parquet_{uuid.uuid4()}"
+            temp_dir.mkdir(exist_ok=True)
+            
+            # Use the temporary directory for the parquet file
+            parquet_path = temp_dir / f"{filename}.parquet"
+            
             # Define column types based on the file
             column_types = {
                 'stop_times.txt': {
@@ -180,14 +200,14 @@ class ParquetGTFSLoader:
                     'arrival_time': 'VARCHAR',  # Handle times > 24:00:00
                     'departure_time': 'VARCHAR',  # Handle times > 24:00:00
                     'stop_id': 'VARCHAR',
-                    'stop_sequence': 'INTEGER',
+                    'stop_sequence': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'stop_headsign': 'VARCHAR',
-                    'pickup_type': 'INTEGER',
-                    'drop_off_type': 'INTEGER',
-                    'continuous_pickup': 'INTEGER',
-                    'continuous_drop_off': 'INTEGER',
+                    'pickup_type': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'drop_off_type': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'continuous_pickup': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'continuous_drop_off': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'shape_dist_traveled': 'DOUBLE',
-                    'timepoint': 'INTEGER',
+                    'timepoint': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'start_service_area_id': 'VARCHAR',
                     'end_service_area_id': 'VARCHAR',
                     'start_service_area_radius': 'DOUBLE',
@@ -203,40 +223,32 @@ class ParquetGTFSLoader:
                     'trip_id': 'VARCHAR',
                     'trip_headsign': 'VARCHAR',
                     'trip_short_name': 'VARCHAR',
-                    'direction_id': 'VARCHAR',
+                    'direction_id': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'block_id': 'VARCHAR',
                     'shape_id': 'VARCHAR',
-                    'wheelchair_accessible': 'INTEGER',
-                    'bikes_allowed': 'INTEGER',
-                    'exceptional': 'INTEGER',
-                    'drt_max_travel_time': 'INTEGER',
-                    'drt_avg_travel_time': 'INTEGER',
-                    'drt_advance_book_min': 'INTEGER',
-                    'drt_pickup_message': 'VARCHAR',
-                    'drt_drop_off_message': 'VARCHAR',
-                    'continuous_pickup': 'INTEGER',
-                    'continuous_drop_off': 'INTEGER'
+                    'wheelchair_accessible': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'bikes_allowed': 'BIGINT'  # Changed from INTEGER to BIGINT
                 },
                 'routes.txt': {
                     'agency_id': 'VARCHAR',
                     'route_id': 'VARCHAR',
                     'route_short_name': 'VARCHAR',
                     'route_long_name': 'VARCHAR',
-                    'route_type': 'INTEGER',
+                    'route_type': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'route_desc': 'VARCHAR',
                     'route_color': 'VARCHAR',
                     'route_text_color': 'VARCHAR',
-                    'route_sort_order': 'INTEGER',
+                    'route_sort_order': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'route_url': 'VARCHAR',
-                    'continuous_pickup': 'INTEGER',
-                    'continuous_drop_off': 'INTEGER',
+                    'continuous_pickup': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'continuous_drop_off': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'network_id': 'VARCHAR'
                 },
                 'shapes.txt': {
                     'shape_id': 'VARCHAR',
                     'shape_pt_lat': 'DOUBLE',
                     'shape_pt_lon': 'DOUBLE',
-                    'shape_pt_sequence': 'INTEGER',
+                    'shape_pt_sequence': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'shape_dist_traveled': 'DOUBLE'
                 },
                 'stops.txt': {
@@ -248,7 +260,7 @@ class ParquetGTFSLoader:
                     'stop_lon': 'DOUBLE',
                     'zone_id': 'VARCHAR',
                     'stop_url': 'VARCHAR',
-                    'location_type': 'INTEGER',
+                    'location_type': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'parent_station': 'VARCHAR',
                     'stop_timezone': 'VARCHAR',
                     'wheelchair_boarding': 'INTEGER',
@@ -263,20 +275,20 @@ class ParquetGTFSLoader:
                 },
                 'calendar.txt': {
                     'service_id': 'VARCHAR',
-                    'monday': 'BOOLEAN',
-                    'tuesday': 'BOOLEAN',
-                    'wednesday': 'BOOLEAN',
-                    'thursday': 'BOOLEAN',
-                    'friday': 'BOOLEAN',
-                    'saturday': 'BOOLEAN',
-                    'sunday': 'BOOLEAN',
+                    'monday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'tuesday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'wednesday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'thursday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'friday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'saturday': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'sunday': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'start_date': 'VARCHAR',
                     'end_date': 'VARCHAR'
                 },
                 'calendar_dates.txt': {
                     'service_id': 'VARCHAR',
                     'date': 'VARCHAR',
-                    'exception_type': 'INTEGER'
+                    'exception_type': 'BIGINT'  # Changed from INTEGER to BIGINT
                 },
                 'fare_attributes.txt': {
                     'fare_id': 'VARCHAR',
@@ -358,9 +370,9 @@ class ParquetGTFSLoader:
                     'route_id': 'VARCHAR',
                     'trip_id': 'VARCHAR',
                     'organization_name': 'VARCHAR',
-                    'is_producer': 'INTEGER',
-                    'is_operator': 'INTEGER',
-                    'is_authority': 'INTEGER',
+                    'is_producer': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'is_operator': 'BIGINT',  # Changed from INTEGER to BIGINT
+                    'is_authority': 'BIGINT',  # Changed from INTEGER to BIGINT
                     'attribution_url': 'VARCHAR',
                     'attribution_email': 'VARCHAR',
                     'attribution_phone': 'VARCHAR'
@@ -406,12 +418,11 @@ class ParquetGTFSLoader:
             else:
                 # Fallback to auto-detection for files without type definitions
                 self.db.execute(f"""
-                    CREATE TABLE {table_name} AS 
+                CREATE TABLE {table_name} AS 
                     SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=-1)
-                """)
+            """)
             
             # Write to Parquet using DuckDB's COPY command
-            parquet_path = self.data_dir / f"{filename}.parquet"
             self.db.execute(f"""
                 COPY {table_name} TO '{parquet_path}' (FORMAT 'parquet', COMPRESSION 'SNAPPY')
             """)
@@ -419,10 +430,24 @@ class ParquetGTFSLoader:
             # Drop temporary table
             self.db.execute(f"DROP TABLE {table_name}")
             
-            return parquet_path
+            # Move the file to its final destination
+            final_path = self.data_dir / f"{filename}.parquet"
+            shutil.move(str(parquet_path), str(final_path))
+            
+            # Clean up temporary directory
+            temp_dir.rmdir()
+            
+            return final_path
         except Exception as e:
             logger.error(f"Error converting {filename} to Parquet: {e}")
             return None
+        finally:
+            # Ensure cleanup of temporary resources
+            try:
+                if 'temp_dir' in locals() and temp_dir.exists():
+                    shutil.rmtree(str(temp_dir))
+            except Exception as cleanup_error:
+                logger.warning(f"Error cleaning up temporary directory: {cleanup_error}")
     
     def _load_stops(self) -> None:
         """Load stops from stops.txt into memory."""
@@ -537,11 +562,11 @@ class ParquetGTFSLoader:
         try:
             # First try with all optional fields
             self.db.execute(f"""
-                CREATE TABLE trips AS 
-                SELECT 
-                    route_id,
-                    service_id,
-                    trip_id,
+            CREATE TABLE trips AS 
+            SELECT 
+                route_id,
+                service_id,
+                trip_id,
                     COALESCE(trip_headsign, NULL) as trip_headsign,
                     COALESCE(direction_id, '0') as direction_id,
                     COALESCE(block_id, NULL) as block_id,
@@ -649,7 +674,7 @@ class ParquetGTFSLoader:
         if not parquet_path:
             logger.error("Failed to convert routes.txt to Parquet")
             return []
-        
+            
         logger.info("Loading routes table...")
         # Create routes table
         self.db.execute(f"""
@@ -687,7 +712,7 @@ class ParquetGTFSLoader:
         logger.info("Getting representative trips...")
         query = """
             WITH trip_ranks AS (
-                SELECT 
+            SELECT 
                     t.route_id,
                     t.trip_id,
                     t.service_id,
@@ -1330,6 +1355,44 @@ class ParquetGTFSLoader:
                 ))
         
         return calendar_dates 
+
+    def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[StationResponse], Dict[str, int]]:
+        """Get all stops within a bounding box.
+        
+        Args:
+            bbox: BoundingBox object with min/max lat/lon
+            count_only: If True, only return the count of stops
+            
+        Returns:
+            If count_only is True, returns Dict with count
+            Otherwise returns List of StationResponse objects
+        """
+        # Filter stops within the bounding box
+        stops_in_bbox = []
+        for stop_id, stop in self.stops.items():
+            if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
+                bbox.min_lon <= stop.lon <= bbox.max_lon
+            ):
+                # If we only need the count, just add the ID
+                if count_only:
+                    stops_in_bbox.append(stop_id)
+                    continue
+
+                # Create StationResponse object
+                stops_in_bbox.append(
+                    StationResponse(
+                        id=stop_id,
+                        name=stop.name,
+                        location=Location(lat=stop.lat, lon=stop.lon),
+                        translations=stop.translations,
+                        routes=[]  # Routes will be added by the API endpoint
+                    )
+                )
+
+        if count_only:
+            return {"count": len(stops_in_bbox)}
+
+        return stops_in_bbox
 
 
 def load_feed(data_dir: str | Path = None) -> Optional[FlixbusFeed]:

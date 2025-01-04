@@ -93,3 +93,4 @@ app/transit_providers/hu/bkk/protos/gtfs-realtime-realcity.proto
 app/transit_providers/hu/bkk/test.py
 .pre-commit-config.yaml
 profiling_results/
+app/schedule_explorer/.tmp/

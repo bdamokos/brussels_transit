@@ -1684,43 +1684,17 @@ async def get_stops_in_bbox(
         if not feed:
             raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-        # Filter stops within the bounding box
-        stops_in_bbox = []
-        for stop_id, stop in feed.stops.items():
-            if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
-                bbox.min_lon <= stop.lon <= bbox.max_lon
-            ):
-                # If we only need the count, just add the ID
-                if count_only:
-                    stops_in_bbox.append(stop_id)
-                    continue
-
-                # Get translated name if available
-                name = feed.get_stop_name(stop_id, language)
-                if not name:
-                    name = stop.name
-
-                # Create basic station response without routes for now
-                stops_in_bbox.append(
-                    StationResponse(
-                        id=stop_id,
-                        name=name,
-                        location=Location(lat=stop.lat, lon=stop.lon),
-                        translations=(
-                            stop.translations if hasattr(stop, "translations") else None
-                        ),
-                        routes=[],  # Routes will be added later for paginated results
-                    )
-                )
-
+        # Get stops using the new method
+        result = feed.get_stops_in_bbox(bbox, count_only)
+        
         if count_only:
-            return {"count": len(stops_in_bbox)}
+            return result
 
         # Sort stops by ID to ensure consistent pagination
-        stops_in_bbox.sort(key=lambda x: x.id)
+        stops = sorted(result, key=lambda x: x.id)
 
         # Apply pagination
-        paginated_stops = stops_in_bbox[offset:]
+        paginated_stops = stops[offset:]
         if limit is not None:
             paginated_stops = paginated_stops[:limit]
 

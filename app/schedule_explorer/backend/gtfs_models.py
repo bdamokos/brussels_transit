@@ -4,8 +4,9 @@ These dataclasses represent the core GTFS entities used in both the original and
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import Dict, List, Optional, Set, Union
+from datetime import datetime, timedelta
+from .models import BoundingBox, StationResponse, Location
 
 @dataclass
 class Agency:
@@ -170,3 +171,41 @@ class FlixbusFeed:
         """Set feed reference on all routes"""
         for route in self.routes:
             route._feed = self 
+
+    def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[StationResponse], Dict[str, int]]:
+        """Get all stops within a bounding box.
+        
+        Args:
+            bbox: BoundingBox object with min/max lat/lon
+            count_only: If True, only return the count of stops
+            
+        Returns:
+            If count_only is True, returns Dict with count
+            Otherwise returns List of StationResponse objects
+        """
+        # Filter stops within the bounding box
+        stops_in_bbox = []
+        for stop_id, stop in self.stops.items():
+            if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
+                bbox.min_lon <= stop.lon <= bbox.max_lon
+            ):
+                # If we only need the count, just add the ID
+                if count_only:
+                    stops_in_bbox.append(stop_id)
+                    continue
+
+                # Create StationResponse object
+                stops_in_bbox.append(
+                    StationResponse(
+                        id=stop_id,
+                        name=stop.name,
+                        location=Location(lat=stop.lat, lon=stop.lon),
+                        translations=stop.translations,
+                        routes=[]  # Routes will be added by the API endpoint
+                    )
+                )
+
+        if count_only:
+            return {"count": len(stops_in_bbox)}
+
+        return stops_in_bbox 
