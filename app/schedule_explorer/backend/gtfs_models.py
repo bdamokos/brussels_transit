@@ -5,11 +5,37 @@ These dataclasses represent the core GTFS entities used in both the original and
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import logging
 from .models import BoundingBox, StationResponse, Location
 
 logger = logging.getLogger("schedule_explorer.gtfs_models")
+
+def calculate_minutes_until(target_time: str, current_time: str) -> int:
+    """Calculate minutes between two times in HH:MM:SS format.
+    
+    Args:
+        target_time: Target time in HH:MM:SS format
+        current_time: Current time in HH:MM:SS format
+        
+    Returns:
+        Number of minutes between the times
+    """
+    def parse_time(time_str: str) -> datetime:
+        hours, minutes, seconds = map(int, time_str.split(":"))
+        base_date = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        return base_date + timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+    target = parse_time(target_time)
+    current = parse_time(current_time)
+
+    # Handle overnight routes
+    if target < current:
+        target += timedelta(days=1)
+
+    minutes = int((target - current).total_seconds() / 60)
+    return max(0, minutes)  # Don't return negative minutes
 
 @dataclass
 class Agency:
@@ -513,7 +539,306 @@ class FlixbusFeed:
     def __post_init__(self):
         """Set feed reference on all routes"""
         for route in self.routes:
-            route._feed = self 
+            route._feed = self
+
+    def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Route]:
+        """Find all routes between two stations in any direction (start_id → end_id or end_id → start_id)"""
+        routes = []
+
+        # Group routes by route_id to check all variants
+        routes_by_id = {}
+        for route in self.routes:
+            if route.route_id not in routes_by_id:
+                routes_by_id[route.route_id] = []
+            routes_by_id[route.route_id].append(route)
+
+        # Check each route group
+        for route_variants in routes_by_id.values():
+            for route in route_variants:
+                # Get all stops in sequence
+                stop_sequences = [
+                    (stop.stop.id, idx) for idx, stop in enumerate(route.stops)
+                ]
+
+                # Find positions of our target stops
+                start_positions = [
+                    idx for sid, idx in stop_sequences if sid == start_id
+                ]
+                end_positions = [idx for sid, idx in stop_sequences if sid == end_id]
+
+                # Skip if either stop is not in this route
+                if not start_positions or not end_positions:
+                    continue
+
+                # Check if we have a valid sequence
+                for start_idx in start_positions:
+                    for end_idx in end_positions:
+                        # Check if the stops appear in sequence (either direction)
+                        if start_idx < end_idx:  # Forward direction
+                            # Verify no other occurrence of start_id or end_id between these positions
+                            intermediate_stops = stop_sequences[start_idx + 1 : end_idx]
+                            if not any(
+                                sid in (start_id, end_id)
+                                for sid, _ in intermediate_stops
+                            ):
+                                routes.append(route)
+                                break
+                        elif start_idx > end_idx:  # Reverse direction
+                            # Verify no other occurrence of start_id or end_id between these positions
+                            intermediate_stops = stop_sequences[end_idx + 1 : start_idx]
+                            if not any(
+                                sid in (start_id, end_id)
+                                for sid, _ in intermediate_stops
+                            ):
+                                # Create a new route object with reversed direction_id
+                                reversed_route = Route(
+                                    route_id=route.route_id,
+                                    route_name=route.route_name,
+                                    trip_id=route.trip_id,
+                                    service_days=route.service_days,
+                                    stops=route.stops,
+                                    shape=route.shape,
+                                    short_name=route.short_name,
+                                    long_name=route.long_name,
+                                    route_type=route.route_type,
+                                    color=route.color,
+                                    text_color=route.text_color,
+                                    agency_id=route.agency_id,
+                                    headsigns=route.headsigns,
+                                    service_ids=route.service_ids,
+                                    direction_id=(
+                                        "1" if route.direction_id == "0" else "0"
+                                    ),
+                                    trips=route.trips,  # Copy trips list
+                                    _feed=route._feed,  # Copy feed reference
+                                )
+                                routes.append(reversed_route)
+                                break
+
+        return routes
+
+    def find_trips_between_stations(self, start_id: str, end_id: str) -> List[Route]:
+        """Find all trips/services between two stations, including duplicates for different times."""
+        routes = []
+
+        # Group trips by route_id to check all variants
+        trips_by_route = {}
+        for trip_id, trip in self.trips.items():
+            if trip.route_id not in trips_by_route:
+                trips_by_route[trip.route_id] = []
+            trips_by_route[trip.route_id].append(trip)
+
+        # Check each route's trips
+        for route_id, trips in trips_by_route.items():
+            # Find the base route for this trip
+            base_route = next((r for r in self.routes if r.route_id == route_id), None)
+            if not base_route:
+                continue
+
+            for trip in trips:
+                # Get stop times for this trip
+                stop_times = sorted(trip.stop_times, key=lambda x: x.stop_sequence)
+                if (
+                    not stop_times
+                ):  # If no stop times in trip object, get from dictionary
+                    stop_times = [
+                        StopTime(
+                            trip_id=trip.id,
+                            stop_id=st["stop_id"],
+                            arrival_time=st["arrival_time"],
+                            departure_time=st["departure_time"],
+                            stop_sequence=st["stop_sequence"],
+                        )
+                        for st in sorted(
+                            self.stop_times_dict.get(trip.id, []),
+                            key=lambda x: x["stop_sequence"],
+                        )
+                    ]
+
+                # Find positions of our target stops
+                start_pos = next(
+                    (i for i, st in enumerate(stop_times) if st.stop_id == start_id),
+                    None,
+                )
+                end_pos = next(
+                    (i for i, st in enumerate(stop_times) if st.stop_id == end_id), None
+                )
+
+                # Skip if either stop is not in this trip
+                if start_pos is None or end_pos is None:
+                    continue
+
+                # Check if stops appear in sequence (either direction)
+                if start_pos < end_pos:  # Forward direction
+                    relevant_stops = stop_times[start_pos : end_pos + 1]
+                elif start_pos > end_pos:  # Reverse direction
+                    relevant_stops = stop_times[end_pos : start_pos + 1]
+                    relevant_stops.reverse()  # Reverse to maintain from -> to order
+                else:
+                    continue  # Same stop
+
+                # Create RouteStop objects
+                route_stops = [
+                    RouteStop(
+                        stop=self.stops[st.stop_id],
+                        arrival_time=st.arrival_time,
+                        departure_time=st.departure_time,
+                        stop_sequence=st.stop_sequence,
+                    )
+                    for st in relevant_stops
+                ]
+
+                # Get service days for this trip
+                service_days = set()
+                service_id = trip.service_id
+                if service_id in self.calendars:
+                    calendar = self.calendars[service_id]
+                    if calendar.monday:
+                        service_days.add("monday")
+                    if calendar.tuesday:
+                        service_days.add("tuesday")
+                    if calendar.wednesday:
+                        service_days.add("wednesday")
+                    if calendar.thursday:
+                        service_days.add("thursday")
+                    if calendar.friday:
+                        service_days.add("friday")
+                    if calendar.saturday:
+                        service_days.add("saturday")
+                    if calendar.sunday:
+                        service_days.add("sunday")
+                else:
+                    # If no regular calendar, get service days from calendar_dates
+                    for cal_date in self.calendar_dates:
+                        if (
+                            cal_date.service_id == service_id
+                            and cal_date.exception_type == 1
+                        ):
+                            service_days.add(cal_date.date.strftime("%A").lower())
+
+                # Create a new route object with this trip's specific times
+                route = Route(
+                    route_id=base_route.route_id,
+                    route_name=base_route.route_name,
+                    trip_id=trip.id,
+                    service_days=sorted(list(service_days)),
+                    stops=route_stops,
+                    shape=base_route.shape,
+                    short_name=base_route.short_name,
+                    long_name=base_route.long_name,
+                    route_type=base_route.route_type,
+                    color=base_route.color,
+                    text_color=base_route.text_color,
+                    agency_id=base_route.agency_id,
+                    headsigns=base_route.headsigns,
+                    service_ids=[
+                        trip.service_id
+                    ],  # Set service_ids to this trip's service_id
+                    direction_id=trip.direction_id,
+                    trips=[trip],  # Add the trip to the trips list
+                    _feed=self,  # Set feed reference to self
+                )
+                # Calculate service days after initialization
+                route.calculate_service_info()
+                routes.append(route)
+
+        return routes
+
+    def get_waiting_times(self, stop_id: str, route_id: Optional[str] = None, limit: int = 2) -> Dict:
+        """Get waiting times for a stop, optionally filtered by route.
+        
+        Args:
+            stop_id: The ID of the stop to get waiting times for
+            route_id: Optional route ID to filter by
+            limit: Maximum number of waiting times to return per route/destination
+            
+        Returns:
+            Dictionary with waiting times information
+        """
+        if stop_id not in self.stops:
+            logger.warning(f"Stop {stop_id} not found")
+            return {"stops_data": {}}
+
+        stop = self.stops[stop_id]
+        formatted_data = {
+            "stops_data": {
+                stop_id: {
+                    "name": stop.name,
+                    "coordinates": {"lat": stop.lat, "lon": stop.lon},
+                    "translations": stop.translations,
+                    "lines": {}
+                }
+            }
+        }
+
+        # Get current time in local timezone
+        agency_timezone = None
+        if self.agencies:
+            # Get the first agency's timezone (all agencies inside a GTFS dataset must have the same timezone)
+            agency_timezone = next(iter(self.agencies.values())).agency_timezone
+
+        # If no agency timezone found, use UTC
+        if not agency_timezone:
+            agency_timezone = "UTC"
+
+        now = datetime.now(timezone.utc)
+        now_local = now.astimezone(ZoneInfo(agency_timezone))
+        current_time = now_local.strftime("%H:%M:%S")
+
+        # Find all routes that serve this stop
+        for route in self.routes:
+            # Skip if route_id is specified and doesn't match
+            if route_id and route_id != route.route_id:
+                continue
+
+            # Check if this route serves our stop
+            route_stop = route.get_stop_by_id(stop_id)
+            if not route_stop:
+                continue
+
+            # Get the route's terminus (last stop)
+            terminus = route.stops[-1].stop if route.stops else None
+            if not terminus:
+                continue
+
+            # Initialize route in formatted_data if needed
+            if route.route_id not in formatted_data["stops_data"][stop_id]["lines"]:
+                formatted_data["stops_data"][stop_id]["lines"][route.route_id] = {
+                    "_metadata": [
+                        {
+                            "route_desc": route.route_name,
+                            "route_short_name": route.short_name or route.route_id
+                        }
+                    ]
+                }
+
+            # Get the headsign (destination)
+            headsign = terminus.name
+
+            # Initialize headsign in formatted_data if needed
+            if headsign not in formatted_data["stops_data"][stop_id]["lines"][route.route_id]:
+                formatted_data["stops_data"][stop_id]["lines"][route.route_id][headsign] = []
+
+            # Calculate waiting time
+            arrival_time = route_stop.arrival_time
+            minutes = calculate_minutes_until(arrival_time, current_time)
+
+            # Add waiting time info
+            formatted_data["stops_data"][stop_id]["lines"][route.route_id][headsign].append({
+                "is_realtime": False,
+                "provider": "gtfs",
+                "scheduled_time": arrival_time,
+                "scheduled_minutes": f"{minutes}'"
+            })
+
+            # Sort waiting times and limit to requested number
+            formatted_data["stops_data"][stop_id]["lines"][route.route_id][headsign].sort(
+                key=lambda x: int(x["scheduled_minutes"].rstrip("'"))
+            )
+            formatted_data["stops_data"][stop_id]["lines"][route.route_id][headsign] = \
+                formatted_data["stops_data"][stop_id]["lines"][route.route_id][headsign][:limit]
+
+        return formatted_data
 
     def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[StationResponse], Dict[str, int]]:
         """Get all stops within a bounding box.
