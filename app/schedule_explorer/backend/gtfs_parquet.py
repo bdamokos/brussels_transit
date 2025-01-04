@@ -28,6 +28,7 @@ from .gtfs_models import (
     CalendarDate,
     Route,
     FlixbusFeed,
+    Agency,
 )
 from .models import BoundingBox, StationResponse, Location
 
@@ -572,7 +573,7 @@ class ParquetGTFSLoader:
         # Create trips table
         try:
             # First try with all optional fields
-            self.db.execute(f"""
+            query = f"""
             CREATE TABLE IF NOT EXISTS trips AS 
             SELECT 
                 route_id,
@@ -583,11 +584,22 @@ class ParquetGTFSLoader:
                 COALESCE(block_id, NULL) as block_id,
                 COALESCE(shape_id, NULL) as shape_id
             FROM parquet_scan('{parquet_path}')
-            """)
+            """
+            logger.info(f"Creating trips table with query: {query}")
+            self.db.execute(query)
+            
+            # Log the number of trips
+            count = self.db.execute("SELECT COUNT(*) as count FROM trips").fetchone()[0]
+            logger.info(f"Created trips table with {count} trips")
+            
+            # Log some sample data
+            sample = self.db.execute("SELECT * FROM trips LIMIT 5").fetchdf()
+            logger.info(f"Sample trips data:\n{sample}")
+            
         except Exception as e:
-            logger.debug(f"Failed to create trips table with all fields: {e}")
+            logger.warning(f"Failed to create trips table with all fields: {e}")
             # If that fails, try with only required fields
-            self.db.execute(f"""
+            query = f"""
                 CREATE TABLE IF NOT EXISTS trips AS 
                 SELECT 
                     route_id,
@@ -597,11 +609,18 @@ class ParquetGTFSLoader:
                     COALESCE(direction_id, '0') as direction_id,
                     COALESCE(shape_id, NULL) as shape_id
                 FROM parquet_scan('{parquet_path}')
-            """)
+            """
+            logger.info(f"Retrying with minimal trips table query: {query}")
+            self.db.execute(query)
+            
             # Add missing optional columns with NULL values
             self.db.execute("""
                 ALTER TABLE trips ADD COLUMN IF NOT EXISTS block_id VARCHAR
             """)
+            
+            # Log the number of trips after fallback
+            count = self.db.execute("SELECT COUNT(*) as count FROM trips").fetchone()[0]
+            logger.info(f"Created minimal trips table with {count} trips")
             
         # Create indices
         logger.info("Creating indices...")
@@ -613,6 +632,11 @@ class ParquetGTFSLoader:
             CREATE INDEX trips_route_id_idx ON trips(route_id);
             CREATE INDEX trips_service_id_idx ON trips(service_id);
         """)
+        
+        # Verify the indices were created
+        indices = self.db.execute("SELECT * FROM duckdb_indexes() WHERE table_name = 'trips'").fetchdf()
+        logger.info(f"Created indices for trips table:\n{indices}")
+        
         logger.info("Trips loading complete")
     
     def _load_shapes(self) -> Dict[str, Shape]:
@@ -670,138 +694,157 @@ class ParquetGTFSLoader:
         logger.info(f"Loaded {len(shapes)} shapes")
         return shapes
     
-    def _load_routes(self) -> List[Route]:
-        """Load routes from the database and create Route objects."""
+    def _load_routes(self, trip_ids: Optional[List[str]] = None) -> List[Route]:
+        """Load routes from the database and create Route objects.
+        
+        Args:
+            trip_ids: Optional list of trip IDs to filter routes by.
+
+        Returns:
+            List of Route objects.
+
+        Raises:
+            RuntimeError: If loading fails.
+        """
         # First load routes into DuckDB
         parquet_path = self._csv_to_parquet('routes.txt')
         if not parquet_path:
             logger.error("Failed to convert routes.txt to Parquet")
-            return []
+            raise RuntimeError("Failed to convert routes.txt to Parquet")
             
         logger.info("Loading routes table...")
-        # Create routes table
-        self.db.execute(f"""
-            CREATE TABLE IF NOT EXISTS routes AS 
-            SELECT 
-                route_id,
-                COALESCE(route_short_name, '') as route_short_name,
-                COALESCE(route_long_name, '') as route_long_name,
-                route_type,
-                COALESCE(route_color, '') as route_color,
-                COALESCE(route_text_color, '') as route_text_color,
-                COALESCE(agency_id, NULL) as agency_id
-            FROM parquet_scan('{parquet_path}')
-        """)
-        
-        # Create index
-        logger.info("Creating route index...")
-        self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
-        self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
-        
-        # Load shapes
-        logger.info("Loading shapes...")
-        shapes = self._load_shapes()
-        
-        # Get representative trip for each route
-        logger.info("Getting representative trips...")
-        query = """
-            WITH trip_ranks AS (
-            SELECT 
-                    t.route_id,
-                    t.trip_id,
-                    t.service_id,
-                    t.trip_headsign,
-                    t.direction_id,
-                    t.shape_id,
-                    ROW_NUMBER() OVER (PARTITION BY t.route_id ORDER BY t.trip_id) as rn
-                FROM trips t
-            )
-            SELECT 
-                r.route_id,
-                r.route_short_name,
-                r.route_long_name,
-                r.route_type,
-                r.route_color,
-                r.route_text_color,
-                r.agency_id,
-                t.trip_id,
-                t.service_id,
-                t.trip_headsign,
-                t.direction_id,
-                t.shape_id
-            FROM routes r
-            JOIN trip_ranks t ON r.route_id = t.route_id AND t.rn = 1
-            ORDER BY r.route_id
-        """
-        result = self.db.execute(query).fetchdf()
-        logger.info(f"Found {len(result)} routes with trips")
-        
-        # Group by route_id and direction_id
-        routes = []
-        for (route_id, direction_id), group in result.groupby(['route_id', 'direction_id']):
-            logger.debug(f"Processing route {route_id}, direction {direction_id}")
-            first_row = group.iloc[0]
-            trip_id = first_row['trip_id']
+        try:
+            # First, get the available columns
+            self.db.execute(f"""
+                CREATE TEMP TABLE temp_routes AS 
+                SELECT * FROM read_parquet('{parquet_path}')
+            """)
+            columns = self.db.execute("DESCRIBE temp_routes").fetchdf()['column_name'].tolist()
+            logger.info(f"Available columns in routes.txt: {columns}")
+
+            # Build the query dynamically based on available columns
+            select_parts = [
+                'route_id',  # Required field
+                "COALESCE(route_short_name, '') as route_short_name",
+                "COALESCE(route_long_name, '') as route_long_name",
+                'route_type'  # Required field
+            ]
+
+            optional_columns = {
+                'route_color': "''",
+                'route_text_color': "''",
+                'agency_id': 'NULL'
+            }
+
+            for col, default in optional_columns.items():
+                if col in columns:
+                    select_parts.append(f"COALESCE({col}, {default}) as {col}")
+                else:
+                    select_parts.append(f"{default} as {col}")
+
+            # Create routes table
+            query = f"""
+                CREATE TABLE IF NOT EXISTS routes AS 
+                SELECT 
+                    {', '.join(select_parts)}
+                FROM temp_routes
+            """
+            logger.info(f"Creating routes table with query: {query}")
+            self.db.execute(query)
             
-            # Get stops for this trip
-            route_stops = self._create_route_stops(trip_id)
-            if not route_stops:
-                logger.warning(f"No stops found for route {route_id}, trip {trip_id}")
-                continue
+            # Log the number of routes in the table
+            count = self.db.execute("SELECT COUNT(*) as count FROM routes").fetchone()[0]
+            logger.info(f"Created routes table with {count} routes")
             
-            # Get service days for this route
-            service_ids = set(group['service_id'].dropna())
-            service_days = self._get_service_days(service_ids)
-            if not service_days:
-                logger.warning(f"No service days found for route {route_id}")
-                continue
+            # Create index
+            logger.info("Creating route index...")
+            self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
+            self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
             
-            # Get shape for this trip if available
-            shape = None
-            if pd.notna(first_row['shape_id']) and first_row['shape_id'] in shapes:
-                shape = shapes[first_row['shape_id']]
-            
-            # Create trips for this route
-            trips = []
-            for _, row in group.iterrows():
-                trip_id = str(row['trip_id'])
-                logger.debug(f"Creating trip {trip_id} for route {route_id}")
-                trip = Trip(
-                    id=trip_id,
+            # Get basic route information, filtered by trip_ids if provided
+            if trip_ids:
+                logger.info(f"Filtering routes by {len(trip_ids)} trip IDs")
+                result = self.db.execute("""
+                    SELECT DISTINCT
+                        r.route_id,
+                        r.route_short_name,
+                        r.route_long_name,
+                        r.route_type,
+                        r.route_color,
+                        r.route_text_color,
+                        r.agency_id
+                    FROM routes r
+                    JOIN trips t ON r.route_id = t.route_id
+                    WHERE t.trip_id IN (
+                        SELECT UNNEST(?)
+                    )
+                """, [trip_ids]).fetchdf()
+            else:
+                logger.info("Getting all routes")
+                result = self.db.execute("""
+                    SELECT 
+                        route_id,
+                        route_short_name,
+                        route_long_name,
+                        route_type,
+                        route_color,
+                        route_text_color,
+                        agency_id
+                    FROM routes
+                """).fetchdf()
+
+            if result is None:
+                raise RuntimeError("Failed to fetch routes from database")
+
+            logger.info(f"Got {len(result)} routes from database")
+
+            routes = []
+            for _, row in result.iterrows():
+                # Get all trips for this route
+                trips_result = self.db.execute("""
+                    SELECT DISTINCT trip_id 
+                    FROM trips 
+                    WHERE route_id = ?
+                    LIMIT 1
+                """, [str(row['route_id'])]).fetchdf()
+                
+                if trips_result.empty:
+                    logger.warning(f"No trips found for route {row['route_id']}")
+                    continue
+
+                # Get the first trip's stops
+                trip_id = str(trips_result['trip_id'].iloc[0])
+                route_stops = self._create_route_stops(trip_id)
+                
+                if not route_stops:
+                    logger.warning(f"No stops found for route {row['route_id']} trip {trip_id}")
+                    continue
+
+                route = Route(
                     route_id=str(row['route_id']),
-                    service_id=str(row['service_id']),
-                    headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
-                    direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
-                    block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
-                    shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
-                    stop_times=self._create_stop_times(trip_id)
+                    route_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else str(row['route_short_name']),
+                    trip_id=trip_id,  # Set the first trip ID
+                    stops=route_stops,  # Set the stops from the first trip
+                    service_days=set(),  # Will be loaded on demand
+                    shape=None,  # Will be loaded on demand
+                    short_name=str(row['route_short_name']) if pd.notna(row['route_short_name']) else None,
+                    long_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else None,
+                    route_type=int(row['route_type']) if pd.notna(row['route_type']) else None,
+                    color=str(row['route_color']) if pd.notna(row['route_color']) else None,
+                    text_color=str(row['route_text_color']) if pd.notna(row['route_text_color']) else None,
+                    agency_id=str(row['agency_id']) if pd.notna(row['agency_id']) else None,
+                    direction_id=None,  # Will be loaded on demand
+                    service_ids=[],  # Will be loaded on demand
+                    trips=[]  # Will be loaded on demand
                 )
-                trips.append(trip)
-                logger.debug(f"Created trip {trip_id} with {len(trip.stop_times)} stop times")
-            
-            # Create route object
-            route = Route(
-                route_id=route_id,
-                route_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else first_row['route_short_name'],
-                trip_id=trip_id,
-                stops=route_stops,
-                service_days=service_days,
-                shape=shape,
-                short_name=first_row['route_short_name'] if pd.notna(first_row['route_short_name']) else None,
-                long_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else None,
-                route_type=first_row['route_type'] if pd.notna(first_row['route_type']) else None,
-                color=first_row['route_color'] if pd.notna(first_row['route_color']) else None,
-                text_color=first_row['route_text_color'] if pd.notna(first_row['route_text_color']) else None,
-                agency_id=first_row['agency_id'] if pd.notna(first_row['agency_id']) else None,
-                direction_id=str(direction_id) if pd.notna(direction_id) else None,
-                service_ids=list(service_ids),
-                trips=trips
-            )
-            routes.append(route)
-            logger.debug(f"Created route {route_id} with {len(trips)} trips")
-        
-        logger.info(f"Created {len(routes)} route objects")
-        return routes
+                routes.append(route)
+
+            logger.info(f"Created {len(routes)} route objects")
+            return routes
+
+        except Exception as e:
+            logger.error(f"Error loading routes: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to load routes: {str(e)}")
     
     def _create_route_stops(self, trip_id: str) -> List[RouteStop]:
         """Create RouteStop objects for a trip.
@@ -897,8 +940,22 @@ class ParquetGTFSLoader:
                 /*+ PARALLEL({num_threads}) */
             """)
     
-    def load_feed(self) -> Optional[FlixbusFeed]:
-        """Load the GTFS feed into DuckDB and return a FlixbusFeed object."""
+    def load_feed(
+        self, 
+        target_stops: Optional[Set[str]] = None
+    ) -> FlixbusFeed:
+        """Load the GTFS feed into DuckDB and return a FlixbusFeed object.
+        If target_stops is provided, only loads routes that contain those stops.
+
+        Args:
+            target_stops: Optional set of stop IDs to filter routes by.
+
+        Returns:
+            FlixbusFeed object containing the loaded GTFS data.
+
+        Raises:
+            RuntimeError: If loading fails.
+        """
         logger.info("Loading GTFS feed into DuckDB...")
         
         try:
@@ -907,44 +964,82 @@ class ParquetGTFSLoader:
 
             # Load translations first (doesn't require DuckDB)
             self.translations = load_translations(self.data_dir)
+            if not isinstance(self.translations, dict):
+                raise RuntimeError("Failed to load translations")
             
-            # Load all components in correct order
+            # Load only the essential components initially
             logger.info("Loading stops...")
             self._load_stops()  # Creates stops table and populates self.stops dictionary
+            if not self.stops:
+                raise RuntimeError("Failed to load stops")
             
-            logger.info("Loading stop_times...")
-            self._load_stop_times()  # Creates stop_times table
+            # Load stop times and trips before routes to enable filtering
+            logger.info("Loading stop times...")
+            self._load_stop_times()
             
             logger.info("Loading trips...")
-            self._load_trips()  # Creates trips table
-            
-            logger.info("Loading calendar...")
-            self._load_calendar()  # Creates calendar and calendar_dates tables
+            self._load_trips()
+
+            # If we have target stops, pre-filter the trips that contain them
+            if target_stops:
+                logger.info(f"Pre-filtering trips containing stops: {target_stops}")
+                # Get trips that contain any of our target stops
+                trip_ids = self.db.execute("""
+                    SELECT DISTINCT trip_id 
+                    FROM stop_times 
+                    WHERE stop_id IN (
+                        SELECT UNNEST(?)
+                    )
+                """, [list(target_stops)]).fetchdf()['trip_id'].tolist()
+                
+                if not trip_ids:
+                    logger.warning("No trips found containing target stops")
+                    trip_ids = []
+                
+                logger.info(f"Found {len(trip_ids)} trips containing target stops")
+            else:
+                trip_ids = None  # Load all trips
             
             logger.info("Loading routes...")
-            routes = self._load_routes()  # Uses all previous tables
+            routes = self._load_routes(trip_ids)  # Uses all previous tables
+            if routes is None:
+                raise RuntimeError("Failed to load routes")
             
             # Get calendars and calendar dates
             calendars = self._get_calendars()
             calendar_dates = self._get_calendar_dates()
+
+            # Load agencies
+            logger.info("Loading agencies...")
+            agencies = self._load_agencies()
             
             logger.info("GTFS feed loaded successfully")
-            return FlixbusFeed(
+            feed = FlixbusFeed(
                 stops=self.stops,
                 routes=routes,
-                translations=self.translations,
                 calendars=calendars,
-                calendar_dates=calendar_dates
+                calendar_dates=calendar_dates,
+                trips={},  # Empty initially, will be loaded on demand
+                stop_times_dict={},  # Empty initially, will be loaded on demand
+                agencies=agencies,
+                translations=self.translations
             )
+
+            # Set feed reference on all routes
+            for route in feed.routes:
+                route._feed = feed
+
+            return feed
         except Exception as e:
             logger.error(f"Error loading GTFS feed: {e}", exc_info=True)
-            return None
+            raise RuntimeError(f"Failed to load GTFS data: {str(e)}")
         finally:
             # Clean up any temporary tables
             try:
                 self.db.execute("DROP TABLE IF EXISTS temp_stops")
                 self.db.execute("DROP TABLE IF EXISTS temp_trips")
                 self.db.execute("DROP TABLE IF EXISTS temp_routes")
+                self.db.execute("DROP TABLE IF EXISTS temp_agencies")
             except:
                 pass
     
@@ -1164,20 +1259,18 @@ class ParquetGTFSLoader:
             return []
     
     def close(self):
-        """Close the DuckDB connection and clean up temporary files."""
+        """Close the DuckDB connection and clean up resources."""
         try:
-            if self.db:
+            if hasattr(self, 'db'):
                 self.db.close()
-                self.db = None
-        finally:
-            # Clean up temporary directory
             if hasattr(self, '_temp_dir') and self._temp_dir.exists():
-                try:
-                    shutil.rmtree(str(self._temp_dir))
-                    logger.debug(f"Cleaned up temporary directory: {self._temp_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary directory: {e}")
-                self._temp_dir = None
+                shutil.rmtree(str(self._temp_dir))
+        except Exception as e:
+            logger.warning(f"Error closing DuckDB connection: {e}")
+
+    def __del__(self):
+        """Ensure resources are cleaned up when the object is deleted."""
+        self.close()
     
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
         """Get the service days for a set of service IDs."""
@@ -1512,19 +1605,124 @@ class ParquetGTFSLoader:
 
         return stops_in_bbox
 
+    def _load_agencies(self) -> Dict[str, Agency]:
+        """Load agencies from agency.txt into DuckDB.
 
-def load_feed(data_dir: str | Path = None) -> Optional[FlixbusFeed]:
-    """Load a GTFS feed from the specified directory.
-    
+        Returns:
+            Dict mapping agency_id to Agency objects.
+        """
+        parquet_path = self._csv_to_parquet('agency.txt')
+        if not parquet_path:
+            logger.warning("No agency.txt found")
+            return {}
+
+        logger.info("Loading agencies...")
+        try:
+            # First, get the available columns
+            self.db.execute(f"""
+                CREATE TEMP TABLE temp_agencies AS 
+                SELECT * FROM read_parquet('{parquet_path}')
+            """)
+            columns = self.db.execute("DESCRIBE temp_agencies").fetchdf()['column_name'].tolist()
+
+            # Build the query dynamically based on available columns
+            select_parts = [
+                'agency_id',
+                'agency_name',
+                'agency_url',
+                'agency_timezone'
+            ]
+
+            optional_columns = {
+                'agency_lang': 'NULL',
+                'agency_phone': 'NULL',
+                'agency_fare_url': 'NULL',
+                'agency_email': 'NULL'
+            }
+
+            for col, default in optional_columns.items():
+                if col in columns:
+                    select_parts.append(f"COALESCE({col}, {default}) as {col}")
+                else:
+                    select_parts.append(f"{default} as {col}")
+
+            # Create agencies table
+            self.db.execute(f"""
+                CREATE TABLE agencies AS 
+                SELECT 
+                    {', '.join(select_parts)}
+                FROM temp_agencies
+            """)
+
+            # Create index
+            self.db.execute("DROP INDEX IF EXISTS idx_agency_id")
+            self.db.execute("CREATE INDEX idx_agency_id ON agencies(agency_id)")
+
+            # Get agency data
+            result = self.db.execute("""
+                SELECT * FROM agencies
+            """).fetchdf()
+
+            agencies = {}
+            for _, row in result.iterrows():
+                agency = Agency(
+                    agency_id=str(row['agency_id']),
+                    agency_name=str(row['agency_name']),
+                    agency_url=str(row['agency_url']),
+                    agency_timezone=str(row['agency_timezone']),
+                    agency_lang=str(row['agency_lang']) if pd.notna(row['agency_lang']) else None,
+                    agency_phone=str(row['agency_phone']) if pd.notna(row['agency_phone']) else None,
+                    agency_fare_url=str(row['agency_fare_url']) if pd.notna(row['agency_fare_url']) else None,
+                    agency_email=str(row['agency_email']) if pd.notna(row['agency_email']) else None
+                )
+                agencies[agency.agency_id] = agency
+
+            logger.info(f"Loaded {len(agencies)} agencies")
+            return agencies
+
+        except Exception as e:
+            logger.error(f"Error loading agencies: {e}", exc_info=True)
+            return {}
+        finally:
+            # Clean up temporary table
+            self.db.execute("DROP TABLE IF EXISTS temp_agencies")
+
+
+def load_feed(
+    data_dir: str | Path = None, 
+    target_stops: Optional[Set[str]] = None
+) -> FlixbusFeed:
+    """Load GTFS feed from the specified directory.
+    If target_stops is provided, only loads routes that contain those stops.
+
     Args:
-        data_dir: Directory containing GTFS files. If None, uses current directory.
-        
+        data_dir: Path to the GTFS data directory. Can be either a string or Path object.
+        target_stops: Optional set of stop IDs to filter routes by.
+
     Returns:
-        A FlixbusFeed object if successful, None otherwise.
+        FlixbusFeed object containing the loaded GTFS data.
+
+    Raises:
+        ValueError: If data_dir is None or does not exist.
+        RuntimeError: If loading fails.
     """
+    if not data_dir:
+        raise ValueError("No data directory provided to load_feed()")
+    
+    # Convert data_dir to Path if it's a string
+    data_path = Path(data_dir)
+
+    if not data_path.exists():
+        raise ValueError(f"Data directory does not exist: {data_path}")
+
+    logger.info(f"Loading GTFS feed from: {data_path}")
+
     loader = ParquetGTFSLoader(data_dir)
     try:
-        return loader.load_feed()
+        feed = loader.load_feed(target_stops=target_stops)
+        if not isinstance(feed, FlixbusFeed):
+            raise RuntimeError(f"Expected FlixbusFeed object but got {type(feed)}")
+        return feed
     finally:
         loader.close()
 

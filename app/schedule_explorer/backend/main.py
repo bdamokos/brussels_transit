@@ -1348,8 +1348,18 @@ async def get_waiting_times_impl(
     ):
         start_time = time.time()
 
-        # Use the new handler
-        _, _, provider = await handle_provider_request(provider_id, request)
+        # Use the handler to ensure the correct provider is loaded
+        is_ready, message, provider = await handle_provider_request(provider_id, request)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
+
+        if not feed:
+            raise HTTPException(status_code=503, detail="GTFS data not loaded")
+
+        logger.info(f"Using feed with {len(feed.routes)} routes")
 
         # Get the stop
         gtfs_stop = feed.stops.get(stop_id)
@@ -1412,7 +1422,7 @@ async def get_waiting_times_impl(
         for current_stop_id in stop_ids_to_check:
             # Get all routes serving this stop
             routes_info = await get_station_routes(
-                request=request,  # Add the missing request parameter
+                request=request,
                 station_id=current_stop_id,
                 provider_id=provider_id,
             )
@@ -1428,7 +1438,7 @@ async def get_waiting_times_impl(
 
                 # Get all trips between our stop and the terminus
                 routes_response = await get_routes(
-                    request=request,  # Add the missing request parameter
+                    request=request,
                     from_station=current_stop_id,
                     to_station=route_info.terminus_stop_id,
                     date=None,
