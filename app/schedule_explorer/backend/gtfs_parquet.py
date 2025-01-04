@@ -166,12 +166,242 @@ class ParquetGTFSLoader:
             return None
         
         try:
-            # Create a temporary table from the CSV
+            # Define column types based on the file
+            column_types = {
+                'stop_times.txt': {
+                    'trip_id': 'VARCHAR',
+                    'arrival_time': 'VARCHAR',  # Handle times > 24:00:00
+                    'departure_time': 'VARCHAR',  # Handle times > 24:00:00
+                    'stop_id': 'VARCHAR',
+                    'stop_sequence': 'INTEGER',
+                    'stop_headsign': 'VARCHAR',
+                    'pickup_type': 'INTEGER',
+                    'drop_off_type': 'INTEGER',
+                    'continuous_pickup': 'INTEGER',
+                    'continuous_drop_off': 'INTEGER',
+                    'shape_dist_traveled': 'DOUBLE',
+                    'timepoint': 'INTEGER',
+                    'start_service_area_id': 'VARCHAR',
+                    'end_service_area_id': 'VARCHAR',
+                    'start_service_area_radius': 'DOUBLE',
+                    'end_service_area_radius': 'DOUBLE',
+                    'pickup_area_id': 'VARCHAR',
+                    'drop_off_area_id': 'VARCHAR',
+                    'pickup_service_area_radius': 'DOUBLE',
+                    'drop_off_service_area_radius': 'DOUBLE'
+                },
+                'trips.txt': {
+                    'route_id': 'VARCHAR',
+                    'service_id': 'VARCHAR',
+                    'trip_id': 'VARCHAR',
+                    'trip_headsign': 'VARCHAR',
+                    'trip_short_name': 'VARCHAR',
+                    'direction_id': 'VARCHAR',
+                    'block_id': 'VARCHAR',
+                    'shape_id': 'VARCHAR',
+                    'wheelchair_accessible': 'INTEGER',
+                    'bikes_allowed': 'INTEGER',
+                    'exceptional': 'INTEGER',
+                    'drt_max_travel_time': 'INTEGER',
+                    'drt_avg_travel_time': 'INTEGER',
+                    'drt_advance_book_min': 'INTEGER',
+                    'drt_pickup_message': 'VARCHAR',
+                    'drt_drop_off_message': 'VARCHAR',
+                    'continuous_pickup': 'INTEGER',
+                    'continuous_drop_off': 'INTEGER'
+                },
+                'routes.txt': {
+                    'agency_id': 'VARCHAR',
+                    'route_id': 'VARCHAR',
+                    'route_short_name': 'VARCHAR',
+                    'route_long_name': 'VARCHAR',
+                    'route_type': 'INTEGER',
+                    'route_desc': 'VARCHAR',
+                    'route_color': 'VARCHAR',
+                    'route_text_color': 'VARCHAR',
+                    'route_sort_order': 'INTEGER',
+                    'route_url': 'VARCHAR',
+                    'continuous_pickup': 'INTEGER',
+                    'continuous_drop_off': 'INTEGER',
+                    'network_id': 'VARCHAR'
+                },
+                'shapes.txt': {
+                    'shape_id': 'VARCHAR',
+                    'shape_pt_lat': 'DOUBLE',
+                    'shape_pt_lon': 'DOUBLE',
+                    'shape_pt_sequence': 'INTEGER',
+                    'shape_dist_traveled': 'DOUBLE'
+                },
+                'stops.txt': {
+                    'stop_id': 'VARCHAR',
+                    'stop_code': 'VARCHAR',
+                    'stop_name': 'VARCHAR',
+                    'stop_desc': 'VARCHAR',
+                    'stop_lat': 'DOUBLE',
+                    'stop_lon': 'DOUBLE',
+                    'zone_id': 'VARCHAR',
+                    'stop_url': 'VARCHAR',
+                    'location_type': 'INTEGER',
+                    'parent_station': 'VARCHAR',
+                    'stop_timezone': 'VARCHAR',
+                    'wheelchair_boarding': 'INTEGER',
+                    'level_id': 'VARCHAR',
+                    'platform_code': 'VARCHAR',
+                    'entrance_restriction': 'INTEGER',
+                    'exit_restriction': 'INTEGER',
+                    'entry_doors': 'VARCHAR',
+                    'exit_doors': 'VARCHAR',
+                    'signposted_as': 'VARCHAR',
+                    'tts_stop_name': 'VARCHAR'
+                },
+                'calendar.txt': {
+                    'service_id': 'VARCHAR',
+                    'monday': 'BOOLEAN',
+                    'tuesday': 'BOOLEAN',
+                    'wednesday': 'BOOLEAN',
+                    'thursday': 'BOOLEAN',
+                    'friday': 'BOOLEAN',
+                    'saturday': 'BOOLEAN',
+                    'sunday': 'BOOLEAN',
+                    'start_date': 'VARCHAR',
+                    'end_date': 'VARCHAR'
+                },
+                'calendar_dates.txt': {
+                    'service_id': 'VARCHAR',
+                    'date': 'VARCHAR',
+                    'exception_type': 'INTEGER'
+                },
+                'fare_attributes.txt': {
+                    'fare_id': 'VARCHAR',
+                    'price': 'DOUBLE',
+                    'currency_type': 'VARCHAR',
+                    'payment_method': 'INTEGER',
+                    'transfers': 'INTEGER',
+                    'agency_id': 'VARCHAR',
+                    'transfer_duration': 'INTEGER'
+                },
+                'fare_rules.txt': {
+                    'fare_id': 'VARCHAR',
+                    'route_id': 'VARCHAR',
+                    'origin_id': 'VARCHAR',
+                    'destination_id': 'VARCHAR',
+                    'contains_id': 'VARCHAR'
+                },
+                'frequencies.txt': {
+                    'trip_id': 'VARCHAR',
+                    'start_time': 'VARCHAR',
+                    'end_time': 'VARCHAR',
+                    'headway_secs': 'INTEGER',
+                    'exact_times': 'INTEGER'
+                },
+                'transfers.txt': {
+                    'from_stop_id': 'VARCHAR',
+                    'to_stop_id': 'VARCHAR',
+                    'transfer_type': 'INTEGER',
+                    'min_transfer_time': 'INTEGER',
+                    'from_route_id': 'VARCHAR',
+                    'to_route_id': 'VARCHAR',
+                    'from_trip_id': 'VARCHAR',
+                    'to_trip_id': 'VARCHAR'
+                },
+                'pathways.txt': {
+                    'pathway_id': 'VARCHAR',
+                    'from_stop_id': 'VARCHAR',
+                    'to_stop_id': 'VARCHAR',
+                    'pathway_mode': 'INTEGER',
+                    'is_bidirectional': 'INTEGER',
+                    'length': 'DOUBLE',
+                    'traversal_time': 'INTEGER',
+                    'stair_count': 'INTEGER',
+                    'max_slope': 'DOUBLE',
+                    'min_width': 'DOUBLE',
+                    'signposted_as': 'VARCHAR',
+                    'reversed_signposted_as': 'VARCHAR',
+                    'entrance_restriction': 'INTEGER',
+                    'exit_restriction': 'INTEGER'
+                },
+                'levels.txt': {
+                    'level_id': 'VARCHAR',
+                    'level_index': 'DOUBLE',
+                    'level_name': 'VARCHAR'
+                },
+                'feed_info.txt': {
+                    'feed_publisher_name': 'VARCHAR',
+                    'feed_publisher_url': 'VARCHAR',
+                    'feed_lang': 'VARCHAR',
+                    'default_lang': 'VARCHAR',
+                    'feed_start_date': 'VARCHAR',
+                    'feed_end_date': 'VARCHAR',
+                    'feed_version': 'VARCHAR',
+                    'feed_contact_email': 'VARCHAR',
+                    'feed_contact_url': 'VARCHAR'
+                },
+                'translations.txt': {
+                    'table_name': 'VARCHAR',
+                    'field_name': 'VARCHAR',
+                    'language': 'VARCHAR',
+                    'translation': 'VARCHAR',
+                    'record_id': 'VARCHAR',
+                    'record_sub_id': 'VARCHAR',
+                    'field_value': 'VARCHAR'
+                },
+                'attributions.txt': {
+                    'attribution_id': 'VARCHAR',
+                    'agency_id': 'VARCHAR',
+                    'route_id': 'VARCHAR',
+                    'trip_id': 'VARCHAR',
+                    'organization_name': 'VARCHAR',
+                    'is_producer': 'INTEGER',
+                    'is_operator': 'INTEGER',
+                    'is_authority': 'INTEGER',
+                    'attribution_url': 'VARCHAR',
+                    'attribution_email': 'VARCHAR',
+                    'attribution_phone': 'VARCHAR'
+                }
+            }
+            
+            # Get column types for this file
+            types = column_types.get(filename, {})
+            if not types:
+                logger.warning(f"No type definitions for {filename}, using auto-detection")
+            
+            # First read the header to get actual columns
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                header = f.readline().strip().split(',')
+                header = [col.strip('"') for col in header]  # Remove quotes if present
+            
+            # Filter type specs to only include columns that exist in the file
+            type_specs = []
+            for col in header:
+                col_type = types.get(col, 'VARCHAR')  # Default to VARCHAR if type not specified
+                type_specs.append(f"{col} {col_type}")
+            
+            # Create a temporary table from the CSV with explicit types
             table_name = f"temp_{filename.replace('.', '_')}"
-            self.db.execute(f"""
-                CREATE TABLE {table_name} AS 
-                SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=1000)
-            """)
+            
+            if type_specs:
+                # Create table with explicit types
+                self.db.execute(f"""
+                    CREATE TABLE {table_name} (
+                        {', '.join(type_specs)}
+                    )
+                """)
+                
+                # Load data with COPY
+                self.db.execute(f"""
+                    COPY {table_name} FROM '{csv_path}' (
+                        AUTO_DETECT FALSE,
+                        HEADER TRUE,
+                        DELIMITER ',',
+                        QUOTE '"'
+                    )
+                """)
+            else:
+                # Fallback to auto-detection for files without type definitions
+                self.db.execute(f"""
+                    CREATE TABLE {table_name} AS 
+                    SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=-1)
+                """)
             
             # Write to Parquet using DuckDB's COPY command
             parquet_path = self.data_dir / f"{filename}.parquet"
@@ -193,20 +423,37 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
 
-        # Read stops from Parquet file
-        query = """
+        # First, get the available columns
+        self.db.execute(f"""
+            CREATE TEMP TABLE temp_stops AS 
+            SELECT * FROM read_parquet('{parquet_path}')
+        """)
+        columns = self.db.execute("DESCRIBE temp_stops").fetchdf()['column_name'].tolist()
+
+        # Build the query dynamically based on available columns
+        optional_columns = {
+            'location_type': 'NULL',
+            'parent_station': 'NULL',
+            'platform_code': 'NULL',
+            'stop_timezone': 'NULL'
+        }
+
+        select_parts = [
+            'stop_id',
+            'stop_name',
+            'stop_lat',
+            'stop_lon'
+        ]
+
+        for col, default in optional_columns.items():
+            select_parts.append(f"COALESCE({col}, {default}) as {col}" if col in columns else f"{default} as {col}")
+
+        query = f"""
             SELECT 
-                stop_id,
-                stop_name,
-                stop_lat,
-                stop_lon,
-                COALESCE(location_type, NULL) as location_type,
-                COALESCE(parent_station, NULL) as parent_station,
-                COALESCE(platform_code, NULL) as platform_code,
-                COALESCE(stop_timezone, NULL) as timezone
-            FROM read_parquet(?)
+                {', '.join(select_parts)}
+            FROM temp_stops
         """
-        result = self.db.execute(query, [str(parquet_path)]).fetchdf()
+        result = self.db.execute(query).fetchdf()
         
         # Create Stop objects
         for _, row in result.iterrows():
@@ -219,9 +466,12 @@ class ParquetGTFSLoader:
                 location_type=None if pd.isna(row["location_type"]) else row["location_type"],
                 parent_station=None if pd.isna(row["parent_station"]) else row["parent_station"],
                 platform_code=None if pd.isna(row["platform_code"]) else row["platform_code"],
-                timezone=None if pd.isna(row["timezone"]) else row["timezone"]
+                timezone=None if pd.isna(row["stop_timezone"]) else row["stop_timezone"]
             )
             self.stops[stop.id] = stop
+
+        # Clean up
+        self.db.execute("DROP TABLE temp_stops")
     
     def _load_stop_times(self) -> None:
         """Load stop times data into DuckDB using parallel processing."""
@@ -278,6 +528,61 @@ class ParquetGTFSLoader:
         self.db.execute("CREATE INDEX idx_trips_id ON trips(trip_id)")
         self.db.execute("CREATE INDEX idx_trips_route ON trips(route_id)")
     
+    def _load_shapes(self) -> Dict[str, Shape]:
+        """Load shapes from shapes.txt into memory.
+        
+        Returns:
+            Dictionary mapping shape_id to Shape objects.
+        """
+        parquet_path = self._csv_to_parquet('shapes.txt')
+        if not parquet_path:
+            logger.warning("No shapes.txt found, routes will use stop coordinates")
+            return {}
+
+        # Create shapes table
+        self.db.execute(f"""
+            CREATE TABLE shapes AS 
+            SELECT 
+                shape_id,
+                CAST(shape_pt_lat AS FLOAT) as shape_pt_lat,
+                CAST(shape_pt_lon AS FLOAT) as shape_pt_lon,
+                CAST(shape_pt_sequence AS INTEGER) as shape_pt_sequence
+            FROM parquet_scan('{parquet_path}')
+        """)
+        
+        # Create index for faster lookups
+        self.db.execute("CREATE INDEX idx_shapes_id ON shapes(shape_id)")
+        
+        # Get all shapes with their points, properly ordered by sequence
+        query = """
+            WITH ordered_points AS (
+                SELECT 
+                    shape_id,
+                    shape_pt_lat,
+                    shape_pt_lon,
+                    shape_pt_sequence
+                FROM shapes
+                ORDER BY shape_id, shape_pt_sequence
+            )
+            SELECT 
+                shape_id,
+                array_agg([shape_pt_lat, shape_pt_lon] ORDER BY shape_pt_sequence) as points
+            FROM ordered_points
+            GROUP BY shape_id
+        """
+        result = self.db.execute(query).fetchdf()
+        
+        # Create Shape objects
+        shapes = {}
+        for _, row in result.iterrows():
+            shapes[row['shape_id']] = Shape(
+                shape_id=str(row['shape_id']),
+                points=row['points']
+            )
+        
+        logger.info(f"Loaded {len(shapes)} shapes")
+        return shapes
+    
     def _load_routes(self) -> List[Route]:
         """Load routes from the database and create Route objects.
         
@@ -306,12 +611,26 @@ class ParquetGTFSLoader:
         # Create index
         self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
         
-        # Get all routes with their trips
+        # Load shapes
+        shapes = self._load_shapes()
+        
+        # Get representative trip for each route
         query = """
+            WITH trip_ranks AS (
+                SELECT 
+                    t.route_id,
+                    t.trip_id,
+                    t.service_id,
+                    t.trip_headsign,
+                    t.direction_id,
+                    t.shape_id,
+                    ROW_NUMBER() OVER (PARTITION BY t.route_id ORDER BY t.trip_id) as rn
+                FROM trips t
+            )
             SELECT 
                 r.route_id,
-                r.route_long_name,
                 r.route_short_name,
+                r.route_long_name,
                 r.route_type,
                 r.route_color,
                 r.route_text_color,
@@ -322,8 +641,8 @@ class ParquetGTFSLoader:
                 t.direction_id,
                 t.shape_id
             FROM routes r
-            JOIN trips t ON r.route_id = t.route_id
-            ORDER BY r.route_id, t.direction_id
+            JOIN trip_ranks t ON r.route_id = t.route_id AND t.rn = 1
+            ORDER BY r.route_id
         """
         result = self.db.execute(query).fetchdf()
         
@@ -343,6 +662,11 @@ class ParquetGTFSLoader:
             service_days = self._get_service_days(service_ids)
             if not service_days:
                 continue
+            
+            # Get shape for this trip if available
+            shape = None
+            if pd.notna(first_row['shape_id']) and first_row['shape_id'] in shapes:
+                shape = shapes[first_row['shape_id']]
             
             # Create trips for this route
             trips = []
@@ -364,6 +688,7 @@ class ParquetGTFSLoader:
                 trip_id=trip_id,
                 stops=route_stops,
                 service_days=service_days,
+                shape=shape,  # Add shape to route
                 short_name=first_row['route_short_name'] if pd.notna(first_row['route_short_name']) else None,
                 long_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else None,
                 route_type=first_row['route_type'] if pd.notna(first_row['route_type']) else None,
@@ -406,11 +731,12 @@ class ParquetGTFSLoader:
         # Create RouteStop objects
         route_stops = []
         for _, row in result.iterrows():
-            stop_id = row['stop_id']
+            stop_id = str(row['stop_id'])  # Ensure string type
+            
             if stop_id not in self.stops:
                 logger.warning(f"Stop {stop_id} not found in stops dictionary")
                 continue
-                
+            
             route_stop = RouteStop(
                 stop=self.stops[stop_id],
                 arrival_time=row['arrival_time'],
@@ -617,71 +943,91 @@ class ParquetGTFSLoader:
         """Get the service days for a set of service IDs."""
         service_days = set()
         
-        # First check calendar_dates.txt for type 1 exceptions (added service)
-        calendar_dates_query = """
-            SELECT service_id, date, exception_type
-            FROM calendar_dates
-            WHERE service_id = ?
-        """
+        # Check if calendar table exists
+        has_calendar = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar'
+            )
+        """).fetchone()[0]
         
-        # Check calendar_dates for type 1 exceptions first
-        for service_id in service_ids:
-            dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
-            if not dates_result.empty:
-                # Only consider type 1 exceptions (additions)
-                additions = dates_result[dates_result['exception_type'] == 1]
-                for _, row in additions.iterrows():
-                    date = datetime.strptime(str(row['date']), '%Y%m%d')
-                    weekday = date.strftime('%A').lower()
-                    service_days.add(weekday)
+        # Check if calendar_dates table exists
+        has_calendar_dates = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar_dates'
+            )
+        """).fetchone()[0]
         
-        # Then check calendar.txt for regular service
-        calendar_query = """
-            SELECT 
-                service_id,
-                monday, tuesday, wednesday, thursday, friday, saturday, sunday,
-                start_date, end_date
-            FROM calendar
-            WHERE service_id = ?
-        """
-        
-        has_regular_calendar = False
-        for service_id in service_ids:
-            # Check regular calendar
-            calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
-            if not calendar_result.empty:
-                row = calendar_result.iloc[0]
-                # Only consider this calendar if it has at least one day set to 1
-                if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
-                       row['friday'], row['saturday'], row['sunday']]):
-                    has_regular_calendar = True
-                if row['monday']: service_days.add('monday')
-                if row['tuesday']: service_days.add('tuesday')
-                if row['wednesday']: service_days.add('wednesday')
-                if row['thursday']: service_days.add('thursday')
-                if row['friday']: service_days.add('friday')
-                if row['saturday']: service_days.add('saturday')
-                if row['sunday']: service_days.add('sunday')
-        
-        # If we have regular calendar, check for type 2 exceptions (removals)
-        if has_regular_calendar:
+        if has_calendar_dates:
+            # First check calendar_dates.txt for type 1 exceptions (added service)
+            calendar_dates_query = """
+                SELECT service_id, date, exception_type
+                FROM calendar_dates
+                WHERE service_id = ?
+            """
+            
+            # Check calendar_dates for type 1 exceptions first
             for service_id in service_ids:
                 dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
                 if not dates_result.empty:
-                    removals = dates_result[dates_result['exception_type'] == 2]
-                    if not removals.empty:
-                        # Group removals by weekday
-                        removals_by_day = {}
-                        for _, row in removals.iterrows():
-                            date = datetime.strptime(str(row['date']), '%Y%m%d')
-                            weekday = date.strftime('%A').lower()
-                            if weekday not in removals_by_day:
-                                removals_by_day[weekday] = set()
-                            removals_by_day[weekday].add(row['service_id'])
-                        
-                        # Remove days that are completely excluded by type 2 exceptions
-                        for day, removed_services in removals_by_day.items():
-                            if removed_services == service_ids:  # All services have this day removed
-                                service_days.discard(day)
+                    # Only consider type 1 exceptions (additions)
+                    additions = dates_result[dates_result['exception_type'] == 1]
+                    for _, row in additions.iterrows():
+                        date = datetime.strptime(str(row['date']), '%Y%m%d')
+                        weekday = date.strftime('%A').lower()
+                        service_days.add(weekday)
+        
+        if has_calendar:
+            # Then check calendar.txt for regular service
+            calendar_query = """
+                SELECT 
+                    service_id,
+                    monday, tuesday, wednesday, thursday, friday, saturday, sunday,
+                    start_date, end_date
+                FROM calendar
+                WHERE service_id = ?
+            """
+            
+            has_regular_calendar = False
+            for service_id in service_ids:
+                # Check regular calendar
+                calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
+                if not calendar_result.empty:
+                    row = calendar_result.iloc[0]
+                    # Only consider this calendar if it has at least one day set to 1
+                    if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
+                           row['friday'], row['saturday'], row['sunday']]):
+                        has_regular_calendar = True
+                    if row['monday']: service_days.add('monday')
+                    if row['tuesday']: service_days.add('tuesday')
+                    if row['wednesday']: service_days.add('wednesday')
+                    if row['thursday']: service_days.add('thursday')
+                    if row['friday']: service_days.add('friday')
+                    if row['saturday']: service_days.add('saturday')
+                    if row['sunday']: service_days.add('sunday')
+            
+            # If we have regular calendar, check for type 2 exceptions (removals)
+            if has_regular_calendar and has_calendar_dates:
+                for service_id in service_ids:
+                    dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
+                    if not dates_result.empty:
+                        removals = dates_result[dates_result['exception_type'] == 2]
+                        if not removals.empty:
+                            # Group removals by weekday
+                            removals_by_day = {}
+                            for _, row in removals.iterrows():
+                                date = datetime.strptime(str(row['date']), '%Y%m%d')
+                                weekday = date.strftime('%A').lower()
+                                if weekday not in removals_by_day:
+                                    removals_by_day[weekday] = set()
+                                removals_by_day[weekday].add(row['service_id'])
+                            
+                            # Remove days that are completely excluded by type 2 exceptions
+                            for day, removed_services in removals_by_day.items():
+                                if removed_services == service_ids:  # All services have this day removed
+                                    service_days.discard(day)
         
         return service_days 
