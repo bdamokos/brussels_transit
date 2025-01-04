@@ -1086,7 +1086,8 @@ async def get_station_routes(
                         )
                     )
 
-        return routes_info
+        # Return routes_info, ensuring it's always a list
+        return routes_info if routes_info else []
 
 
 @app.get(
