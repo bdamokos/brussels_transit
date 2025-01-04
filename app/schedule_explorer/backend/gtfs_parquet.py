@@ -35,8 +35,8 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
     """
     Load translations from translations.txt if it exists.
     Handles both translation formats:
-    1. Simple format: trans_id,translation,lang
-    2. Table-based format: table_name,field_name,language,translation,record_id[,record_sub_id,field_value]
+    1. Simple format (STIB): trans_id,translation,lang
+    2. Table-based format (SNCB): table_name,field_name,language,translation,record_id[,record_sub_id,field_value]
 
     Returns a dictionary mapping stop_id to a dictionary of language codes to translations.
     """
@@ -51,20 +51,30 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
         # First, determine which format we're dealing with by reading the header
         with open(translations_file, "r", encoding="utf-8") as f:
             header = f.readline().strip().split(",")
+            logger.info(f"Translation file header: {header}")
 
         db = duckdb.connect(":memory:")
 
-        if "table_name" in header:  # Table-based format
-            logger.info("Using table-based format for translations")
+        # Load translations and stops
+        logger.info(f"Loading translations from {translations_file}")
+        logger.info(f"Loading stops from {gtfs_dir}/stops.txt")
+        
+        db.execute(f"""
+            CREATE VIEW translations AS 
+            SELECT * FROM read_csv_auto('{translations_file}', header=true);
+            
+            CREATE VIEW stops AS 
+            SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
+        """)
 
-            # Load translations and stops
-            db.execute(f"""
-                CREATE VIEW translations AS 
-                SELECT * FROM read_csv_auto('{translations_file}', header=true);
-                
-                CREATE VIEW stops AS 
-                SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
-            """)
+        # Sample the data to understand what we're working with
+        trans_sample = db.execute("SELECT * FROM translations LIMIT 5").fetchdf()
+        stops_sample = db.execute("SELECT * FROM stops LIMIT 5").fetchdf()
+        logger.info(f"Translation sample:\n{trans_sample}")
+        logger.info(f"Stops sample:\n{stops_sample}")
+
+        if "table_name" in header:  # Table-based format (SNCB)
+            logger.info("Using table-based format for translations")
 
             # Filter for stop name translations and join with stops
             db.execute("""
@@ -93,18 +103,10 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
                 JOIN name_to_ids n ON t.original_name = n.stop_name;
             """)
             result = db.fetchdf()
+            logger.info(f"Found {len(result)} table-based translations")
 
-        else:  # Simple format
+        else:  # Simple format (STIB)
             logger.info("Using simple format for translations")
-
-            # Load translations and stops
-            db.execute(f"""
-                CREATE VIEW translations AS 
-                SELECT * FROM read_csv_auto('{translations_file}', header=true);
-                
-                CREATE VIEW stops AS 
-                SELECT * FROM read_csv_auto('{gtfs_dir}/stops.txt', header=true);
-            """)
 
             # Join translations with stops based on stop_name matching trans_id
             db.execute("""
@@ -118,6 +120,7 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
                 AND t.lang IS NOT NULL;
             """)
             result = db.fetchdf()
+            logger.info(f"Found {len(result)} simple format translations")
 
         # Process results into the required format
         for _, row in result.iterrows():
@@ -127,12 +130,16 @@ def load_translations(gtfs_dir: Path) -> Dict[str, Dict[str, str]]:
             translations[stop_id][row['language']] = row['translation']
 
         logger.info(f"Created translations map with {len(translations)} entries")
+        # Log a sample of the translations
+        sample_stops = list(translations.keys())[:5]
+        for stop_id in sample_stops:
+            logger.info(f"Sample translation for stop {stop_id}: {translations[stop_id]}")
+        
         return translations
 
     except Exception as e:
-        logger.warning(f"Error loading translations: {e}")
+        logger.error(f"Error loading translations: {e}", exc_info=True)
         return {}
-
 class ParquetGTFSLoader:
     """
     Loads and manages GTFS data using Parquet files and DuckDB for efficient querying.
@@ -825,8 +832,7 @@ class ParquetGTFSLoader:
             route_stops.append(route_stop)
         
         logger.debug(f"Created {len(route_stops)} route stops for trip {trip_id}")
-        return route_stops
-    
+        return route_stops    
     def _load_calendar(self) -> None:
         """Load calendar data into DuckDB using parallel processing."""
         calendar_path = self._csv_to_parquet('calendar.txt')
@@ -1324,3 +1330,4 @@ class ParquetGTFSLoader:
                 ))
         
         return calendar_dates 
+
