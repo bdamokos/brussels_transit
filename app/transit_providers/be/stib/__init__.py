@@ -343,7 +343,11 @@ class StibProvider(TransitProvider):
                         return {"coordinates": coords}
 
             # If still not found, try to fetch from API
-            from .get_stop_names import get_stop_names
+            try:
+                from .get_stop_names import get_stop_names
+            except Exception as e:
+                logger.error(f"Error importing get_stop_names: {e}")
+                return {"coordinates": None}
 
             stop_data = get_stop_names([stop_id])
             if stop_id in stop_data:
