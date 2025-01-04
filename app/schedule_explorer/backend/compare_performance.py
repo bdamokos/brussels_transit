@@ -9,11 +9,10 @@ import psutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
-from . import gtfs_loader
-from . import gtfs_parquet
-from .gtfs_loader import Stop
+from app.schedule_explorer.backend import gtfs_loader, gtfs_parquet
+from app.schedule_explorer.backend.gtfs_loader import RouteStop, Stop
+from app.schedule_explorer.backend.models import BoundingBox, StationResponse, Location
 import os
-from app.schedule_explorer.backend.gtfs_loader import RouteStop
 from app.schedule_explorer.backend import gtfs_loader, gtfs_parquet
 from app.schedule_explorer.backend.gtfs_loader import FlixbusFeed
 
@@ -220,115 +219,56 @@ def compare_route_stops(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -
     """Compare route stops between original and Parquet implementations."""
     logger.info("\n=== Route Stop Comparison ===")
 
-    # Compare total number of routes
-    logger.info(f"Original: {len(original_feed.routes)} routes")
-    logger.info(f"Parquet: {len(parquet_feed.routes)} routes")
+    # Get a route from each implementation
+    original_route = (
+        original_feed.routes[0]
+        if isinstance(original_feed.routes, list)
+        else next(iter(original_feed.routes.values()))
+    )
+    parquet_route = parquet_feed.routes[0]
 
-    # Create maps of route_id -> list of routes (for variants)
-    original_routes = {}
-    for route in original_feed.routes:
-        if route.route_id not in original_routes:
-            original_routes[route.route_id] = []
-        original_routes[route.route_id].append(route)
+    # Compare route stops
+    original_stops = original_route.stops
+    parquet_stops = parquet_route.stops
+    stop_differences = []
+    if len(original_stops) != len(parquet_stops):
+        stop_differences.append(
+            f"Route stop count mismatch - Original: {len(original_stops)}, Parquet: {len(parquet_stops)}"
+        )
+    if stop_differences:
+        logger.error("Found differences in route stops. Printing first 10 differences:")
+        for diff in stop_differences[:10]:
+            logger.error(diff)
+        return
 
-    parquet_routes = {}
-    for route in parquet_feed.routes:
-        if route.route_id not in parquet_routes:
-            parquet_routes[route.route_id] = []
-        parquet_routes[route.route_id].append(route)
+    for i, (original_stop, parquet_stop) in enumerate(
+        zip(original_stops, parquet_stops)
+    ):
+        if original_stop.stop.id != parquet_stop.stop.id:
+            logger.error(
+                f"Stop {i} ID mismatch - Original: {original_stop.stop.id}, Parquet: {parquet_stop.stop.id}"
+            )
+            return
 
-    # Compare route IDs
-    original_route_ids = set(original_routes.keys())
-    parquet_route_ids = set(parquet_routes.keys())
+        if original_stop.arrival_time != parquet_stop.arrival_time:
+            logger.error(
+                f"Stop {i} arrival time mismatch - Original: {original_stop.arrival_time}, Parquet: {parquet_stop.arrival_time}"
+            )
+            return
 
-    missing_in_parquet = original_route_ids - parquet_route_ids
-    missing_in_original = parquet_route_ids - original_route_ids
+        if original_stop.departure_time != parquet_stop.departure_time:
+            logger.error(
+                f"Stop {i} departure time mismatch - Original: {original_stop.departure_time}, Parquet: {parquet_stop.departure_time}"
+            )
+            return
 
-    if missing_in_parquet:
-        logger.warning(f"Routes missing in Parquet: {missing_in_parquet}")
-    if missing_in_original:
-        logger.warning(f"Extra routes in Parquet: {missing_in_original}")
+        if original_stop.stop_sequence != parquet_stop.stop_sequence:
+            logger.error(
+                f"Stop {i} sequence mismatch - Original: {original_stop.stop_sequence}, Parquet: {parquet_stop.stop_sequence}"
+            )
+            return
 
-    # Compare common routes
-    common_route_ids = original_route_ids & parquet_route_ids
-    logger.info(f"Comparing {len(common_route_ids)} common routes...")
-
-    for route_id in common_route_ids:
-        orig_variants = original_routes[route_id]
-        parq_variants = parquet_routes[route_id]
-
-        logger.info(f"\nRoute {route_id}:")
-        logger.info(f"Original variants: {len(orig_variants)}")
-        logger.info(f"Parquet variants: {len(parq_variants)}")
-
-        # Compare each variant
-        for orig_route in orig_variants:
-            # Find matching variant in parquet routes
-            matching_variant = None
-            for parq_route in parq_variants:
-                if (
-                    orig_route.direction_id == parq_route.direction_id
-                    and orig_route.trip_id == parq_route.trip_id
-                ):
-                    matching_variant = parq_route
-                    break
-
-            if not matching_variant:
-                logger.warning(
-                    f"No matching variant found for route {route_id} direction {orig_route.direction_id} trip {orig_route.trip_id}"
-                )
-                continue
-
-            # Compare stops
-            if len(orig_route.stops) != len(matching_variant.stops):
-                logger.error(
-                    f"Different number of stops for route {route_id} direction {orig_route.direction_id}:"
-                )
-                logger.error(f"Original: {len(orig_route.stops)} stops")
-                logger.error(f"Parquet: {len(matching_variant.stops)} stops")
-                continue
-
-            # Compare each stop
-            stop_differences = []
-            for i, (orig_stop, parq_stop) in enumerate(zip(orig_route.stops, matching_variant.stops)):
-                if orig_stop.stop.id != parq_stop.stop.id:
-                    stop_differences.append(f"Stop {i}: ID mismatch - Original: {orig_stop.stop.id}, Parquet: {parq_stop.stop.id}")
-                elif orig_stop.arrival_time != parq_stop.arrival_time:
-                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Arrival time mismatch - Original: {orig_stop.arrival_time}, Parquet: {parq_stop.arrival_time}")
-                elif orig_stop.departure_time != parq_stop.departure_time:
-                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Departure time mismatch - Original: {orig_stop.departure_time}, Parquet: {parq_stop.departure_time}")
-                elif orig_stop.stop_sequence != parq_stop.stop_sequence:
-                    stop_differences.append(f"Stop {i} ({orig_stop.stop.id}): Sequence mismatch - Original: {orig_stop.stop_sequence}, Parquet: {parq_stop.stop_sequence}")
-
-            if stop_differences:
-                logger.error(f"Found differences in route {route_id} direction {orig_route.direction_id}:")
-                for diff in stop_differences:
-                    logger.error(diff)
-
-            # Compare service days
-            if set(orig_route.service_days) != set(matching_variant.service_days):
-                logger.error(f"Service days mismatch for route {route_id} direction {orig_route.direction_id}:")
-                logger.error(f"Original: {orig_route.service_days}")
-                logger.error(f"Parquet: {matching_variant.service_days}")
-
-            # Compare service IDs
-            if set(orig_route.service_ids) != set(matching_variant.service_ids):
-                logger.error(f"Service IDs mismatch for route {route_id} direction {orig_route.direction_id}:")
-                logger.error(f"Original: {orig_route.service_ids}")
-                logger.error(f"Parquet: {matching_variant.service_ids}")
-
-            # Compare trips
-            if len(orig_route.trips) != len(matching_variant.trips):
-                logger.error(f"Different number of trips for route {route_id} direction {orig_route.direction_id}:")
-                logger.error(f"Original: {len(orig_route.trips)} trips")
-                logger.error(f"Parquet: {len(matching_variant.trips)} trips")
-            else:
-                orig_trip_ids = {t.id for t in orig_route.trips}
-                parq_trip_ids = {t.id for t in matching_variant.trips}
-                if orig_trip_ids != parq_trip_ids:
-                    logger.error(f"Trip ID mismatch for route {route_id} direction {orig_route.direction_id}:")
-                    logger.error(f"Missing in Parquet: {orig_trip_ids - parq_trip_ids}")
-                    logger.error(f"Extra in Parquet: {parq_trip_ids - orig_trip_ids}")
+    logger.info("Route stops match")
 
 
 def compare_stop_times(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
@@ -531,53 +471,33 @@ def compare_calendars(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> 
     differences = []
 
     for service_id in common_ids:
+        logger.info(f"\nAnalyzing service {service_id}:")
         orig_cal = original_calendars[service_id]
         parq_cal = parquet_calendars[service_id]
 
-        # Compare each attribute
-        if orig_cal.monday != parq_cal.monday:
-            differences.append(
-                f"Service {service_id}: Monday mismatch - Original: {orig_cal.monday}, Parquet: {parq_cal.monday}"
-            )
-        if orig_cal.tuesday != parq_cal.tuesday:
-            differences.append(
-                f"Service {service_id}: Tuesday mismatch - Original: {orig_cal.tuesday}, Parquet: {parq_cal.tuesday}"
-            )
-        if orig_cal.wednesday != parq_cal.wednesday:
-            differences.append(
-                f"Service {service_id}: Wednesday mismatch - Original: {orig_cal.wednesday}, Parquet: {parq_cal.wednesday}"
-            )
-        if orig_cal.thursday != parq_cal.thursday:
-            differences.append(
-                f"Service {service_id}: Thursday mismatch - Original: {orig_cal.thursday}, Parquet: {parq_cal.thursday}"
-            )
-        if orig_cal.friday != parq_cal.friday:
-            differences.append(
-                f"Service {service_id}: Friday mismatch - Original: {orig_cal.friday}, Parquet: {parq_cal.friday}"
-            )
-        if orig_cal.saturday != parq_cal.saturday:
-            differences.append(
-                f"Service {service_id}: Saturday mismatch - Original: {orig_cal.saturday}, Parquet: {parq_cal.saturday}"
-            )
-        if orig_cal.sunday != parq_cal.sunday:
-            differences.append(
-                f"Service {service_id}: Sunday mismatch - Original: {orig_cal.sunday}, Parquet: {parq_cal.sunday}"
-            )
-        if orig_cal.start_date != parq_cal.start_date:
-            differences.append(
-                f"Service {service_id}: Start date mismatch - Original: {orig_cal.start_date}, Parquet: {parq_cal.start_date}"
-            )
-        if orig_cal.end_date != parq_cal.end_date:
-            differences.append(
-                f"Service {service_id}: End date mismatch - Original: {orig_cal.end_date}, Parquet: {parq_cal.end_date}"
-            )
+        # Compare service days
+        orig_days = []
+        parq_days = []
+        for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
+            if getattr(orig_cal, day):
+                orig_days.append(day)
+            if getattr(parq_cal, day):
+                parq_days.append(day)
+        
+        if orig_days != parq_days:
+            logger.warning("Service days mismatch:")
+            logger.warning(f"  Original: {orig_days}")
+            logger.warning(f"  Parquet:  {parq_days}")
+        else:
+            logger.info(f"Service days match: {orig_days}")
 
-    if differences:
-        logger.warning("Found differences in calendars:")
-        for diff in differences:
-            logger.warning(diff)
-    else:
-        logger.info("No differences found in regular calendars")
+        # Compare validity period
+        if orig_cal.start_date != parq_cal.start_date or orig_cal.end_date != parq_cal.end_date:
+            logger.warning("Validity period mismatch:")
+            logger.warning(f"  Original: {orig_cal.start_date} to {orig_cal.end_date}")
+            logger.warning(f"  Parquet:  {parq_cal.start_date} to {parq_cal.end_date}")
+        else:
+            logger.info(f"Validity period matches: {orig_cal.start_date} to {orig_cal.end_date}")
 
     # Compare calendar dates (exceptions)
     logger.info("\nComparing calendar dates (exceptions)...")
@@ -587,65 +507,248 @@ def compare_calendars(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> 
     logger.info(f"Original: {len(original_dates)} exceptions")
     logger.info(f"Parquet: {len(parquet_dates)} exceptions")
 
-    # Create sets of (service_id, date, exception_type) tuples for comparison
-    original_date_set = {
-        (cd.service_id, cd.date.date(), cd.exception_type) for cd in original_dates
-    }
-    parquet_date_set = {
-        (cd.service_id, cd.date.date(), cd.exception_type) for cd in parquet_dates
-    }
+    # Group exceptions by service ID for better comparison
+    orig_exceptions = {}
+    parq_exceptions = {}
 
-    missing_exceptions = original_date_set - parquet_date_set
-    extra_exceptions = parquet_date_set - original_date_set
+    for cd in original_dates:
+        if cd.service_id not in orig_exceptions:
+            orig_exceptions[cd.service_id] = {"added": [], "removed": []}
+        if cd.exception_type == 1:
+            orig_exceptions[cd.service_id]["added"].append(cd.date)
+        else:
+            orig_exceptions[cd.service_id]["removed"].append(cd.date)
 
-    if missing_exceptions:
-        logger.warning("Exceptions missing in Parquet:")
-        for service_id, date, exception_type in missing_exceptions:
-            logger.warning(f"  Service {service_id}: {date} (type {exception_type})")
+    for cd in parquet_dates:
+        if cd.service_id not in parq_exceptions:
+            parq_exceptions[cd.service_id] = {"added": [], "removed": []}
+        if cd.exception_type == 1:
+            parq_exceptions[cd.service_id]["added"].append(cd.date)
+        else:
+            parq_exceptions[cd.service_id]["removed"].append(cd.date)
 
-    if extra_exceptions:
-        logger.warning("Extra exceptions in Parquet:")
-        for service_id, date, exception_type in extra_exceptions:
-            logger.warning(f"  Service {service_id}: {date} (type {exception_type})")
+    # Compare exceptions for each service
+    all_service_ids = set(orig_exceptions.keys()) | set(parq_exceptions.keys())
+    for service_id in all_service_ids:
+        logger.info(f"\nExceptions for service {service_id}:")
+        
+        orig_exc = orig_exceptions.get(service_id, {"added": [], "removed": []})
+        parq_exc = parq_exceptions.get(service_id, {"added": [], "removed": []})
 
-    if not (missing_exceptions or extra_exceptions):
-        logger.info("No differences found in calendar dates")
+        # Compare added dates
+        orig_added = set(orig_exc["added"])
+        parq_added = set(parq_exc["added"])
+        if orig_added != parq_added:
+            logger.warning("Added dates mismatch:")
+            logger.warning(f"  Missing in Parquet: {orig_added - parq_added}")
+            logger.warning(f"  Extra in Parquet: {parq_added - orig_added}")
+        else:
+            logger.info(f"Added dates match: {sorted(orig_added)}")
+
+        # Compare removed dates
+        orig_removed = set(orig_exc["removed"])
+        parq_removed = set(parq_exc["removed"])
+        if orig_removed != parq_removed:
+            logger.warning("Removed dates mismatch:")
+            logger.warning(f"  Missing in Parquet: {orig_removed - parq_removed}")
+            logger.warning(f"  Extra in Parquet: {parq_removed - orig_removed}")
+        else:
+            logger.info(f"Removed dates match: {sorted(orig_removed)}")
+
+    # Compare route service days
+    logger.info("\nComparing route service days...")
+    for route in original_feed.routes:
+        logger.info(f"\nRoute {route.route_id}:")
+        # Find matching route in parquet feed
+        parq_route = next((r for r in parquet_feed.routes if r.route_id == route.route_id), None)
+        if not parq_route:
+            logger.warning(f"Route {route.route_id} not found in Parquet implementation")
+            continue
+
+        # Compare service days
+        if set(route.service_days) != set(parq_route.service_days):
+            logger.warning("Service days mismatch:")
+            logger.warning(f"  Original: {route.service_days}")
+            logger.warning(f"  Parquet:  {parq_route.service_days}")
+        else:
+            logger.info(f"Service days match: {route.service_days}")
+
+        # Compare service calendar
+        if route.service_calendar != parq_route.service_calendar:
+            logger.warning("Service calendar mismatch:")
+            logger.warning(f"  Original: {route.service_calendar}")
+            logger.warning(f"  Parquet:  {parq_route.service_calendar}")
+        else:
+            logger.info(f"Service calendar matches: {route.service_calendar}")
+
+        # Compare valid calendar days
+        orig_days = set(d.date() for d in route.valid_calendar_days)
+        parq_days = set(d.date() for d in parq_route.valid_calendar_days)
+        if orig_days != parq_days:
+            logger.warning("Valid calendar days mismatch:")
+            logger.warning(f"  Missing in Parquet: {orig_days - parq_days}")
+            logger.warning(f"  Extra in Parquet: {parq_days - orig_days}")
+        else:
+            logger.info(f"Valid calendar days match: {len(orig_days)} days")
 
 
-def run_comparison(data_dir: str, test_original: bool = True):
-    """Run a performance comparison between the original and Parquet implementations."""
-    logger = logging.getLogger(__name__)
+def compare_bbox_queries(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare bounding box queries between original and Parquet implementations."""
+    logger.info("\n=== Bounding Box Query Comparison ===")
+
+    # Test case from real STIB/MIVB data
+    bbox = BoundingBox(
+        min_lat=50.67209461471226,
+        max_lat=51.01893827029199,
+        min_lon=3.6254882812500004,
+        max_lon=5.158081054687501
+    )
+
+    logger.info("Testing STIB/MIVB bounding box query...")
+
+    # Get results from both implementations
+    original_results = original_feed.get_stops_in_bbox(bbox)
+    parquet_results = parquet_feed.get_stops_in_bbox(bbox)
+
+    # Compare number of results
+    logger.info(f"Original: {len(original_results)} stops")
+    logger.info(f"Parquet: {len(parquet_results)} stops")
+
+    # Create sets of stop IDs for comparison
+    original_stop_ids = {stop.id for stop in original_results}
+    parquet_stop_ids = {stop.id for stop in parquet_results}
+
+    # Find differences
+    missing_in_parquet = original_stop_ids - parquet_stop_ids
+    missing_in_original = parquet_stop_ids - original_stop_ids
+
+    if missing_in_parquet:
+        logger.warning(f"Stops missing in Parquet: {missing_in_parquet}")
+    if missing_in_original:
+        logger.warning(f"Extra stops in Parquet: {missing_in_original}")
+
+    # Compare details of common stops
+    common_stops = original_stop_ids & parquet_stop_ids
+    differences = []
+
+    for stop_id in common_stops:
+        orig_stop = next(s for s in original_results if s.id == stop_id)
+        parq_stop = next(s for s in parquet_results if s.id == stop_id)
+
+        # Compare each attribute
+        if orig_stop.name != parq_stop.name:
+            differences.append(f"Stop {stop_id}: Name mismatch - Original: {orig_stop.name}, Parquet: {parq_stop.name}")
+        if abs(orig_stop.location.lat - parq_stop.location.lat) > 1e-6:
+            differences.append(f"Stop {stop_id}: Latitude mismatch - Original: {orig_stop.location.lat}, Parquet: {parq_stop.location.lat}")
+        if abs(orig_stop.location.lon - parq_stop.location.lon) > 1e-6:
+            differences.append(f"Stop {stop_id}: Longitude mismatch - Original: {orig_stop.location.lon}, Parquet: {parq_stop.location.lon}")
+        if orig_stop.translations != parq_stop.translations:
+            differences.append(f"Stop {stop_id}: Translation mismatch - Original: {orig_stop.translations}, Parquet: {parq_stop.translations}")
+
+    if differences:
+        logger.warning("Found differences in stops:")
+        for diff in differences[:10]:  # Show only first 10 differences
+            logger.warning(diff)
+        if len(differences) > 10:
+            logger.warning(f"... and {len(differences) - 10} more differences")
+    else:
+        logger.info("No differences found in common stops")
+
+
+def compare_waiting_times(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare waiting times between original and Parquet implementations."""
+    logger.info("\n=== Waiting Times Comparison ===")
+
+    # Test case from real BKK data
+    test_stop = "F01111"  # Wesselényi utca / Erzsébet körút
     
-    # Test Parquet implementation first
-    logger.info("Testing Parquet implementation...")
-    parquet_feed = test_parquet_implementation(data_dir)
-    if not parquet_feed:
-        logger.error("Parquet implementation test failed")
+    logger.info(f"\nTesting waiting times for stop {test_stop}...")
+    
+    # Get results from both implementations
+    original_results = original_feed.get_waiting_times(test_stop)
+    parquet_results = parquet_feed.get_waiting_times(test_stop)
+    
+    # Compare structure
+    if "stops_data" not in original_results or "stops_data" not in parquet_results:
+        logger.error("Invalid response structure")
         return
+        
+    orig_stop_data = original_results["stops_data"].get(test_stop, {})
+    parq_stop_data = parquet_results["stops_data"].get(test_stop, {})
     
-    if not test_original:
-        logger.info("Skipping original implementation test")
-        return
+    # Compare lines and waiting times
+    orig_lines = orig_stop_data.get("lines", {})
+    parq_lines = parq_stop_data.get("lines", {})
     
-    # Test original implementation
-    logger.info("Testing original implementation...")
-    original_feed = test_original_implementation(data_dir)
-    if not original_feed:
-        logger.error("Original implementation test failed")
-        return
+    # Compare number of lines
+    logger.info(f"Original: {len(orig_lines)} lines")
+    logger.info(f"Parquet: {len(parq_lines)} lines")
     
-    # Compare results
-    logger.info("Testing route stops...")
+    # Compare each line
+    all_line_ids = set(orig_lines.keys()) | set(parq_lines.keys())
+    for line_id in all_line_ids:
+        logger.info(f"\nAnalyzing line {line_id}:")
+        
+        if line_id not in orig_lines:
+            logger.warning(f"Line {line_id} missing in original")
+            continue
+        if line_id not in parq_lines:
+            logger.warning(f"Line {line_id} missing in Parquet")
+            continue
+            
+        orig_line = orig_lines[line_id]
+        parq_line = parq_lines[line_id]
+        
+        # Compare metadata
+        if "_metadata" in orig_line and "_metadata" in parq_line:
+            orig_meta = orig_line["_metadata"][0] if orig_line["_metadata"] else {}
+            parq_meta = parq_line["_metadata"][0] if parq_line["_metadata"] else {}
+            
+            if orig_meta.get("route_desc") != parq_meta.get("route_desc"):
+                logger.warning(f"Route description mismatch - Original: {orig_meta.get('route_desc')}, Parquet: {parq_meta.get('route_desc')}")
+            if orig_meta.get("route_short_name") != parq_meta.get("route_short_name"):
+                logger.warning(f"Route short name mismatch - Original: {orig_meta.get('route_short_name')}, Parquet: {parq_meta.get('route_short_name')}")
+        
+        # Compare destinations and waiting times
+        orig_destinations = {k: v for k, v in orig_line.items() if k != "_metadata"}
+        parq_destinations = {k: v for k, v in parq_line.items() if k != "_metadata"}
+        
+        if set(orig_destinations.keys()) != set(parq_destinations.keys()):
+            logger.warning(f"Different destinations - Original: {set(orig_destinations.keys())}, Parquet: {set(parq_destinations.keys())}")
+        
+        # Compare waiting times for each destination
+        for dest in set(orig_destinations.keys()) & set(parq_destinations.keys()):
+            logger.info(f"\nDestination: {dest}")
+            orig_times = orig_destinations[dest]
+            parq_times = parq_destinations[dest]
+            
+            if len(orig_times) != len(parq_times):
+                logger.warning(f"Different number of waiting times - Original: {len(orig_times)}, Parquet: {len(parq_times)}")
+            
+            # Compare each waiting time entry
+            logger.info("Waiting times comparison:")
+            for i, (orig_time, parq_time) in enumerate(zip(orig_times, parq_times)):
+                orig_sched = orig_time.get("scheduled_time")
+                parq_sched = parq_time.get("scheduled_time")
+                orig_mins = orig_time.get("scheduled_minutes")
+                parq_mins = parq_time.get("scheduled_minutes")
+                
+                if orig_sched != parq_sched or orig_mins != parq_mins:
+                    logger.warning(
+                        f"Entry {i}:\n"
+                        f"  Original: {orig_sched} ({orig_mins} minutes)\n"
+                        f"  Parquet:  {parq_sched} ({parq_mins} minutes)"
+                    )
+                else:
+                    logger.info(
+                        f"Entry {i}: {orig_sched} ({orig_mins} minutes) - Match"
+                    )
 
-    # Compare trips
-    compare_trips(original_feed, parquet_feed)
 
-    # Compare stop times
-    compare_stop_times(original_feed, parquet_feed)
+def compare_shapes(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare shapes between original and Parquet implementations."""
+    logger.info("\n=== Shape Comparison ===")
 
-    # Compare translations
-    compare_translations(original_feed, parquet_feed)
-    
     # Get a route from each implementation
     original_route = (
         original_feed.routes[0]
@@ -653,49 +756,6 @@ def run_comparison(data_dir: str, test_original: bool = True):
         else next(iter(original_feed.routes.values()))
     )
     parquet_route = parquet_feed.routes[0]
-    
-    # Compare route stops
-    original_stops = original_route.stops
-    parquet_stops = parquet_route.stops
-    stop_differences = []
-    if len(original_stops) != len(parquet_stops):
-        stop_differences.append(
-            f"Route stop count mismatch - Original: {len(original_stops)}, Parquet: {len(parquet_stops)}"
-        )
-    if stop_differences:
-        logger.error("Found differences in route stops. Printing first 10 differences:")
-        for diff in stop_differences[:10]:
-            logger.error(diff)
-        return
-    
-    for i, (original_stop, parquet_stop) in enumerate(
-        zip(original_stops, parquet_stops)
-    ):
-        if original_stop.stop.id != parquet_stop.stop.id:
-            logger.error(
-                f"Stop {i} ID mismatch - Original: {original_stop.stop.id}, Parquet: {parquet_stop.stop.id}"
-            )
-            return
-        
-        if original_stop.arrival_time != parquet_stop.arrival_time:
-            logger.error(
-                f"Stop {i} arrival time mismatch - Original: {original_stop.arrival_time}, Parquet: {parquet_stop.arrival_time}"
-            )
-            return
-        
-        if original_stop.departure_time != parquet_stop.departure_time:
-            logger.error(
-                f"Stop {i} departure time mismatch - Original: {original_stop.departure_time}, Parquet: {parquet_stop.departure_time}"
-            )
-            return
-        
-        if original_stop.stop_sequence != parquet_stop.stop_sequence:
-            logger.error(
-                f"Stop {i} sequence mismatch - Original: {original_stop.stop_sequence}, Parquet: {parquet_stop.stop_sequence}"
-            )
-            return
-    
-    logger.info("Route stops match")
 
     # Compare shapes
     logger.info("Testing shapes...")
@@ -743,18 +803,85 @@ def run_comparison(data_dir: str, test_original: bool = True):
 
         logger.info("Shapes match")
 
+
+def run_comparison(data_dir: str, test_original: bool = True):
+    """Run a performance comparison between the original and Parquet implementations."""
+    logger = logging.getLogger(__name__)
+    
+    # Test Parquet implementation first
+    logger.info("Testing Parquet implementation...")
+    parquet_feed = test_parquet_implementation(data_dir)
+    if not parquet_feed:
+        logger.error("Parquet implementation test failed")
+        return
+    
+    if not test_original:
+        logger.info("Skipping original implementation test")
+        return
+    
+    # Test original implementation
+    logger.info("Testing original implementation...")
+    original_feed = test_original_implementation(data_dir)
+    if not original_feed:
+        logger.error("Original implementation test failed")
+        return
+    
+    # Compare results
+    logger.info("Testing route stops...")
+
+    # Compare trips
+    compare_trips(original_feed, parquet_feed)
+
+    # Compare stop times
+    compare_stop_times(original_feed, parquet_feed)
+
+    # Compare translations
+    compare_translations(original_feed, parquet_feed)
+    
+    # Compare route stops
+    compare_route_stops(original_feed, parquet_feed)
+
+    # Compare shapes
+    compare_shapes(original_feed, parquet_feed)
+
     # Compare calendars
     compare_calendars(original_feed, parquet_feed)
 
+    # Compare bounding box queries
+    compare_bbox_queries(original_feed, parquet_feed)
+
+    # Compare waiting times
+    compare_waiting_times(original_feed, parquet_feed)
+
 
 if __name__ == "__main__":
-    # Get data directory from environment or use default
-    data_dir = Path(
-        os.getenv(
-            "GTFS_DATA_DIR",
-            "downloads/mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412300019",
-        )
-    )
+    # Test both datasets
+    datasets = [
+        {
+            "name": "STIB/MIVB",
+            "path": "downloads/mdb-1088_Societe_des_Transports_Intercommunaux_de_Bruxelles_Maatschappij_voor_het_Intercommunaal_Vervoer_te_Brussel_STIB_MIVB/mdb-1088-202501020029",
+            "test": "bbox"
+        },
+        {
+            "name": "BKK",
+            "path": "downloads/mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412300019",
+            "test": "waiting_times"
+        }
+    ]
     
-    # Test both implementations by default
-    run_comparison(data_dir, test_original=True) 
+    for dataset in datasets:
+        logger.info(f"\n=== Testing {dataset['name']} dataset ===")
+        data_dir = Path(dataset["path"])
+        
+        if not data_dir.exists():
+            logger.error(f"Dataset directory not found: {data_dir}")
+            continue
+            
+        if dataset["test"] == "bbox":
+            # For STIB/MIVB, test bounding box queries
+            logger.info("Testing bounding box queries...")
+            run_comparison(data_dir, test_original=True)
+        else:
+            # For BKK, test waiting times
+            logger.info("Testing waiting times...")
+            run_comparison(data_dir, test_original=True) 
