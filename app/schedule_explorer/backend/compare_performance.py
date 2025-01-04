@@ -326,12 +326,39 @@ def run_comparison(data_dir: str, test_original: bool = True):
     original_route = original_feed.routes[0] if isinstance(original_feed.routes, list) else next(iter(original_feed.routes.values()))
     parquet_route = parquet_feed.routes[0]
     
+    # Log route details
+    logger.info(f"\nOriginal route details:")
+    logger.info(f"  Route ID: {original_route.route_id}")
+    logger.info(f"  Route name: {original_route.route_name}")
+    logger.info(f"  Trip ID: {original_route.trip_id}")
+    logger.info(f"  Direction ID: {original_route.direction_id}")
+    logger.info(f"  Number of stops: {len(original_route.stops)}")
+    logger.info(f"  Has shape: {original_route.shape is not None}")
+    
+    logger.info(f"\nParquet route details:")
+    logger.info(f"  Route ID: {parquet_route.route_id}")
+    logger.info(f"  Route name: {parquet_route.route_name}")
+    logger.info(f"  Trip ID: {parquet_route.trip_id}")
+    logger.info(f"  Direction ID: {parquet_route.direction_id}")
+    logger.info(f"  Number of stops: {len(parquet_route.stops)}")
+    logger.info(f"  Has shape: {parquet_route.shape is not None}")
+    
     # Compare route stops
     original_stops = original_route.stops
     parquet_stops = parquet_route.stops
     
     if len(original_stops) != len(parquet_stops):
         logger.error(f"Route stop count mismatch - Original: {len(original_stops)}, Parquet: {len(parquet_stops)}")
+        
+        # Log stop details
+        logger.info("\nOriginal stops:")
+        for i, stop in enumerate(original_stops):
+            logger.info(f"  {i}: {stop.stop.id} - {stop.stop.name} (seq: {stop.stop_sequence})")
+        
+        logger.info("\nParquet stops:")
+        for i, stop in enumerate(parquet_stops):
+            logger.info(f"  {i}: {stop.stop.id} - {stop.stop.name} (seq: {stop.stop_sequence})")
+        
         return
     
     for i, (original_stop, parquet_stop) in enumerate(zip(original_stops, parquet_stops)):
@@ -353,10 +380,40 @@ def run_comparison(data_dir: str, test_original: bool = True):
     
     logger.info("Route stops match")
 
+    # Compare shapes
+    logger.info("Testing shapes...")
+    if original_route.shape is None and parquet_route.shape is None:
+        logger.info("Both implementations have no shapes")
+    elif original_route.shape is None:
+        logger.error("Original implementation has no shape but Parquet implementation does")
+        return
+    elif parquet_route.shape is None:
+        logger.error("Parquet implementation has no shape but Original implementation does")
+        return
+    else:
+        if original_route.shape.shape_id != parquet_route.shape.shape_id:
+            logger.error(f"Shape ID mismatch - Original: {original_route.shape.shape_id}, Parquet: {parquet_route.shape.shape_id}")
+            return
+        
+        if len(original_route.shape.points) != len(parquet_route.shape.points):
+            logger.error(f"Shape point count mismatch - Original: {len(original_route.shape.points)}, Parquet: {len(parquet_route.shape.points)}")
+            return
+        
+        for i, (original_point, parquet_point) in enumerate(zip(original_route.shape.points, parquet_route.shape.points)):
+            if len(original_point) != 2 or len(parquet_point) != 2:
+                logger.error(f"Shape point format mismatch at index {i}")
+                return
+            
+            # Compare lat/lon with small tolerance for floating point differences
+            if abs(original_point[0] - parquet_point[0]) > 1e-6 or abs(original_point[1] - parquet_point[1]) > 1e-6:
+                logger.error(f"Shape point mismatch at index {i} - Original: {original_point}, Parquet: {parquet_point}")
+                return
+        
+        logger.info("Shapes match")
+
 if __name__ == "__main__":
     # Get data directory from environment or use default
-    
-    data_dir = Path(os.getenv("GTFS_DATA_DIR", "downloads/mdb-1859_Societe_nationale_des_chemins_de_fer_belges_NMBS_SNCB/mdb-1859-202501020029"))
+    data_dir = Path(os.getenv("GTFS_DATA_DIR", "downloads/mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412300019"))
     
     # Test both implementations by default
     run_comparison(data_dir, test_original=True) 
