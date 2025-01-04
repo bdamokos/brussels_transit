@@ -477,10 +477,12 @@ class ParquetGTFSLoader:
         """Load stop times data into DuckDB using parallel processing."""
         parquet_path = self._csv_to_parquet('stop_times.txt')
         if not parquet_path:
+            logger.error("Failed to convert stop_times.txt to Parquet")
             return
             
         # Use multiple threads but limit based on available memory
         num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
+        logger.info(f"Loading stop times with {num_threads} threads")
             
         self.db.execute(f"""
             CREATE TABLE stop_times AS 
@@ -494,7 +496,18 @@ class ParquetGTFSLoader:
             /*+ PARALLEL({num_threads}) */
         """)
         
+        # Log table info
+        count = self.db.execute("SELECT COUNT(*) FROM stop_times").fetchone()[0]
+        logger.info(f"Loaded {count} stop times")
+        
+        # Sample some data
+        sample = self.db.execute("SELECT * FROM stop_times LIMIT 5").fetchdf()
+        logger.info("Sample stop times:")
+        for _, row in sample.iterrows():
+            logger.info(f"  Trip {row['trip_id']}: Stop {row['stop_id']} at {row['arrival_time']}")
+        
         # Create optimized indices for route search
+        logger.info("Creating indices...")
         self.db.execute(f"""
             CREATE INDEX idx_stop_times_trip_stop ON stop_times(trip_id, stop_id)
             /*+ PARALLEL({num_threads}) */
@@ -503,30 +516,69 @@ class ParquetGTFSLoader:
             CREATE INDEX idx_stop_times_stop_seq ON stop_times(stop_id, stop_sequence)
             /*+ PARALLEL({num_threads}) */
         """)
+        logger.info("Stop times loading complete")
     
     def _load_trips(self) -> None:
         """Load trips data into DuckDB."""
         parquet_path = self._csv_to_parquet('trips.txt')
         if not parquet_path:
+            logger.error("Failed to convert trips.txt to Parquet")
             return
             
+        logger.info("Loading trips table...")
         # Create trips table
-        self.db.execute(f"""
-            CREATE TABLE trips AS 
-            SELECT 
-                route_id,
-                service_id,
-                trip_id,
-                COALESCE(trip_headsign, NULL) as trip_headsign,
-                COALESCE(direction_id, '0') as direction_id,
-                COALESCE(block_id, NULL) as block_id,
-                COALESCE(shape_id, NULL) as shape_id
-            FROM parquet_scan('{parquet_path}')
-        """)
+        try:
+            # First try with all optional fields
+            self.db.execute(f"""
+                CREATE TABLE trips AS 
+                SELECT 
+                    route_id,
+                    service_id,
+                    trip_id,
+                    COALESCE(trip_headsign, NULL) as trip_headsign,
+                    COALESCE(direction_id, '0') as direction_id,
+                    COALESCE(block_id, NULL) as block_id,
+                    COALESCE(shape_id, NULL) as shape_id
+                FROM parquet_scan('{parquet_path}')
+            """)
+        except Exception as e:
+            logger.debug(f"Failed to create trips table with all fields: {e}")
+            # If that fails, try with only required fields
+            self.db.execute(f"""
+                CREATE TABLE trips AS 
+                SELECT 
+                    route_id,
+                    service_id,
+                    trip_id,
+                    COALESCE(trip_headsign, NULL) as trip_headsign,
+                    COALESCE(direction_id, '0') as direction_id,
+                    COALESCE(shape_id, NULL) as shape_id
+                FROM parquet_scan('{parquet_path}')
+            """)
+            # Add missing optional columns with NULL values
+            self.db.execute("""
+                ALTER TABLE trips ADD COLUMN block_id VARCHAR
+            """)
+            
+        # Get some sample trips for logging
+        sample_trips = self.db.execute("""
+            SELECT trip_id, route_id, service_id
+            FROM trips
+            LIMIT 5
+        """).fetchdf()
         
-        # Create index
-        self.db.execute("CREATE INDEX idx_trips_id ON trips(trip_id)")
-        self.db.execute("CREATE INDEX idx_trips_route ON trips(route_id)")
+        logger.info(f"Loaded {len(self.db.execute('SELECT * FROM trips').fetchdf())} trips")
+        logger.info("Sample trips:")
+        for _, row in sample_trips.iterrows():
+            logger.info(f"  Trip {row['trip_id']}: Route {row['route_id']}, Service {row['service_id']}")
+            
+        logger.info("Creating indices...")
+        self.db.execute("""
+            CREATE INDEX trips_trip_id_idx ON trips(trip_id);
+            CREATE INDEX trips_route_id_idx ON trips(route_id);
+            CREATE INDEX trips_service_id_idx ON trips(service_id);
+        """)
+        logger.info("Trips loading complete")
     
     def _load_shapes(self) -> Dict[str, Shape]:
         """Load shapes from shapes.txt into memory.
@@ -584,16 +636,14 @@ class ParquetGTFSLoader:
         return shapes
     
     def _load_routes(self) -> List[Route]:
-        """Load routes from the database and create Route objects.
-        
-        Returns:
-            List of Route objects.
-        """
+        """Load routes from the database and create Route objects."""
         # First load routes into DuckDB
         parquet_path = self._csv_to_parquet('routes.txt')
         if not parquet_path:
+            logger.error("Failed to convert routes.txt to Parquet")
             return []
         
+        logger.info("Loading routes table...")
         # Create routes table
         self.db.execute(f"""
             CREATE TABLE routes AS 
@@ -608,13 +658,26 @@ class ParquetGTFSLoader:
             FROM parquet_scan('{parquet_path}')
         """)
         
+        # Log table info
+        count = self.db.execute("SELECT COUNT(*) FROM routes").fetchone()[0]
+        logger.info(f"Loaded {count} routes")
+        
+        # Sample some data
+        sample = self.db.execute("SELECT * FROM routes LIMIT 5").fetchdf()
+        logger.info("Sample routes:")
+        for _, row in sample.iterrows():
+            logger.info(f"  Route {row['route_id']}: {row['route_long_name'] or row['route_short_name']}")
+        
         # Create index
+        logger.info("Creating route index...")
         self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
         
         # Load shapes
+        logger.info("Loading shapes...")
         shapes = self._load_shapes()
         
         # Get representative trip for each route
+        logger.info("Getting representative trips...")
         query = """
             WITH trip_ranks AS (
                 SELECT 
@@ -645,22 +708,26 @@ class ParquetGTFSLoader:
             ORDER BY r.route_id
         """
         result = self.db.execute(query).fetchdf()
+        logger.info(f"Found {len(result)} routes with trips")
         
         # Group by route_id and direction_id
         routes = []
         for (route_id, direction_id), group in result.groupby(['route_id', 'direction_id']):
+            logger.debug(f"Processing route {route_id}, direction {direction_id}")
             first_row = group.iloc[0]
             trip_id = first_row['trip_id']
             
             # Get stops for this trip
             route_stops = self._create_route_stops(trip_id)
             if not route_stops:
+                logger.warning(f"No stops found for route {route_id}, trip {trip_id}")
                 continue
             
             # Get service days for this route
             service_ids = set(group['service_id'].dropna())
             service_days = self._get_service_days(service_ids)
             if not service_days:
+                logger.warning(f"No service days found for route {route_id}")
                 continue
             
             # Get shape for this trip if available
@@ -671,15 +738,20 @@ class ParquetGTFSLoader:
             # Create trips for this route
             trips = []
             for _, row in group.iterrows():
+                trip_id = str(row['trip_id'])
+                logger.debug(f"Creating trip {trip_id} for route {route_id}")
                 trip = Trip(
-                    id=row['trip_id'],
-                    route_id=row['route_id'],
-                    service_id=row['service_id'],
+                    id=trip_id,
+                    route_id=str(row['route_id']),
+                    service_id=str(row['service_id']),
                     headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
                     direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
-                    shape_id=row['shape_id'] if pd.notna(row['shape_id']) else None
+                    block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
+                    shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
+                    stop_times=self._create_stop_times(trip_id)
                 )
                 trips.append(trip)
+                logger.debug(f"Created trip {trip_id} with {len(trip.stop_times)} stop times")
             
             # Create route object
             route = Route(
@@ -688,7 +760,7 @@ class ParquetGTFSLoader:
                 trip_id=trip_id,
                 stops=route_stops,
                 service_days=service_days,
-                shape=shape,  # Add shape to route
+                shape=shape,
                 short_name=first_row['route_short_name'] if pd.notna(first_row['route_short_name']) else None,
                 long_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else None,
                 route_type=first_row['route_type'] if pd.notna(first_row['route_type']) else None,
@@ -700,7 +772,9 @@ class ParquetGTFSLoader:
                 trips=trips
             )
             routes.append(route)
+            logger.debug(f"Created route {route_id} with {len(trips)} trips")
         
+        logger.info(f"Created {len(routes)} route objects")
         return routes
     
     def _create_route_stops(self, trip_id: str) -> List[RouteStop]:
@@ -712,6 +786,8 @@ class ParquetGTFSLoader:
         Returns:
             List of RouteStop objects ordered by stop_sequence.
         """
+        logger.debug(f"Creating route stops for trip {trip_id}")
+        
         # Get stop times for this trip
         query = """
             SELECT 
@@ -726,12 +802,15 @@ class ParquetGTFSLoader:
         result = self.db.execute(query, [trip_id]).fetchdf()
         
         if result.empty:
+            logger.warning(f"No stop times found for trip {trip_id}")
             return []
+        
+        logger.debug(f"Found {len(result)} stop times for trip {trip_id}")
         
         # Create RouteStop objects
         route_stops = []
         for _, row in result.iterrows():
-            stop_id = str(row['stop_id'])  # Ensure string type
+            stop_id = str(row['stop_id'])
             
             if stop_id not in self.stops:
                 logger.warning(f"Stop {stop_id} not found in stops dictionary")
@@ -741,10 +820,11 @@ class ParquetGTFSLoader:
                 stop=self.stops[stop_id],
                 arrival_time=row['arrival_time'],
                 departure_time=row['departure_time'],
-                stop_sequence=int(row['stop_sequence'])  # Ensure integer type
+                stop_sequence=int(row['stop_sequence'])
             )
             route_stops.append(route_stop)
         
+        logger.debug(f"Created {len(route_stops)} route stops for trip {trip_id}")
         return route_stops
     
     def _load_calendar(self) -> None:
@@ -941,6 +1021,7 @@ class ParquetGTFSLoader:
     
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
         """Get the service days for a set of service IDs."""
+        logger.debug(f"Getting service days for service IDs: {service_ids}")
         service_days = set()
         
         # Check if calendar table exists
@@ -951,6 +1032,7 @@ class ParquetGTFSLoader:
                 WHERE table_name = 'calendar'
             )
         """).fetchone()[0]
+        logger.debug(f"Has calendar table: {has_calendar}")
         
         # Check if calendar_dates table exists
         has_calendar_dates = self.db.execute("""
@@ -960,6 +1042,7 @@ class ParquetGTFSLoader:
                 WHERE table_name = 'calendar_dates'
             )
         """).fetchone()[0]
+        logger.debug(f"Has calendar_dates table: {has_calendar_dates}")
         
         if has_calendar_dates:
             # First check calendar_dates.txt for type 1 exceptions (added service)
@@ -979,6 +1062,7 @@ class ParquetGTFSLoader:
                         date = datetime.strptime(str(row['date']), '%Y%m%d')
                         weekday = date.strftime('%A').lower()
                         service_days.add(weekday)
+                        logger.debug(f"Added service day {weekday} from calendar_dates for service {service_id}")
         
         if has_calendar:
             # Then check calendar.txt for regular service
@@ -1001,6 +1085,7 @@ class ParquetGTFSLoader:
                     if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
                            row['friday'], row['saturday'], row['sunday']]):
                         has_regular_calendar = True
+                        logger.debug(f"Found regular calendar for service {service_id}")
                     if row['monday']: service_days.add('monday')
                     if row['tuesday']: service_days.add('tuesday')
                     if row['wednesday']: service_days.add('wednesday')
@@ -1029,5 +1114,125 @@ class ParquetGTFSLoader:
                             for day, removed_services in removals_by_day.items():
                                 if removed_services == service_ids:  # All services have this day removed
                                     service_days.discard(day)
+                                    logger.debug(f"Removed service day {day} due to type 2 exception")
         
+        logger.debug(f"Final service days: {sorted(list(service_days))}")
         return service_days 
+    
+    def _create_stop_times(self, trip_id: str) -> List[StopTime]:
+        """Create StopTime objects for a trip.
+        
+        Args:
+            trip_id: The trip ID to get stop times for.
+            
+        Returns:
+            List of StopTime objects ordered by stop_sequence.
+        """
+        # Get stop times for this trip
+        query = """
+            SELECT 
+                trip_id,
+                stop_id,
+                arrival_time,
+                departure_time,
+                stop_sequence
+            FROM stop_times
+            WHERE trip_id = ?
+            ORDER BY stop_sequence
+        """
+        logger.debug(f"Loading stop times for trip {trip_id}")
+        result = self.db.execute(query, [trip_id]).fetchdf()
+        
+        if result.empty:
+            logger.warning(f"No stop times found for trip {trip_id}")
+            return []
+        
+        # Create StopTime objects
+        stop_times = []
+        for _, row in result.iterrows():
+            stop_time = StopTime(
+                trip_id=str(row['trip_id']),
+                stop_id=str(row['stop_id']),
+                arrival_time=row['arrival_time'],
+                departure_time=row['departure_time'],
+                stop_sequence=int(row['stop_sequence'])
+            )
+            stop_times.append(stop_time)
+        
+        logger.debug(f"Created {len(stop_times)} stop times for trip {trip_id}")
+        return stop_times 
+    
+    def _create_trip(self, row: pd.Series) -> Trip:
+        """Create a Trip object from a row of data."""
+        # Get stop times for this trip
+        stop_times = self._create_stop_times(row['trip_id'])
+        
+        # Create the Trip object
+        return Trip(
+            id=str(row['trip_id']),
+            route_id=str(row['route_id']),
+            service_id=str(row['service_id']),
+            headsign=str(row['trip_headsign']) if pd.notna(row['trip_headsign']) else None,
+            direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
+            block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
+            shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
+            stop_times=stop_times
+        ) 
+    
+    def _get_trips_for_route(self, route_id: str) -> List[Trip]:
+        """Get all trips for a route."""
+        trips = []
+        
+        # Get all trips for this route
+        trips_df = self.db.execute("""
+            SELECT t.*, r.route_short_name, r.route_long_name
+            FROM trips t
+            JOIN routes r ON t.route_id = r.route_id
+            WHERE t.route_id = ?
+        """, [route_id]).fetchdf()
+        
+        if trips_df.empty:
+            logger.warning(f"No trips found for route {route_id}")
+            return []
+            
+        # Group by route_id to get route info
+        for route_id, group in trips_df.groupby('route_id'):
+            first_row = group.iloc[0]
+            
+            # Get service days for this route
+            service_ids = set(group['service_id'].dropna())
+            service_days = self._get_service_days(service_ids)
+            if not service_days:
+                logger.warning(f"No service days found for route {route_id}")
+                continue
+            
+            # Create trip objects
+            for _, row in group.iterrows():
+                trip_id = str(row['trip_id'])
+                logger.debug(f"Creating trip {trip_id} for route {route_id}")
+                trip = Trip(
+                    id=trip_id,
+                    route_id=str(row['route_id']),
+                    service_id=str(row['service_id']),
+                    headsign=row['trip_headsign'] if pd.notna(row['trip_headsign']) else None,
+                    direction_id=str(row['direction_id']) if pd.notna(row['direction_id']) else None,
+                    block_id=str(row['block_id']) if 'block_id' in row and pd.notna(row['block_id']) else None,
+                    shape_id=str(row['shape_id']) if pd.notna(row['shape_id']) else None,
+                    stop_times=self._create_stop_times(trip_id)
+                )
+                trips.append(trip)
+                logger.debug(f"Created trip {trip_id} with {len(trip.stop_times)} stop times")
+            
+            # Create route object
+            route = Route(
+                route_id=route_id,
+                route_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else first_row['route_short_name'],
+                trip_id=trip_id,
+                trips=trips,
+                service_days=sorted(list(service_days)),
+                service_ids=list(service_ids)
+            )
+            
+            return trips
+            
+        return [] 

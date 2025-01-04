@@ -297,6 +297,76 @@ def compare_route_stops(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -
                     logger.error(f"Missing in Parquet: {orig_trip_ids - parq_trip_ids}")
                     logger.error(f"Extra in Parquet: {parq_trip_ids - orig_trip_ids}")
 
+def compare_stop_times(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+    """Compare stop times between original and Parquet implementations."""
+    logger.info("\n=== Stop Times Comparison ===")
+    
+    # Get all trips from both feeds
+    original_trips = {}
+    parquet_trips = {}
+    
+    # Original feed
+    for route in original_feed.routes:
+        for trip in route.trips:
+            original_trips[trip.id] = trip
+            
+    # Parquet feed
+    for route in parquet_feed.routes:
+        for trip in route.trips:
+            parquet_trips[trip.id] = trip
+    
+    # Compare total number of trips
+    logger.info(f"Original feed: {len(original_trips)} total trips")
+    logger.info(f"Parquet feed: {len(parquet_trips)} total trips")
+    
+    # Compare total number of trips with stop times
+    original_trips_with_times = sum(1 for trip in original_trips.values() if trip.stop_times)
+    parquet_trips_with_times = sum(1 for trip in parquet_trips.values() if trip.stop_times)
+    
+    logger.info(f"Original: {original_trips_with_times} trips with stop times")
+    logger.info(f"Parquet: {parquet_trips_with_times} trips with stop times")
+    
+    # Compare stop times for each trip
+    common_trip_ids = set(original_trips.keys()) & set(parquet_trips.keys())
+    logger.info(f"Found {len(common_trip_ids)} common trips")
+    
+    # Log some sample trip IDs
+    sample_trips = list(common_trip_ids)[:5]
+    logger.info("Sample trip IDs:")
+    for trip_id in sample_trips:
+        logger.info(f"  {trip_id}")
+    
+    # Compare stop times for each trip
+    differences = 0
+    for trip_id in common_trip_ids:
+        orig_trip = original_trips[trip_id]
+        parquet_trip = parquet_trips[trip_id]
+        
+        # Compare number of stop times
+        if len(orig_trip.stop_times) != len(parquet_trip.stop_times):
+            differences += 1
+            logger.error(f"Trip {trip_id} has different number of stop times:")
+            logger.error(f"  Original: {len(orig_trip.stop_times)}")
+            logger.error(f"  Parquet: {len(parquet_trip.stop_times)}")
+            continue
+            
+        # Compare each stop time
+        for i, (orig_stop, parquet_stop) in enumerate(zip(orig_trip.stop_times, parquet_trip.stop_times)):
+            if (orig_stop.arrival_time != parquet_stop.arrival_time or
+                orig_stop.departure_time != parquet_stop.departure_time or
+                orig_stop.stop_id != parquet_stop.stop_id or
+                orig_stop.stop_sequence != parquet_stop.stop_sequence):
+                differences += 1
+                logger.error(f"Trip {trip_id} has different stop times at index {i}:")
+                logger.error(f"  Original: {orig_stop}")
+                logger.error(f"  Parquet: {parquet_stop}")
+                break
+                
+    if differences == 0:
+        logger.info("No differences found in stop times")
+    else:
+        logger.error(f"Found {differences} trips with differences in stop times")
+
 def run_comparison(data_dir: str, test_original: bool = True):
     """Run a performance comparison between the original and Parquet implementations."""
     logger = logging.getLogger(__name__)
@@ -322,26 +392,12 @@ def run_comparison(data_dir: str, test_original: bool = True):
     # Compare results
     logger.info("Testing route stops...")
     
+    # Compare stop times
+    compare_stop_times(original_feed, parquet_feed)
+    
     # Get a route from each implementation
     original_route = original_feed.routes[0] if isinstance(original_feed.routes, list) else next(iter(original_feed.routes.values()))
     parquet_route = parquet_feed.routes[0]
-    
-    # Log route details
-    logger.info(f"\nOriginal route details:")
-    logger.info(f"  Route ID: {original_route.route_id}")
-    logger.info(f"  Route name: {original_route.route_name}")
-    logger.info(f"  Trip ID: {original_route.trip_id}")
-    logger.info(f"  Direction ID: {original_route.direction_id}")
-    logger.info(f"  Number of stops: {len(original_route.stops)}")
-    logger.info(f"  Has shape: {original_route.shape is not None}")
-    
-    logger.info(f"\nParquet route details:")
-    logger.info(f"  Route ID: {parquet_route.route_id}")
-    logger.info(f"  Route name: {parquet_route.route_name}")
-    logger.info(f"  Trip ID: {parquet_route.trip_id}")
-    logger.info(f"  Direction ID: {parquet_route.direction_id}")
-    logger.info(f"  Number of stops: {len(parquet_route.stops)}")
-    logger.info(f"  Has shape: {parquet_route.shape is not None}")
     
     # Compare route stops
     original_stops = original_route.stops
@@ -349,16 +405,6 @@ def run_comparison(data_dir: str, test_original: bool = True):
     
     if len(original_stops) != len(parquet_stops):
         logger.error(f"Route stop count mismatch - Original: {len(original_stops)}, Parquet: {len(parquet_stops)}")
-        
-        # Log stop details
-        logger.info("\nOriginal stops:")
-        for i, stop in enumerate(original_stops):
-            logger.info(f"  {i}: {stop.stop.id} - {stop.stop.name} (seq: {stop.stop_sequence})")
-        
-        logger.info("\nParquet stops:")
-        for i, stop in enumerate(parquet_stops):
-            logger.info(f"  {i}: {stop.stop.id} - {stop.stop.name} (seq: {stop.stop_sequence})")
-        
         return
     
     for i, (original_stop, parquet_stop) in enumerate(zip(original_stops, parquet_stops)):
