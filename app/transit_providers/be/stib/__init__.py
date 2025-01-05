@@ -346,7 +346,7 @@ class StibProvider(TransitProvider):
             try:
                 from .get_stop_names import get_stop_names
             except Exception as e:
-                logger.error(f"Error importing get_stop_names: {e}")
+                logger.error(f"Error importing get_stop_names: {e}", exc_info=True)
                 return {"coordinates": None}
 
             stop_data = get_stop_names([stop_id])
