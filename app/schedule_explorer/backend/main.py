@@ -1374,7 +1374,6 @@ async def get_waiting_times_impl(
         if feed.agencies:
             # Get the first agency's timezone (all agencies inside a GTFS dataset must have the same timezone)
             agency_timezone = next(iter(feed.agencies.values())).agency_timezone
-
         # If no agency timezone found, use the server timezone
         if not agency_timezone:
             agency_timezone = datetime.now().astimezone().tzname()
@@ -1423,22 +1422,101 @@ async def get_waiting_times_impl(
 
         # For each stop ID, get its routes and waiting times
         for current_stop_id in stop_ids_to_check:
-            # Get all routes serving this stop
-            routes_info = await get_station_routes(
-                request=request,
-                station_id=current_stop_id,
-                provider_id=provider_id,
-            )
+            # Find all routes serving this stop
+            routes_info = []
+            seen_route_ids = set()
+
+            for route in feed.routes:
+                # Skip if we've already seen this route
+                if route.route_id in seen_route_ids:
+                    continue
+
+                # Skip if route_id is specified and doesn't match
+                if route_id and route_id != route.route_id:
+                    continue
+
+                # Check if this stop is served by this route
+                station_in_route = False
+                for route_stop in route.stops:
+                    if route_stop.stop.id == current_stop_id:
+                        station_in_route = True
+                        break
+
+                if station_in_route:
+                    seen_route_ids.add(route.route_id)
+
+                    # Get stop names in the correct language
+                    stop_names = [s.stop.name for s in route.stops]
+
+                    # Handle NaN values in route name and colors
+                    route_name = route.route_name
+                    if pd.isna(route_name):
+                        route_name = f"Route {route.route_id}"
+
+                    color = (
+                        route.color
+                        if hasattr(route, "color") and not pd.isna(route.color)
+                        else None
+                    )
+                    text_color = (
+                        route.text_color
+                        if hasattr(route, "text_color")
+                        and not pd.isna(route.text_color)
+                        else None
+                    )
+
+                    routes_info.append(
+                        RouteInfo(
+                            route_id=route.route_id,
+                            route_name=route_name,
+                            short_name=(
+                                route.short_name
+                                if hasattr(route, "short_name")
+                                else None
+                            ),
+                            color=color,
+                            text_color=text_color,
+                            first_stop=stop_names[0],
+                            last_stop=stop_names[-1],
+                            stops=stop_names,
+                            headsign=route.stops[-1].stop.name,
+                            service_days=route.service_days,
+                            parent_station_id=getattr(gtfs_stop, "parent_station", None),
+                            terminus_stop_id=route.stops[-1].stop.id,
+                            service_days_explicit=(
+                                route.service_days_explicit
+                                if hasattr(route, "service_days_explicit")
+                                else None
+                            ),
+                            calendar_dates_additions=(
+                                route.calendar_dates_additions
+                                if hasattr(route, "calendar_dates_additions")
+                                else None
+                            ),
+                            calendar_dates_removals=(
+                                route.calendar_dates_removals
+                                if hasattr(route, "calendar_dates_removals")
+                                else None
+                            ),
+                            valid_calendar_days=(
+                                route.valid_calendar_days
+                                if hasattr(route, "valid_calendar_days")
+                                else None
+                            ),
+                            service_calendar=(
+                                route.service_calendar
+                                if hasattr(route, "service_calendar")
+                                else None
+                            ),
+                        )
+                    )
+
             logger.info(
                 f"Found {len(routes_info)} routes serving stop {current_stop_id}"
             )
 
             # For each route, get the trips to its terminus
             for route_info in routes_info:
-                # Skip if route_id is specified and doesn't match
-                if route_id and route_id != route_info.route_id:
-                    continue
-
                 # Get all trips between our stop and the terminus
                 routes_response = await get_routes(
                     request=request,

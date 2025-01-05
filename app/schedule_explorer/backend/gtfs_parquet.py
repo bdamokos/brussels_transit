@@ -1859,23 +1859,44 @@ class ParquetGTFSLoader:
         if not service_ids:
             return []
         
-        result = self.db.execute("""
-            SELECT DISTINCT
-                CASE WHEN monday = 1 THEN 'Monday' END as monday,
-                CASE WHEN tuesday = 1 THEN 'Tuesday' END as tuesday,
-                CASE WHEN wednesday = 1 THEN 'Wednesday' END as wednesday,
-                CASE WHEN thursday = 1 THEN 'Thursday' END as thursday,
-                CASE WHEN friday = 1 THEN 'Friday' END as friday,
-                CASE WHEN saturday = 1 THEN 'Saturday' END as saturday,
-                CASE WHEN sunday = 1 THEN 'Sunday' END as sunday
-            FROM calendar
-            WHERE service_id IN (SELECT UNNEST(?))
-        """, [list(service_ids)]).fetchdf()
+        # Check if calendar table exists
+        has_calendar = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar'
+            )
+        """).fetchone()[0]
         
-        days = []
-        for _, row in result.iterrows():
-            days.extend([day for day in row if pd.notna(day)])
-        return sorted(list(set(days)))
+        if has_calendar:
+            result = self.db.execute("""
+                SELECT DISTINCT
+                    CASE WHEN monday = 1 THEN 'Monday' END as monday,
+                    CASE WHEN tuesday = 1 THEN 'Tuesday' END as tuesday,
+                    CASE WHEN wednesday = 1 THEN 'Wednesday' END as wednesday,
+                    CASE WHEN thursday = 1 THEN 'Thursday' END as thursday,
+                    CASE WHEN friday = 1 THEN 'Friday' END as friday,
+                    CASE WHEN saturday = 1 THEN 'Saturday' END as saturday,
+                    CASE WHEN sunday = 1 THEN 'Sunday' END as sunday
+                FROM calendar
+                WHERE service_id IN (SELECT UNNEST(?))
+            """, [list(service_ids)]).fetchdf()
+            
+            days = []
+            for _, row in result.iterrows():
+                days.extend([day for day in row if pd.notna(day)])
+            return sorted(list(set(days)))
+        else:
+            # If no calendar.txt exists, calculate service days from calendar_dates.txt
+            result = self.db.execute("""
+                SELECT DISTINCT
+                    strftime(strptime(date, '%Y%m%d'), '%A') as weekday
+                FROM calendar_dates
+                WHERE service_id IN (SELECT UNNEST(?))
+                AND exception_type = 1
+            """, [list(service_ids)]).fetchdf()
+            
+            return sorted(list(set(result['weekday'].tolist())))
 
     def _get_calendar_dates_additions(self, service_ids: set[str]) -> List[datetime]:
         """Get dates added via exceptions."""
@@ -1912,49 +1933,68 @@ class ParquetGTFSLoader:
         if not service_ids:
             return []
         
-        result = self.db.execute("""
-            WITH service_days AS (
-                SELECT service_id, start_date, end_date
-                FROM calendar
+        # Check if calendar table exists
+        has_calendar = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'calendar'
+            )
+        """).fetchone()[0]
+        
+        if has_calendar:
+            result = self.db.execute("""
+                WITH service_days AS (
+                    SELECT service_id, start_date, end_date
+                    FROM calendar
+                    WHERE service_id IN (SELECT UNNEST(?))
+                ),
+                calendar_dates_exceptions AS (
+                    SELECT service_id, date, exception_type
+                    FROM calendar_dates
+                    WHERE service_id IN (SELECT UNNEST(?))
+                ),
+                date_series AS (
+                    SELECT DISTINCT
+                        service_id,
+                        unnest(
+                            generate_series(
+                                strptime(MIN(start_date), '%Y%m%d'),
+                                strptime(MAX(end_date), '%Y%m%d'),
+                                INTERVAL '1 day'
+                            )
+                        )::DATE as service_date
+                    FROM service_days
+                    GROUP BY service_id
+                )
+                SELECT DISTINCT 
+                    strftime(service_date, '%Y%m%d') as date
+                FROM date_series d
+                JOIN service_days s ON d.service_id = s.service_id
+                WHERE service_date >= strptime(s.start_date, '%Y%m%d')::DATE
+                AND service_date <= strptime(s.end_date, '%Y%m%d')::DATE
+                AND service_date NOT IN (
+                    SELECT strptime(date, '%Y%m%d')::DATE
+                    FROM calendar_dates_exceptions
+                    WHERE service_id = d.service_id
+                    AND exception_type = 2
+                )
+                UNION
+                SELECT DISTINCT date
+                FROM calendar_dates_exceptions
                 WHERE service_id IN (SELECT UNNEST(?))
-            ),
-            calendar_dates_exceptions AS (
-                SELECT service_id, date, exception_type
+                AND exception_type = 1
+                ORDER BY date
+            """, [list(service_ids), list(service_ids), list(service_ids)]).fetchdf()
+        else:
+            # If no calendar.txt exists, use only calendar_dates.txt
+            result = self.db.execute("""
+                SELECT DISTINCT date
                 FROM calendar_dates
                 WHERE service_id IN (SELECT UNNEST(?))
-            ),
-            date_series AS (
-                SELECT DISTINCT
-                    service_id,
-                    unnest(
-                        generate_series(
-                            strptime(MIN(start_date), '%Y%m%d'),
-                            strptime(MAX(end_date), '%Y%m%d'),
-                            INTERVAL '1 day'
-                        )
-                    )::DATE as service_date
-                FROM service_days
-                GROUP BY service_id
-            )
-            SELECT DISTINCT 
-                strftime(service_date, '%Y%m%d') as date
-            FROM date_series d
-            JOIN service_days s ON d.service_id = s.service_id
-            WHERE service_date >= strptime(s.start_date, '%Y%m%d')::DATE
-            AND service_date <= strptime(s.end_date, '%Y%m%d')::DATE
-            AND service_date NOT IN (
-                SELECT strptime(date, '%Y%m%d')::DATE
-                FROM calendar_dates_exceptions
-                WHERE service_id = d.service_id
-                AND exception_type = 2
-            )
-            UNION
-            SELECT DISTINCT date
-            FROM calendar_dates_exceptions
-            WHERE service_id IN (SELECT UNNEST(?))
-            AND exception_type = 1
-            ORDER BY date
-        """, [list(service_ids), list(service_ids), list(service_ids)]).fetchdf()
+                AND exception_type = 1
+                ORDER BY date
+            """, [list(service_ids)]).fetchdf()
         
         return [datetime.strptime(date, '%Y%m%d') for date in result['date']]
 
