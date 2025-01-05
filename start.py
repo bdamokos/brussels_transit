@@ -11,8 +11,13 @@ os.environ["PROJECT_ROOT"] = PROJECT_ROOT
 
 # Add app directory to Python path
 app_dir = Path(__file__).parent / "app"
-sys.path.insert(0, str(app_dir))
-sys.path.append(str(app_dir))
+project_dir = Path(__file__).parent
+
+# Set up the environment for all processes
+def get_process_env():
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{str(project_dir)}:{str(app_dir)}"
+    return env
 
 print("Python path:", sys.path)  # Debug print
 
@@ -30,11 +35,11 @@ def run_apps():
     processes = []
     try:
         # Legacy app
-        app_dir = Path(__file__).parent / "app"
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(app_dir)
+        env = get_process_env()
         legacy_process = subprocess.Popen(
-            [sys.executable, "main.py"], cwd=app_dir, env=env
+            [sys.executable, "main.py"], 
+            cwd=app_dir, 
+            env=env
         )
         processes.append(("Legacy app (port 5001)", legacy_process))
         print("Legacy app started on port 5001")
@@ -57,15 +62,13 @@ def run_apps():
                 "30",
             ],
             cwd=app_dir,
-            env=env,
+            env=get_process_env()
         )
         processes.append(("Schedule Explorer frontend (port 8080)", frontend_process))
         print("Schedule Explorer frontend started on port 8080")
 
         # Schedule Explorer backend
         backend_dir = Path(__file__).parent / "app" / "schedule_explorer"
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(app_dir)
         backend_process = subprocess.Popen(
             [
                 sys.executable,
@@ -84,7 +87,7 @@ def run_apps():
                 "on",
             ],
             cwd=backend_dir,
-            env=env,
+            env=get_process_env()
         )
         processes.append(("Schedule Explorer backend (port 8000)", backend_process))
         print(
