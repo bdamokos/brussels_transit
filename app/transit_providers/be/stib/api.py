@@ -13,7 +13,7 @@ import pytz
 from utils import RateLimiter, get_client, select_language, matches_destination
 from dataclasses import dataclass
 from collections import defaultdict
-from get_stop_names import get_stop_names
+from transit_providers.be.stib.get_stop_names import get_stop_names
 from transit_providers.config import get_provider_config
 from .gtfs import download_gtfs_data
 from transit_providers.nearest_stop import (

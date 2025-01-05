@@ -10,7 +10,7 @@ from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider, PROVIDERS
 from .gtfs import ensure_gtfs_data
-from .get_stop_names import get_stop_names as get_stop_names_from_backend
+from transit_providers.be.stib.get_stop_names import get_stop_names as get_stop_names_from_backend
 from flask import request
 import asyncio
 
