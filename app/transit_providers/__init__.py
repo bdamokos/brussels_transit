@@ -1,6 +1,7 @@
 from typing import Dict, Any, Callable, Union
 from dataclasses import dataclass
 import os
+import sys
 import importlib
 import logging
 from pathlib import Path
@@ -90,6 +91,14 @@ def get_provider_docs() -> Dict[str, Any]:
 def import_providers():
     """Dynamically import all provider modules"""
     logger.debug("Starting provider discovery")
+    
+    # Ensure app directory is in Python path
+    app_dir = Path(__file__).resolve().parent.parent  # Get app directory
+    app_path = str(app_dir)
+    if app_path not in sys.path:
+        logger.debug(f"Adding {app_path} to Python path")
+        sys.path.insert(0, app_path)
+    
     # Get the directory containing this file
     providers_dir = Path(__file__).parent
     
@@ -113,6 +122,8 @@ def import_providers():
                 logger.debug(f"Successfully imported module: {module_name}")
             except Exception as e:
                 logger.error(f"Error importing module {module_name}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())  # Add traceback for better debugging
 
 def get_provider_from_path(provider_path: str) -> str:
     """Convert a provider path (e.g. 'be/stib') back to a provider ID (e.g. 'stib')
