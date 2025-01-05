@@ -112,7 +112,7 @@ def import_providers():
                 importlib.import_module(module_name)
                 logger.debug(f"Successfully imported module: {module_name}")
             except Exception as e:
-                logger.error(f"Error importing module {module_name}: {e}")
+                logger.error(f"Error importing module {module_name}: {e}", exc_info=True)
 
 def get_provider_from_path(provider_path: str) -> str:
     """Convert a provider path (e.g. 'be/stib') back to a provider ID (e.g. 'stib')
