@@ -1046,17 +1046,27 @@ async def get_station_routes(
     provider_id: Optional[str] = Query(None, description="Optional provider ID"),
 ):
     """Get all routes that serve this station with detailed information"""
+    global current_provider
+    
     async with check_client_connected(
         request, f"getting routes for station {station_id}"
     ):
-        if provider_id:
-            # Check provider availability and load if needed
-            is_ready, message, provider = await ensure_provider_loaded(provider_id)
-            if not is_ready:
-                raise HTTPException(
-                    status_code=409 if "being loaded" in message else 404,
-                    detail=message,
-                )
+        # If no provider specified, use current_provider
+        if not provider_id and current_provider:
+            provider_id = current_provider
+        elif not provider_id and not current_provider:
+            raise HTTPException(
+                status_code=400,
+                detail="No provider specified and no provider currently loaded"
+            )
+
+        # Check provider availability and load if needed
+        is_ready, message, provider = await ensure_provider_loaded(provider_id)
+        if not is_ready:
+            raise HTTPException(
+                status_code=409 if "being loaded" in message else 404,
+                detail=message,
+            )
 
         async with get_feed(provider_id) as feed:
             if not feed:
@@ -1906,8 +1916,7 @@ async def get_stops_in_bbox(
                     )
                     text_color = (
                         route.text_color
-                        if hasattr(route, "text_color")
-                        and not pd.isna(route.text_color)
+                        if hasattr(route, "text_color") and not pd.isna(route.text_color)
                         else None
                     )
 
