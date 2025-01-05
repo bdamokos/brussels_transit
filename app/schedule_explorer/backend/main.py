@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Request, Path
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional, Tuple, Dict, Union
+from typing import List, Optional, Tuple, Dict, Union, AsyncGenerator
 from datetime import datetime, timedelta
 import os
 from pathlib import Path as FilePath
@@ -36,9 +36,11 @@ from .models import (
     BoundingBox,
 )
 from .gtfs_parquet import FlixbusFeed, load_feed
+from .cache_manager import GTFSCache
 
 # Configure download directory - hardcoded to project root/downloads
 DOWNLOAD_DIR = FilePath(os.environ["PROJECT_ROOT"]) / "downloads"
+CACHE_DIR = FilePath(os.environ["PROJECT_ROOT"]) / "cache"
 
 # Configure graceful timeout (in seconds)
 GRACEFUL_TIMEOUT = 3
@@ -60,17 +62,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
 # Global variables
-feed: Optional[FlixbusFeed] = None
+gtfs_cache: Optional[GTFSCache] = None
 current_provider: Optional[str] = None
 available_providers: List[Provider] = []
 logger = logging.getLogger("schedule_explorer.backend")
 db: Optional[MobilityAPI] = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Load available GTFS providers on startup"""
+    global available_providers, db, gtfs_cache
+    available_providers = find_gtfs_directories()
+    db = MobilityAPI(data_dir=DOWNLOAD_DIR)
+    gtfs_cache = GTFSCache(CACHE_DIR)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    global gtfs_cache
+    if gtfs_cache:
+        gtfs_cache.close()
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
 @asynccontextmanager
@@ -158,22 +178,42 @@ async def check_provider_availability(
     return False, False, None
 
 
+@asynccontextmanager
+async def get_feed(provider_id: str) -> AsyncGenerator[Optional[FlixbusFeed], None]:
+    """Context manager to get the feed for a provider from cache.
+
+    Usage:
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
+            # Use feed here
+    """
+    global gtfs_cache, current_provider
+
+    if not gtfs_cache:
+        yield None
+        return
+
+    # Get loader from cache
+    loader = gtfs_cache.get_loader(provider_id, str(DOWNLOAD_DIR))
+    if not loader:
+        yield None
+        return
+
+    # Load feed
+    feed = loader.load_feed()
+    try:
+        yield feed
+    finally:
+        # Any cleanup if needed
+        pass
+
+
 async def ensure_provider_loaded(
     provider_id: str, auto_download: bool = False
 ) -> Tuple[bool, str, Optional[Provider]]:
-    """Ensure provider is loaded, loading or downloading it if available.
-
-    Args:
-        provider_id: The ID of the provider to load
-        auto_download: If True, will attempt to download the provider if not available locally
-
-    Returns:
-        Tuple[bool, str, Optional[Provider]]:
-            - is_ready: True if provider is loaded and ready
-            - message: Status message explaining the current state
-            - provider: Provider object if found, None otherwise
-    """
-    global feed, current_provider, available_providers
+    """Ensure provider is loaded, loading or downloading it if available."""
+    global current_provider, available_providers, gtfs_cache
 
     # Check provider availability
     is_local, can_download, provider = await check_provider_availability(provider_id)
@@ -220,7 +260,7 @@ async def ensure_provider_loaded(
             return False, f"Error downloading provider {provider_id}: {str(e)}", None
 
     # At this point, provider exists locally
-    if feed is not None and current_provider == provider.id:
+    if current_provider == provider.id:
         return True, "Provider already loaded", provider
 
     # Try to load the provider
@@ -257,7 +297,17 @@ async def ensure_provider_loaded(
             return False, f"GTFS data not found for provider {provider_id}", None
 
         logger.info(f"Loading GTFS data for provider {provider_id}...")
-        feed = load_feed(str(dataset_dir))
+
+        # Get or create loader from cache
+        loader = gtfs_cache.get_loader(provider.id, str(dataset_dir))
+        if not loader:
+            return False, f"Failed to load GTFS data for provider {provider_id}", None
+
+        # Load feed using the loader
+        feed = loader.load_feed()
+        if not feed:
+            return False, f"Failed to load feed for provider {provider_id}", None
+
         current_provider = provider.id
         logger.info(f"Successfully loaded GTFS data for provider {provider_id}")
         return True, f"Loaded GTFS data for {provider_id}", provider
@@ -561,18 +611,10 @@ async def get_providers():
     return [p.id for p in providers]
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Load available GTFS providers on startup"""
-    global available_providers, db
-    available_providers = find_gtfs_directories()
-    db = MobilityAPI(data_dir=DOWNLOAD_DIR)
-
-
 @app.post("/provider/{provider_id}")
 async def set_provider(provider_id: str):
     """Set the current GTFS provider and load its data"""
-    global feed, current_provider, available_providers
+    global current_provider, available_providers
 
     # Get provider info
     provider = get_provider_by_id(provider_id)
@@ -583,22 +625,22 @@ async def set_provider(provider_id: str):
         )
 
     # If the requested provider is already loaded, return early
-    if feed is not None and current_provider == provider.raw_id:
-        logger.info(f"Provider {provider.raw_id} already loaded, skipping reload")
+    if current_provider == provider.id:
+        logger.info(f"Provider {provider.id} already loaded, skipping reload")
         return {
             "status": "success",
-            "message": f"Provider {provider.raw_id} already loaded",
+            "message": f"Provider {provider.id} already loaded",
         }
 
     try:
-        logger.info(f"Loading GTFS data for provider {provider.raw_id}")
+        logger.info(f"Loading GTFS data for provider {provider.id}")
 
         # Find the provider's dataset directory
         metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
         if not metadata_file.exists():
             raise HTTPException(
                 status_code=404,
-                detail=f"No metadata found for provider {provider.raw_id}",
+                detail=f"No metadata found for provider {provider.id}",
             )
 
         with open(metadata_file, "r") as f:
@@ -617,7 +659,7 @@ async def set_provider(provider_id: str):
             if not dataset_info:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No dataset info found for provider {provider.raw_id}",
+                    detail=f"No dataset info found for provider {provider.id}",
                 )
 
             dataset_dir = FilePath(dataset_info["download_path"])
@@ -632,19 +674,28 @@ async def set_provider(provider_id: str):
         ):
             raise HTTPException(
                 status_code=404,
-                detail=f"GTFS data not found for provider {provider.raw_id}",
+                detail=f"GTFS data not found for provider {provider.id}",
             )
 
-        feed = load_feed(str(dataset_dir))
-        current_provider = provider.raw_id
+        # Get or create loader from cache
+        loader = gtfs_cache.get_loader(provider.id, str(dataset_dir))
+        if not loader:
+            return False, f"Failed to load GTFS data for provider {provider.id}", None
+
+        # Load feed using the loader
+        feed = loader.load_feed()
+        if not feed:
+            return False, f"Failed to load feed for provider {provider.id}", None
+
+        current_provider = provider.id
         return {
             "status": "success",
-            "message": f"Loaded GTFS data for {provider.raw_id}",
+            "message": f"Loaded GTFS data for {provider.id}",
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error loading provider {provider.raw_id}: {str(e)}")
+        logger.error(f"Error loading provider {provider.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -685,56 +736,27 @@ async def search_stations(
                 detail=message,
             )
 
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
+    async with get_feed(provider_id) as feed:
+        if not feed:
+            raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-    if not query and not stop_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Either 'query' or 'stop_id' parameter must be provided",
-        )
-
-    logger.info(
-        f"Searching for stations with query: {query}, stop_id: {stop_id}, language: {language}"
-    )
-
-    # Initialize matches list
-    matches = []
-
-    # Search by stop_id if provided
-    if stop_id:
-        if stop_id in feed.stops:
-            stop = feed.stops[stop_id]
-            # Get the appropriate name based on language
-            display_name = stop.name  # Default name
-            if (
-                language != "default"
-                and stop.translations
-                and language in stop.translations
-            ):
-                display_name = stop.translations[language]
-
-            matches.append(
-                StationResponse(
-                    id=stop_id,
-                    name=display_name,
-                    location=Location(lat=stop.lat, lon=stop.lon),
-                    translations=stop.translations,
-                )
+        if not query and not stop_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'query' or 'stop_id' parameter must be provided",
             )
 
-    # Search by name if query is provided
-    if query:
-        # Case-insensitive search in both default names and translations
-        for stop_id, stop in feed.stops.items():
-            # Search in default name and translations
-            searchable_names = [stop.name.lower()]
-            if stop.translations:
-                searchable_names.extend(
-                    trans.lower() for trans in stop.translations.values()
-                )
+        logger.info(
+            f"Searching for stations with query: {query}, stop_id: {stop_id}, language: {language}"
+        )
 
-            if any(query.lower() in name for name in searchable_names):
+        # Initialize matches list
+        matches = []
+
+        # Search by stop_id if provided
+        if stop_id:
+            if stop_id in feed.stops:
+                stop = feed.stops[stop_id]
                 # Get the appropriate name based on language
                 display_name = stop.name  # Default name
                 if (
@@ -744,19 +766,49 @@ async def search_stations(
                 ):
                     display_name = stop.translations[language]
 
-                # Only add if not already added by stop_id search
-                if not any(m.id == stop_id for m in matches):
-                    matches.append(
-                        StationResponse(
-                            id=stop_id,
-                            name=display_name,
-                            location=Location(lat=stop.lat, lon=stop.lon),
-                            translations=stop.translations,
-                        )
+                matches.append(
+                    StationResponse(
+                        id=stop_id,
+                        name=display_name,
+                        location=Location(lat=stop.lat, lon=stop.lon),
+                        translations=stop.translations,
+                    )
+                )
+
+        # Search by name if query is provided
+        if query:
+            # Case-insensitive search in both default names and translations
+            for stop_id, stop in feed.stops.items():
+                # Search in default name and translations
+                searchable_names = [stop.name.lower()]
+                if stop.translations:
+                    searchable_names.extend(
+                        trans.lower() for trans in stop.translations.values()
                     )
 
-    logger.info(f"Found {len(matches)} matches")
-    return matches
+                if any(query.lower() in name for name in searchable_names):
+                    # Get the appropriate name based on language
+                    display_name = stop.name  # Default name
+                    if (
+                        language != "default"
+                        and stop.translations
+                        and language in stop.translations
+                    ):
+                        display_name = stop.translations[language]
+
+                    # Only add if not already added by stop_id search
+                    if not any(m.id == stop_id for m in matches):
+                        matches.append(
+                            StationResponse(
+                                id=stop_id,
+                                name=display_name,
+                                location=Location(lat=stop.lat, lon=stop.lon),
+                                translations=stop.translations,
+                            )
+                        )
+
+        logger.info(f"Found {len(matches)} matches")
+        return matches
 
 
 @app.get("/api/{provider_id}/routes", response_model=RouteResponse)
@@ -804,91 +856,68 @@ async def get_routes(
                     detail=message,
                 )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-        # Split station IDs if they contain commas
-        from_stations = [s.strip() for s in from_station.split(",")]
-        to_stations = [s.strip() for s in to_station.split(",")]
+            # Split station IDs if they contain commas
+            from_stations = [s.strip() for s in from_station.split(",")]
+            to_stations = [s.strip() for s in to_station.split(",")]
 
-        # Validate stations
-        for station_id in from_stations:
-            if station_id not in feed.stops:
-                raise HTTPException(
-                    status_code=404, detail=f"Station {station_id} not found"
-                )
+            # Validate stations
+            for station_id in from_stations:
+                if station_id not in feed.stops:
+                    raise HTTPException(
+                        status_code=404, detail=f"Station {station_id} not found"
+                    )
 
-        for station_id in to_stations:
-            if station_id not in feed.stops:
-                raise HTTPException(
-                    status_code=404, detail=f"Station {station_id} not found"
-                )
+            for station_id in to_stations:
+                if station_id not in feed.stops:
+                    raise HTTPException(
+                        status_code=404, detail=f"Station {station_id} not found"
+                    )
 
-        # Find routes for all combinations
-        all_routes = []
-        for from_id in from_stations:
-            for to_id in to_stations:
-                async with check_client_connected(
-                    request, f"finding trips between {from_id} and {to_id}"
-                ):
-                    routes = feed.find_trips_between_stations(from_id, to_id)
-                    all_routes.extend(routes)
+            # Find routes for all combinations
+            all_routes = []
+            for from_id in from_stations:
+                for to_id in to_stations:
+                    async with check_client_connected(
+                        request, f"finding trips between {from_id} and {to_id}"
+                    ):
+                        routes = feed.find_trips_between_stations(from_id, to_id)
+                        all_routes.extend(routes)
 
-        # Filter by date if provided
-        if date:
-            try:
-                target_date = datetime.strptime(date, "%Y-%m-%d")
-                day_name = target_date.strftime("%A").lower()
-                all_routes = [r for r in all_routes if day_name in r.service_days]
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid date format")
+            # Convert to response format
+            route_responses = []
+            for route in all_routes:
+                # Get stops for this route
+                stops = route.get_stops_between(from_station, to_station)
 
-        # Convert to response format
-        route_responses = []
-        for route in all_routes:
-            async with check_client_connected(
-                request, f"processing route {route.route_id}"
-            ):
-                # Get relevant stops
-                # Find first matching from and to stations in this route
-                route_stop_ids = [stop.stop.id for stop in route.stops]
-                matching_from = next(
-                    (s for s in from_stations if s in route_stop_ids), None
-                )
-                matching_to = next(
-                    (s for s in to_stations if s in route_stop_ids), None
-                )
-
-                if not matching_from or not matching_to:
-                    continue
-
-                stops = route.get_stops_between(matching_from, matching_to)
-                duration = route.calculate_duration(matching_from, matching_to)
-
-                if not duration:
-                    continue
-
-                # Handle NaN values in route name
+                # Handle NaN values in route name and colors
                 route_name = route.route_name
-                if pd.isna(route_name) or not isinstance(route_name, str):
+                if pd.isna(route_name):
                     route_name = f"Route {route.route_id}"
 
-                # Handle NaN values in color and text_color
-                color = None
-                if hasattr(route, "color") and not pd.isna(route.color):
-                    color = route.color
-
-                text_color = None
-                if hasattr(route, "text_color") and not pd.isna(route.text_color):
-                    text_color = route.text_color
+                color = (
+                    route.color
+                    if hasattr(route, "color") and not pd.isna(route.color)
+                    else None
+                )
+                text_color = (
+                    route.text_color
+                    if hasattr(route, "text_color") and not pd.isna(route.text_color)
+                    else None
+                )
 
                 route_responses.append(
                     Route(
                         route_id=route.route_id,
                         route_name=route_name,
-                        trip_id=route.trip_id,
-                        service_days=route.service_days,
-                        duration_minutes=int(duration.total_seconds() / 60),
+                        short_name=(
+                            route.short_name if hasattr(route, "short_name") else None
+                        ),
+                        color=color,
+                        text_color=text_color,
                         stops=[
                             Stop(
                                 id=stop.stop.id,
@@ -914,14 +943,16 @@ async def get_routes(
                         line_number=(
                             route.short_name if hasattr(route, "short_name") else ""
                         ),
-                        color=color,
-                        text_color=text_color,
+                        
+                        
                         headsigns=route.headsigns,
                         service_ids=route.service_ids,  # Include for debugging
                     )
                 )
 
-        return RouteResponse(routes=route_responses, total_routes=len(route_responses))
+            return RouteResponse(
+                routes=route_responses, total_routes=len(route_responses)
+            )
 
 
 @app.get(
@@ -966,131 +997,132 @@ async def get_station_routes(
                     detail=message,
                 )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-        if station_id not in feed.stops:
-            raise HTTPException(
-                status_code=404, detail=f"Station {station_id} not found"
-            )
+            if station_id not in feed.stops:
+                raise HTTPException(
+                    status_code=404, detail=f"Station {station_id} not found"
+                )
 
-        # Get the stop and determine if it's a parent station or child stop
-        stop = feed.stops[station_id]
-        is_parent = getattr(stop, "location_type", 0) == 1
-        parent_id = getattr(stop, "parent_station", None)
+            # Get the stop and determine if it's a parent station or child stop
+            stop = feed.stops[station_id]
+            is_parent = getattr(stop, "location_type", 0) == 1
+            parent_id = getattr(stop, "parent_station", None)
 
-        # If this is a child stop, get its parent station
-        if not is_parent and parent_id:
-            parent_station = feed.stops.get(parent_id)
-            if parent_station:
-                is_parent = True
-                station_id = parent_id
+            # If this is a child stop, get its parent station
+            if not is_parent and parent_id:
+                parent_station = feed.stops.get(parent_id)
+                if parent_station:
+                    is_parent = True
+                    station_id = parent_id
 
-        # If this is a parent station, get all its child stops
-        stop_ids_to_check = [station_id]
-        if is_parent:
-            # Find all child stops
-            for stop_id, stop in feed.stops.items():
-                if getattr(stop, "parent_station", None) == station_id:
-                    stop_ids_to_check.append(stop_id)
+            # If this is a parent station, get all its child stops
+            stop_ids_to_check = [station_id]
+            if is_parent:
+                # Find all child stops
+                for stop_id, stop in feed.stops.items():
+                    if getattr(stop, "parent_station", None) == station_id:
+                        stop_ids_to_check.append(stop_id)
 
-        # Find all routes that serve any of these stops
-        routes_info = []
-        seen_route_ids = set()
+            # Find all routes that serve any of these stops
+            routes_info = []
+            seen_route_ids = set()
 
-        for route in feed.routes:
-            async with check_client_connected(
-                request, f"processing route {route.route_id}"
-            ):
-                # Skip if we've already seen this route
-                if route.route_id in seen_route_ids:
-                    continue
+            for route in feed.routes:
+                async with check_client_connected(
+                    request, f"processing route {route.route_id}"
+                ):
+                    # Skip if we've already seen this route
+                    if route.route_id in seen_route_ids:
+                        continue
 
-                # Check if any of our stops is served by this route
-                station_in_route = False
-                for stop in route.stops:
-                    if stop.stop.id in stop_ids_to_check:
-                        station_in_route = True
-                        break
+                    # Check if any of our stops is served by this route
+                    station_in_route = False
+                    for stop in route.stops:
+                        if stop.stop.id in stop_ids_to_check:
+                            station_in_route = True
+                            break
 
-                if station_in_route:
-                    seen_route_ids.add(route.route_id)
+                    if station_in_route:
+                        seen_route_ids.add(route.route_id)
 
-                    # Get stop names in the correct language
-                    stop_names = [
-                        (
-                            feed.get_stop_name(s.stop.id, language)
-                            if language != "default"
-                            else s.stop.name
+                        # Get stop names in the correct language
+                        stop_names = [
+                            (
+                                feed.get_stop_name(s.stop.id, language)
+                                if language != "default"
+                                else s.stop.name
+                            )
+                            for s in route.stops
+                        ]
+
+                        # Handle NaN values in route name and colors
+                        route_name = route.route_name
+                        if pd.isna(route_name):
+                            route_name = f"Route {route.route_id}"
+
+                        color = (
+                            route.color
+                            if hasattr(route, "color") and not pd.isna(route.color)
+                            else None
                         )
-                        for s in route.stops
-                    ]
-
-                    # Handle NaN values in route name and colors
-                    route_name = route.route_name
-                    if pd.isna(route_name):
-                        route_name = f"Route {route.route_id}"
-
-                    color = (
-                        route.color
-                        if hasattr(route, "color") and not pd.isna(route.color)
-                        else None
-                    )
-                    text_color = (
-                        route.text_color
-                        if hasattr(route, "text_color")
-                        and not pd.isna(route.text_color)
-                        else None
-                    )
-
-                    routes_info.append(
-                        RouteInfo(
-                            route_id=route.route_id,
-                            route_name=route_name,
-                            short_name=(
-                                route.short_name
-                                if hasattr(route, "short_name")
-                                else None
-                            ),
-                            color=color,
-                            text_color=text_color,
-                            first_stop=stop_names[0],
-                            last_stop=stop_names[-1],
-                            stops=stop_names,
-                            headsign=route.stops[-1].stop.name,
-                            service_days=route.service_days,
-                            parent_station_id=parent_id,
-                            terminus_stop_id=route.stops[-1].stop.id,
-                            service_days_explicit=(
-                                route.service_days_explicit
-                                if hasattr(route, "service_days_explicit")
-                                else None
-                            ),
-                            calendar_dates_additions=(
-                                route.calendar_dates_additions
-                                if hasattr(route, "calendar_dates_additions")
-                                else None
-                            ),
-                            calendar_dates_removals=(
-                                route.calendar_dates_removals
-                                if hasattr(route, "calendar_dates_removals")
-                                else None
-                            ),
-                            valid_calendar_days=(
-                                route.valid_calendar_days
-                                if hasattr(route, "valid_calendar_days")
-                                else None
-                            ),
-                            service_calendar=(
-                                route.service_calendar
-                                if hasattr(route, "service_calendar")
-                                else None
-                            ),
+                        text_color = (
+                            route.text_color
+                            if hasattr(route, "text_color")
+                            and not pd.isna(route.text_color)
+                            else None
                         )
-                    )
 
-        # Return routes_info, ensuring it's always a list
-        return routes_info if routes_info else []
+                        routes_info.append(
+                            RouteInfo(
+                                route_id=route.route_id,
+                                route_name=route_name,
+                                short_name=(
+                                    route.short_name
+                                    if hasattr(route, "short_name")
+                                    else None
+                                ),
+                                color=color,
+                                text_color=text_color,
+                                first_stop=stop_names[0],
+                                last_stop=stop_names[-1],
+                                stops=stop_names,
+                                headsign=route.stops[-1].stop.name,
+                                service_days=route.service_days,
+                                parent_station_id=parent_id,
+                                terminus_stop_id=route.stops[-1].stop.id,
+                                service_days_explicit=(
+                                    route.service_days_explicit
+                                    if hasattr(route, "service_days_explicit")
+                                    else None
+                                ),
+                                calendar_dates_additions=(
+                                    route.calendar_dates_additions
+                                    if hasattr(route, "calendar_dates_additions")
+                                    else None
+                                ),
+                                calendar_dates_removals=(
+                                    route.calendar_dates_removals
+                                    if hasattr(route, "calendar_dates_removals")
+                                    else None
+                                ),
+                                valid_calendar_days=(
+                                    route.valid_calendar_days
+                                    if hasattr(route, "valid_calendar_days")
+                                    else None
+                                ),
+                                service_calendar=(
+                                    route.service_calendar
+                                    if hasattr(route, "service_calendar")
+                                    else None
+                                ),
+                            )
+                        )
+
+            # Return routes_info, ensuring it's always a list
+            return routes_info if routes_info else []
 
 
 @app.get(
@@ -1134,9 +1166,10 @@ async def get_destinations(
                     detail=message,
                 )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
+            # Use feed here
         if station_id not in feed.stops:
             raise HTTPException(
                 status_code=404, detail=f"Station {station_id} not found"
@@ -1147,25 +1180,28 @@ async def get_destinations(
         if not feed.routes:
             logger.warning("No routes found in feed")
             return []
-            
+
         for route in feed.routes:
             if route is None:
                 logger.debug("Skipping None route")
                 continue
-                
+
             try:
                 # Get all stops in this route
                 stops = route.get_stops_between(station_id, None)
-                
+
                 # If this station is in the route
                 if stops and stops[0].stop.id == station_id:
                     # Add all subsequent stops as potential destinations
                     for stop in stops[1:]:
                         if stop and stop.stop and stop.stop.id:
                             destinations.add(stop.stop.id)
-                            
+
             except Exception as e:
-                logger.error(f"Error processing route {route.route_id if route else 'unknown'}: {e}", exc_info=True)
+                logger.error(
+                    f"Error processing route {route.route_id if route else 'unknown'}: {e}",
+                    exc_info=True,
+                )
                 continue
 
         # Convert to response format
@@ -1175,32 +1211,31 @@ async def get_destinations(
                 if stop_id not in feed.stops:
                     logger.warning(f"Stop {stop_id} not found in feed.stops")
                     continue
-                    
+
                 stop = feed.stops[stop_id]
                 if stop is None:
                     logger.warning(f"Stop {stop_id} is None in feed.stops")
                     continue
-                    
+
                 name = feed.get_stop_name(stop_id, language) if language else stop.name
                 if pd.isna(name) or not name:
                     logger.warning(f"Invalid name for stop {stop_id}")
                     continue
-                    
+
                 responses.append(
                     StationResponse(
                         id=stop_id,
                         name=name,
-                        location=Location(
-                            lat=stop.lat,
-                            lon=stop.lon
-                        ),
+                        location=Location(lat=stop.lat, lon=stop.lon),
                         translations=stop.translations,
                     )
                 )
             except Exception as e:
-                logger.error(f"Error creating response for stop {stop_id}: {e}", exc_info=True)
+                logger.error(
+                    f"Error creating response for stop {stop_id}: {e}", exc_info=True
+                )
                 continue
-                
+
         return responses
 
 
@@ -1245,8 +1280,10 @@ async def get_origins(
                     detail=message,
                 )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
+            # Use feed hereException(status_code=503, detail="GTFS data not loaded")
 
         if station_id not in feed.stops:
             raise HTTPException(
@@ -1330,16 +1367,19 @@ async def get_waiting_times_impl(
         start_time = time.time()
 
         # Use the handler to ensure the correct provider is loaded
-        is_ready, message, provider = await handle_provider_request(provider_id, request)
+        is_ready, message, provider = await handle_provider_request(
+            provider_id, request
+        )
         if not is_ready:
             raise HTTPException(
                 status_code=409 if "being loaded" in message else 404,
                 detail=message,
             )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
+        # Use feed here
         # Get the stop
         gtfs_stop = feed.stops.get(stop_id)
         if not gtfs_stop:
@@ -1400,21 +1440,53 @@ async def get_waiting_times_impl(
             # Create RouteInfo for this route
             route_info = RouteInfo(
                 route_id=route.route_id,
-                route_name=route.route_name if not pd.isna(route.route_name) else f"Route {route.route_id}",
+                route_name=(
+                    route.route_name
+                    if not pd.isna(route.route_name)
+                    else f"Route {route.route_id}"
+                ),
                 short_name=route.short_name if hasattr(route, "short_name") else None,
-                color=route.color if hasattr(route, "color") and not pd.isna(route.color) else None,
-                text_color=route.text_color if hasattr(route, "text_color") and not pd.isna(route.text_color) else None,
+                color=(
+                    route.color
+                    if hasattr(route, "color") and not pd.isna(route.color)
+                    else None
+                ),
+                text_color=(
+                    route.text_color
+                    if hasattr(route, "text_color") and not pd.isna(route.text_color)
+                    else None
+                ),
                 first_stop=route.stops[0].stop.name,
                 last_stop=route.stops[-1].stop.name,
                 stops=None,  # Don't include full stop list
                 headsign=route.stops[-1].stop.name,
                 service_days=route.service_days,
                 terminus_stop_id=route.stops[-1].stop.id,
-                service_days_explicit=route.service_days_explicit if hasattr(route, "service_days_explicit") else None,
-                calendar_dates_additions=route.calendar_dates_additions if hasattr(route, "calendar_dates_additions") else None,
-                calendar_dates_removals=route.calendar_dates_removals if hasattr(route, "calendar_dates_removals") else None,
-                valid_calendar_days=route.valid_calendar_days if hasattr(route, "valid_calendar_days") else None,
-                service_calendar=route.service_calendar if hasattr(route, "service_calendar") else None,
+                service_days_explicit=(
+                    route.service_days_explicit
+                    if hasattr(route, "service_days_explicit")
+                    else None
+                ),
+                calendar_dates_additions=(
+                    route.calendar_dates_additions
+                    if hasattr(route, "calendar_dates_additions")
+                    else None
+                ),
+                calendar_dates_removals=(
+                    route.calendar_dates_removals
+                    if hasattr(route, "calendar_dates_removals")
+                    else None
+                ),
+                valid_calendar_days=(
+                    route.valid_calendar_days
+                    if hasattr(route, "valid_calendar_days")
+                    else None
+                ),
+                service_calendar=(
+                    route.service_calendar
+                    if hasattr(route, "service_calendar")
+                    else None
+                ),
             )
 
             # Initialize route in next_arrivals if needed
@@ -1448,7 +1520,9 @@ async def get_waiting_times_impl(
                     next_arrivals[route.route_id][headsign] = []
 
                 # Calculate waiting time
-                waiting_time = calculate_minutes_until(route_stop.arrival_time, current_time)
+                waiting_time = calculate_minutes_until(
+                    route_stop.arrival_time, current_time
+                )
 
                 # Add arrival info
                 next_arrivals[route.route_id][headsign].append(
@@ -1522,7 +1596,9 @@ async def get_route_colors(
     """Get the color scheme for a route."""
     # Use the new handler
     _, _, provider = await handle_provider_request(provider_id, request)
-
+    async with get_feed(provider_id) as feed:
+        if not feed:
+            raise HTTPException(status_code=503, detail="GTFS data not loaded")
     # Find the route
     route = next((r for r in feed.routes if r.route_id == route_id), None)
     if not route:
@@ -1556,7 +1632,9 @@ async def get_line_info(
     """Get detailed information about a route/line."""
     # Use the new handler
     _, _, provider = await handle_provider_request(provider_id, request)
-
+    async with get_feed(provider_id) as feed:
+        if not feed:
+            raise HTTPException(status_code=503, detail="GTFS data not loaded")
     # Find the route
     route = next((r for r in feed.routes if r.route_id == route_id), None)
     if not route:
@@ -1697,12 +1775,12 @@ async def get_stops_in_bbox(
                 detail=message,
             )
 
-        if not feed:
-            raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
+        async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
         # Get stops using the new method
         result = feed.get_stops_in_bbox(bbox, count_only)
-        
+
         if count_only:
             return result
 
@@ -1841,9 +1919,9 @@ async def find_route_by_name(
             detail=message,
         )
 
-    if not feed:
-        raise HTTPException(status_code=503, detail="GTFS data not loaded")
-
+    async with get_feed(provider_id) as feed:
+            if not feed:
+                raise HTTPException(status_code=503, detail="GTFS data not loaded")
     matching_routes = []
     for route in feed.routes:
         # Check if route matches any of the search criteria
@@ -1940,4 +2018,3 @@ async def find_route_by_name(
             )
 
     return matching_routes
-

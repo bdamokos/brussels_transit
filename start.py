@@ -80,6 +80,7 @@ def run_apps():
                 "30",
                 "--lifespan",
                 "on",
+                "--reload",
             ],
             cwd=backend_dir,
             env=env,
