@@ -1293,46 +1293,24 @@ async def get_providers_info():
 @app.get(
     "/api/{provider_id}/stops/{stop_id}/waiting_times", response_model=WaitingTimeInfo
 )
-async def get_waiting_times_with_path(
+async def get_waiting_times(
     request: Request,
-    provider_id: str = Path(..., description="Provider ID"),
-    stop_id: str = Path(..., description="Stop ID"),
-    route_id: Optional[str] = Query(
-        None, description="Optional route ID to filter results"
-    ),
-    limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
-    time_local: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
-    ),
-    time_utc: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
-    ),
+    provider_id: str,
+    stop_id: str,
+    route_id: Optional[str] = None,
+    limit: Optional[int] = 2,
+    time_local: Optional[str] = None,
+    time_utc: Optional[str] = None,
 ):
-    """Get the next scheduled arrivals at a stop."""
+    """Get waiting times for a stop."""
     return await get_waiting_times_impl(
-        request, provider_id, stop_id, route_id, limit, time_local, time_utc
-    )
-
-
-@app.get("/api/{provider_id}/waiting_times", response_model=WaitingTimeInfo)
-async def get_waiting_times_with_query(
-    request: Request,
-    provider_id: str = Path(..., description="Provider ID"),
-    stop_id: str = Query(..., description="Stop ID"),
-    route_id: Optional[str] = Query(
-        None, description="Optional route ID to filter results"
-    ),
-    limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
-    time_local: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
-    ),
-    time_utc: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
-    ),
-):
-    """Get the next scheduled arrivals at a stop."""
-    return await get_waiting_times_impl(
-        request, provider_id, stop_id, route_id, limit, time_local, time_utc
+        request=request,
+        provider_id=provider_id,
+        stop_id=stop_id,
+        route_id=route_id,
+        limit=limit,
+        time_local=time_local,
+        time_utc=time_utc,
     )
 
 
@@ -1362,8 +1340,6 @@ async def get_waiting_times_impl(
         if not feed:
             raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-        logger.info(f"Using feed with {len(feed.routes)} routes")
-
         # Get the stop
         gtfs_stop = feed.stops.get(stop_id)
         if not gtfs_stop:
@@ -1374,196 +1350,117 @@ async def get_waiting_times_impl(
         if feed.agencies:
             # Get the first agency's timezone (all agencies inside a GTFS dataset must have the same timezone)
             agency_timezone = next(iter(feed.agencies.values())).agency_timezone
+
         # If no agency timezone found, use the server timezone
         if not agency_timezone:
             agency_timezone = datetime.now().astimezone().tzname()
-
-        # Determine if this is a parent station or child stop
-        is_parent = getattr(gtfs_stop, "location_type", 0) == 1
-        parent_id = getattr(gtfs_stop, "parent_station", None)
-
-        # If this is a child stop, get its parent station
-        if not is_parent and parent_id:
-            parent_station = feed.stops.get(parent_id)
-            if parent_station:
-                is_parent = True
-                parent_id = parent_station.id
-
-        # If this is a parent station, get all its child stops
-        stop_ids_to_check = [stop_id]
-        if is_parent:
-            # Find all child stops
-            for child_id, stop in feed.stops.items():
-                if getattr(stop, "parent_station", None) == stop_id:
-                    stop_ids_to_check.append(child_id)
 
         # Parse date or use current time (converted from UTC to local)
         try:
             if time_local:
                 # If time is provided, assume it's in local timezone
                 target_time = datetime.strptime(time_local, "%H:%M:%S").time()
+                current_time = time_local
             elif time_utc:
                 # If UTC time is provided, convert it to local
                 utc_time = datetime.strptime(time_utc, "%H:%M:%S")
-                target_time = utc_time.astimezone(ZoneInfo(agency_timezone)).time()
+                local_time = utc_time.astimezone(ZoneInfo(agency_timezone))
+                target_time = local_time.time()
+                current_time = local_time.strftime("%H:%M:%S")
             else:
                 # If no time provided, use current local time
-                target_time = datetime.now(ZoneInfo(agency_timezone)).time()
+                local_time = datetime.now(ZoneInfo(agency_timezone))
+                target_time = local_time.time()
+                current_time = local_time.strftime("%H:%M:%S")
         except ValueError:
             raise HTTPException(
                 status_code=400, detail="Invalid time format. Use HH:MM:SS"
             )
 
-        # Get current time in local timezone
-        current_time = datetime.now(ZoneInfo(agency_timezone)).strftime("%H:%M:%S")
-
-        # Initialize response structure with proper models
+        # Initialize response structure
         next_arrivals: Dict[str, Dict[str, List[ArrivalInfo]]] = {}
 
-        # For each stop ID, get its routes and waiting times
-        for current_stop_id in stop_ids_to_check:
-            # Find all routes serving this stop
-            routes_info = []
-            seen_route_ids = set()
+        # Find all routes that serve this stop
+        for route in feed.routes:
+            # Skip if route_id is specified and doesn't match
+            if route_id and route_id != route.route_id:
+                continue
 
-            for route in feed.routes:
-                # Skip if we've already seen this route
-                if route.route_id in seen_route_ids:
-                    continue
+            # Check if this stop is served by this route
+            station_in_route = False
+            route_stops = []
+            for stop in route.stops:
+                if stop.stop.id == stop_id:
+                    station_in_route = True
+                    route_stops.append(stop)
 
-                # Skip if route_id is specified and doesn't match
-                if route_id and route_id != route.route_id:
-                    continue
+            if not station_in_route:
+                continue
 
-                # Check if this stop is served by this route
-                station_in_route = False
-                for route_stop in route.stops:
-                    if route_stop.stop.id == current_stop_id:
-                        station_in_route = True
-                        break
-
-                if station_in_route:
-                    seen_route_ids.add(route.route_id)
-
-                    # Get stop names in the correct language
-                    stop_names = [s.stop.name for s in route.stops]
-
-                    # Handle NaN values in route name and colors
-                    route_name = route.route_name
-                    if pd.isna(route_name):
-                        route_name = f"Route {route.route_id}"
-
-                    color = (
-                        route.color
-                        if hasattr(route, "color") and not pd.isna(route.color)
-                        else None
-                    )
-                    text_color = (
-                        route.text_color
-                        if hasattr(route, "text_color")
-                        and not pd.isna(route.text_color)
-                        else None
-                    )
-
-                    routes_info.append(
-                        RouteInfo(
-                            route_id=route.route_id,
-                            route_name=route_name,
-                            short_name=(
-                                route.short_name
-                                if hasattr(route, "short_name")
-                                else None
-                            ),
-                            color=color,
-                            text_color=text_color,
-                            first_stop=stop_names[0],
-                            last_stop=stop_names[-1],
-                            stops=stop_names,
-                            headsign=route.stops[-1].stop.name,
-                            service_days=route.service_days,
-                            parent_station_id=getattr(gtfs_stop, "parent_station", None),
-                            terminus_stop_id=route.stops[-1].stop.id,
-                            service_days_explicit=(
-                                route.service_days_explicit
-                                if hasattr(route, "service_days_explicit")
-                                else None
-                            ),
-                            calendar_dates_additions=(
-                                route.calendar_dates_additions
-                                if hasattr(route, "calendar_dates_additions")
-                                else None
-                            ),
-                            calendar_dates_removals=(
-                                route.calendar_dates_removals
-                                if hasattr(route, "calendar_dates_removals")
-                                else None
-                            ),
-                            valid_calendar_days=(
-                                route.valid_calendar_days
-                                if hasattr(route, "valid_calendar_days")
-                                else None
-                            ),
-                            service_calendar=(
-                                route.service_calendar
-                                if hasattr(route, "service_calendar")
-                                else None
-                            ),
-                        )
-                    )
-
-            logger.info(
-                f"Found {len(routes_info)} routes serving stop {current_stop_id}"
+            # Create RouteInfo for this route
+            route_info = RouteInfo(
+                route_id=route.route_id,
+                route_name=route.route_name if not pd.isna(route.route_name) else f"Route {route.route_id}",
+                short_name=route.short_name if hasattr(route, "short_name") else None,
+                color=route.color if hasattr(route, "color") and not pd.isna(route.color) else None,
+                text_color=route.text_color if hasattr(route, "text_color") and not pd.isna(route.text_color) else None,
+                first_stop=route.stops[0].stop.name,
+                last_stop=route.stops[-1].stop.name,
+                stops=None,  # Don't include full stop list
+                headsign=route.stops[-1].stop.name,
+                service_days=route.service_days,
+                terminus_stop_id=route.stops[-1].stop.id,
+                service_days_explicit=route.service_days_explicit if hasattr(route, "service_days_explicit") else None,
+                calendar_dates_additions=route.calendar_dates_additions if hasattr(route, "calendar_dates_additions") else None,
+                calendar_dates_removals=route.calendar_dates_removals if hasattr(route, "calendar_dates_removals") else None,
+                valid_calendar_days=route.valid_calendar_days if hasattr(route, "valid_calendar_days") else None,
+                service_calendar=route.service_calendar if hasattr(route, "service_calendar") else None,
             )
 
-            # For each route, get the trips to its terminus
-            for route_info in routes_info:
-                # Get all trips between our stop and the terminus
-                routes_response = await get_routes(
-                    request=request,
-                    from_station=current_stop_id,
-                    to_station=route_info.terminus_stop_id,
-                    date=None,
-                    language="default",
-                    provider_id=provider_id,
-                )
-
-                # Initialize route in next_arrivals if needed
-                if route_info.route_id not in next_arrivals:
-                    next_arrivals[route_info.route_id] = {
-                        "_metadata": [
-                            RouteMetadata(
-                                route_desc=route_info.route_name,
-                                route_short_name=route_info.short_name
-                                or route_info.route_id,
-                            )
-                        ],
-                    }
-
-                # Process each route's trips
-                for route in routes_response.routes:
-                    # Get the first stop's arrival time (this is our stop)
-                    first_stop = next(
-                        (stop for stop in route.stops if stop.id == current_stop_id),
-                        None,
-                    )
-                    if not first_stop:
-                        continue
-
-                    # Initialize headsign in next_arrivals if needed
-                    headsign = route_info.last_stop
-                    if headsign not in next_arrivals[route_info.route_id]:
-                        next_arrivals[route_info.route_id][headsign] = []
-
-                    next_arrivals[route_info.route_id][headsign].append(
-                        ArrivalInfo(
-                            is_realtime=False,
-                            provider=provider.raw_id,
-                            scheduled_time=first_stop.arrival_time,
-                            scheduled_minutes=calculate_minutes_until(
-                                first_stop.arrival_time, current_time
-                            ),
+            # Initialize route in next_arrivals if needed
+            if route.route_id not in next_arrivals:
+                next_arrivals[route.route_id] = {
+                    "_metadata": [
+                        RouteMetadata(
+                            route_desc=f"Route {route.route_id}",
+                            route_short_name=route.short_name or route.route_id,
                         )
+                    ],
+                }
+
+            # Group stops by headsign (direction)
+            for route_stop in route_stops:
+                # Find the terminus for this stop's trip
+                terminus_idx = None
+                for i, stop in enumerate(route.stops):
+                    if stop.stop.id == route_stop.stop.id:
+                        terminus_idx = i
+                        break
+
+                if terminus_idx is None:
+                    continue
+
+                # Get the headsign (last stop name in this direction)
+                headsign = route.stops[-1].stop.name
+
+                # Initialize headsign in next_arrivals if needed
+                if headsign not in next_arrivals[route.route_id]:
+                    next_arrivals[route.route_id][headsign] = []
+
+                # Calculate waiting time
+                waiting_time = calculate_minutes_until(route_stop.arrival_time, current_time)
+
+                # Add arrival info
+                next_arrivals[route.route_id][headsign].append(
+                    ArrivalInfo(
+                        route=route_info,
+                        waiting_time=int(waiting_time.rstrip("'")),
+                        is_realtime=False,
+                        provider=provider.raw_id,
+                        scheduled_time=route_stop.arrival_time,
+                        departure_time=route_stop.departure_time,
                     )
+                )
 
         # Sort arrivals and limit to requested number
         for route_id, route_data in next_arrivals.items():
@@ -1571,17 +1468,13 @@ async def get_waiting_times_impl(
             for headsign, arrivals in route_data.items():
                 if headsign == "_metadata":
                     continue
-                # Deduplicate arrivals based on scheduled time
-                unique_arrivals = {}
-                for arrival in arrivals:
-                    unique_arrivals[arrival.scheduled_time] = arrival
-                # Convert minutes string to integer for sorting (remove the ' character)
+                # Sort by waiting_time
                 route_data[headsign] = sorted(
-                    unique_arrivals.values(),
-                    key=lambda x: int(x.scheduled_minutes.rstrip("'")),
+                    arrivals,
+                    key=lambda x: x.waiting_time,
                 )[:limit]
 
-        # Format response using models
+        # Format response
         response = WaitingTimeInfo(
             _metadata={"performance": {"total_time": time.time() - start_time}},
             stops_data={

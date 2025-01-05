@@ -87,7 +87,7 @@ class RouteInfo(BaseModel):
     text_color: Optional[str]
     first_stop: str  # Name of first stop
     last_stop: str  # Name of last stop
-    stops: List[str]  # List of stop names in order
+    stops: Optional[List[str]] = None  # List of stop names in order
     headsign: Optional[str]
     service_days: List[str]
     parent_station_id: Optional[str] = (None,)
@@ -164,10 +164,13 @@ class RouteResponse(BaseModel):
 
 
 class ArrivalInfo(BaseModel):
+    route: RouteInfo
+    waiting_time: int
     is_realtime: bool
     provider: str
-    scheduled_time: str
-    scheduled_minutes: str
+    scheduled_time: Optional[str] = None
+    departure_time: Optional[str] = None
+    current_time: Optional[str] = None
 
 
 class RouteMetadata(BaseModel):
