@@ -4,9 +4,6 @@ import sys
 import signal
 import time
 from pathlib import Path
-import logging
-
-logger = logging.getLogger(__name__)
 
 # Set project root as environment variable
 PROJECT_ROOT = str(Path(__file__).parent.absolute())
@@ -17,7 +14,7 @@ app_dir = Path(__file__).parent / "app"
 sys.path.insert(0, str(app_dir))
 sys.path.append(str(app_dir))
 
-logger.info("Python path:", sys.path)  # Debug print
+print("Python path:", sys.path)  # Debug print
 
 def run_apps():
     """Run all applications and handle their lifecycle"""
