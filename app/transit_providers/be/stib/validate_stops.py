@@ -6,8 +6,7 @@ import logging
 from math import sqrt
 import os
 
-from app.config import get_config
-from app.transit_providers.be.stib.routes import get_route_data
+from .routes import get_route_data
 
 # Get logger
 logger = logging.getLogger("stib.validate_stops")
@@ -69,10 +68,7 @@ async def load_line_stops(line: str) -> Dict:
     except FileNotFoundError:
         logger.info(f"No cache found for line {line}, fetching from API...")
         # Import here to avoid circular imports
-        try:
-            from routes import get_route_data
-        except ImportError:
-            from app.routes import get_route_data
+
 
         # Fetch the route data which includes stops
         route_data = await get_route_data(line)
