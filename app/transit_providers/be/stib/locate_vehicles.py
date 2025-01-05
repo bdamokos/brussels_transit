@@ -5,7 +5,7 @@ import logging
 import math
 from math import sqrt, sin, cos, radians, asin, degrees
 
-from app.transit_providers.be.stib.validate_stops import (
+from .validate_stops import (
     validate_line_stops,
     load_route_shape,
     RouteVariant,
