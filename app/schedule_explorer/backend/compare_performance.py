@@ -340,9 +340,9 @@ def compare_stop_times(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) ->
                 or orig_stop.stop_sequence != parquet_stop.stop_sequence
             ):
                 differences += 1
-                logger.error(f"Trip {trip_id} has different stop times at index {i}:")
-                logger.error(f"  Original: {orig_stop}")
-                logger.error(f"  Parquet: {parquet_stop}")
+                stop_times_differences.append(f"Trip {trip_id} has different stop times at index {i}:")
+                stop_times_differences.append(f"  Original: {orig_stop}")
+                stop_times_differences.append(f"  Parquet: {parquet_stop}")
                 break
 
     if differences == 0:
@@ -367,11 +367,19 @@ def compare_trips(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None
 
     missing_in_parquet = original_ids - parquet_ids
     missing_in_original = parquet_ids - original_ids
-
+    differences_in_trips = []
     if missing_in_parquet:
-        logger.warning(f"Trips missing in Parquet: {missing_in_parquet}")
+        differences_in_trips.append(f"Trips missing in Parquet: {missing_in_parquet}")
     if missing_in_original:
-        logger.warning(f"Extra trips in Parquet: {missing_in_original}")
+        differences_in_trips.append(f"Extra trips in Parquet: {missing_in_original}")
+    if differences_in_trips:
+        logger.warning("Found differences in trips:")
+        for diff in differences_in_trips[:10]:
+            logger.warning(diff)
+        if len(differences_in_trips) > 10:
+            logger.warning(f"... and {len(differences_in_trips) - 10} more differences")
+    else:
+        logger.info("No differences found in trips")
 
     # Compare trip attributes for common trips
     common_ids = original_ids & parquet_ids
@@ -592,158 +600,144 @@ def compare_calendars(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> 
             logger.info(f"Valid calendar days match: {len(orig_days)} days")
 
 
-def compare_bbox_queries(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
+def compare_bbox_queries(data_dir: Path) -> None:
     """Compare bounding box queries between original and Parquet implementations."""
-    logger.info("\n=== Bounding Box Query Comparison ===")
-
-    # Test case from real STIB/MIVB data
+    logger.info("Testing bounding box queries...")
+    
+    # Load both implementations
+    parquet_feed = test_parquet_implementation(data_dir)
+    if not parquet_feed:
+        logger.error("Failed to load Parquet implementation")
+        return
+    
+    original_feed = test_original_implementation(data_dir)
+    if not original_feed:
+        logger.error("Failed to load original implementation")
+        return
+    
+    # Test bounding box for STIB/MIVB
     bbox = BoundingBox(
         min_lat=50.67209461471226,
         max_lat=51.01893827029199,
         min_lon=3.6254882812500004,
         max_lon=5.158081054687501
     )
-
-    logger.info("Testing STIB/MIVB bounding box query...")
-
-    # Get results from both implementations
-    original_results = original_feed.get_stops_in_bbox(bbox)
-    parquet_results = parquet_feed.get_stops_in_bbox(bbox)
-
-    # Compare number of results
-    logger.info(f"Original: {len(original_results)} stops")
-    logger.info(f"Parquet: {len(parquet_results)} stops")
-
-    # Create sets of stop IDs for comparison
-    original_stop_ids = {stop.id for stop in original_results}
-    parquet_stop_ids = {stop.id for stop in parquet_results}
-
-    # Find differences
-    missing_in_parquet = original_stop_ids - parquet_stop_ids
-    missing_in_original = parquet_stop_ids - original_stop_ids
-
-    if missing_in_parquet:
-        logger.warning(f"Stops missing in Parquet: {missing_in_parquet}")
-    if missing_in_original:
-        logger.warning(f"Extra stops in Parquet: {missing_in_original}")
-
-    # Compare details of common stops
-    common_stops = original_stop_ids & parquet_stop_ids
-    differences = []
-
-    for stop_id in common_stops:
-        orig_stop = next(s for s in original_results if s.id == stop_id)
-        parq_stop = next(s for s in parquet_results if s.id == stop_id)
-
-        # Compare each attribute
-        if orig_stop.name != parq_stop.name:
-            differences.append(f"Stop {stop_id}: Name mismatch - Original: {orig_stop.name}, Parquet: {parq_stop.name}")
-        if abs(orig_stop.location.lat - parq_stop.location.lat) > 1e-6:
-            differences.append(f"Stop {stop_id}: Latitude mismatch - Original: {orig_stop.location.lat}, Parquet: {parq_stop.location.lat}")
-        if abs(orig_stop.location.lon - parq_stop.location.lon) > 1e-6:
-            differences.append(f"Stop {stop_id}: Longitude mismatch - Original: {orig_stop.location.lon}, Parquet: {parq_stop.location.lon}")
-        if orig_stop.translations != parq_stop.translations:
-            differences.append(f"Stop {stop_id}: Translation mismatch - Original: {orig_stop.translations}, Parquet: {parq_stop.translations}")
-
-    if differences:
-        logger.warning("Found differences in stops:")
-        for diff in differences[:10]:  # Show only first 10 differences
-            logger.warning(diff)
-        if len(differences) > 10:
-            logger.warning(f"... and {len(differences) - 10} more differences")
-    else:
-        logger.info("No differences found in common stops")
-
-
-def compare_waiting_times(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
-    """Compare waiting times between original and Parquet implementations."""
-    logger.info("\n=== Waiting Times Comparison ===")
-
-    # Test case from real BKK data
-    test_stop = "F01111"  # Wesselényi utca / Erzsébet körút
     
-    logger.info(f"\nTesting waiting times for stop {test_stop}...")
+    # Get stops from both implementations
+    original_stops = original_feed.get_stops_in_bbox(bbox)
+    parquet_stops = parquet_feed.get_stops_in_bbox(bbox)
     
-    # Get results from both implementations
-    original_results = original_feed.get_waiting_times(test_stop)
-    parquet_results = parquet_feed.get_waiting_times(test_stop)
+    # Compare results
+    logger.info(f"Original implementation found {len(original_stops)} stops")
+    logger.info(f"Parquet implementation found {len(parquet_stops)} stops")
     
-    # Compare structure
-    if "stops_data" not in original_results or "stops_data" not in parquet_results:
-        logger.error("Invalid response structure")
+    if len(original_stops) != len(parquet_stops):
+        logger.error("Different number of stops found!")
         return
-        
-    orig_stop_data = original_results["stops_data"].get(test_stop, {})
-    parq_stop_data = parquet_results["stops_data"].get(test_stop, {})
     
-    # Compare lines and waiting times
-    orig_lines = orig_stop_data.get("lines", {})
-    parq_lines = parq_stop_data.get("lines", {})
+    # Compare stop details
+    original_stops_dict = {stop.id: stop for stop in original_stops}
+    parquet_stops_dict = {stop.id: stop for stop in parquet_stops}
     
-    # Compare number of lines
-    logger.info(f"Original: {len(orig_lines)} lines")
-    logger.info(f"Parquet: {len(parq_lines)} lines")
-    
-    # Compare each line
-    all_line_ids = set(orig_lines.keys()) | set(parq_lines.keys())
-    for line_id in all_line_ids:
-        logger.info(f"\nAnalyzing line {line_id}:")
-        
-        if line_id not in orig_lines:
-            logger.warning(f"Line {line_id} missing in original")
-            continue
-        if line_id not in parq_lines:
-            logger.warning(f"Line {line_id} missing in Parquet")
+    for stop_id in original_stops_dict:
+        if stop_id not in parquet_stops_dict:
+            logger.error(f"Stop {stop_id} found in original but not in Parquet")
             continue
             
-        orig_line = orig_lines[line_id]
-        parq_line = parq_lines[line_id]
+        original_stop = original_stops_dict[stop_id]
+        parquet_stop = parquet_stops_dict[stop_id]
         
-        # Compare metadata
-        if "_metadata" in orig_line and "_metadata" in parq_line:
-            orig_meta = orig_line["_metadata"][0] if orig_line["_metadata"] else {}
-            parq_meta = parq_line["_metadata"][0] if parq_line["_metadata"] else {}
+        if original_stop.name != parquet_stop.name:
+            logger.error(f"Stop {stop_id} has different names: {original_stop.name} vs {parquet_stop.name}")
+        
+        if original_stop.lat != parquet_stop.lat or original_stop.lon != parquet_stop.lon:
+            logger.error(f"Stop {stop_id} has different coordinates: ({original_stop.lat}, {original_stop.lon}) vs ({parquet_stop.lat}, {parquet_stop.lon})")
+        
+        # Compare service days for each route serving this stop
+        original_routes = [r for r in original_feed.routes if any(s.stop.id == stop_id for s in r.stops)]
+        parquet_routes = [r for r in parquet_feed.routes if any(s.stop.id == stop_id for s in r.stops)]
+        
+        logger.info(f"\nComparing service days for stop {stop_id}:")
+        logger.info(f"Original implementation has {len(original_routes)} routes")
+        logger.info(f"Parquet implementation has {len(parquet_routes)} routes")
+        
+        # Create dictionaries mapping route IDs to service days
+        original_service_days = {r.id: set(r.service_days) for r in original_routes}
+        parquet_service_days = {r.id: set(r.service_days) for r in parquet_routes}
+        
+        # Compare service days for each route
+        all_route_ids = set(original_service_days.keys()) | set(parquet_service_days.keys())
+        for route_id in all_route_ids:
+            if route_id not in original_service_days:
+                logger.error(f"Route {route_id} missing in original implementation")
+                continue
+            if route_id not in parquet_service_days:
+                logger.error(f"Route {route_id} missing in Parquet implementation")
+                continue
             
-            if orig_meta.get("route_desc") != parq_meta.get("route_desc"):
-                logger.warning(f"Route description mismatch - Original: {orig_meta.get('route_desc')}, Parquet: {parq_meta.get('route_desc')}")
-            if orig_meta.get("route_short_name") != parq_meta.get("route_short_name"):
-                logger.warning(f"Route short name mismatch - Original: {orig_meta.get('route_short_name')}, Parquet: {parq_meta.get('route_short_name')}")
-        
-        # Compare destinations and waiting times
-        orig_destinations = {k: v for k, v in orig_line.items() if k != "_metadata"}
-        parq_destinations = {k: v for k, v in parq_line.items() if k != "_metadata"}
-        
-        if set(orig_destinations.keys()) != set(parq_destinations.keys()):
-            logger.warning(f"Different destinations - Original: {set(orig_destinations.keys())}, Parquet: {set(parq_destinations.keys())}")
-        
-        # Compare waiting times for each destination
-        for dest in set(orig_destinations.keys()) & set(parq_destinations.keys()):
-            logger.info(f"\nDestination: {dest}")
-            orig_times = orig_destinations[dest]
-            parq_times = parq_destinations[dest]
+            orig_days = original_service_days[route_id]
+            parq_days = parquet_service_days[route_id]
             
-            if len(orig_times) != len(parq_times):
-                logger.warning(f"Different number of waiting times - Original: {len(orig_times)}, Parquet: {len(parq_times)}")
-            
-            # Compare each waiting time entry
-            logger.info("Waiting times comparison:")
-            for i, (orig_time, parq_time) in enumerate(zip(orig_times, parq_times)):
-                orig_sched = orig_time.get("scheduled_time")
-                parq_sched = parq_time.get("scheduled_time")
-                orig_mins = orig_time.get("scheduled_minutes")
-                parq_mins = parq_time.get("scheduled_minutes")
-                
-                if orig_sched != parq_sched or orig_mins != parq_mins:
-                    logger.warning(
-                        f"Entry {i}:\n"
-                        f"  Original: {orig_sched} ({orig_mins} minutes)\n"
-                        f"  Parquet:  {parq_sched} ({parq_mins} minutes)"
-                    )
-                else:
-                    logger.info(
-                        f"Entry {i}: {orig_sched} ({orig_mins} minutes) - Match"
-                    )
+            if orig_days != parq_days:
+                logger.error(f"Service days mismatch for route {route_id}:")
+                logger.error(f"  Original: {sorted(list(orig_days))}")
+                logger.error(f"  Parquet:  {sorted(list(parq_days))}")
+                logger.error(f"  Missing in Parquet: {orig_days - parq_days}")
+                logger.error(f"  Extra in Parquet: {parq_days - orig_days}")
+    
+    for stop_id in parquet_stops_dict:
+        if stop_id not in original_stops_dict:
+            logger.error(f"Stop {stop_id} found in Parquet but not in original")
 
+def compare_waiting_times(data_dir: Path) -> None:
+    """Compare waiting times between original and Parquet implementations."""
+    logger.info("Testing waiting times...")
+    
+    # Load both implementations
+    parquet_feed = test_parquet_implementation(data_dir)
+    if not parquet_feed:
+        logger.error("Failed to load Parquet implementation")
+        return
+    
+    original_feed = test_original_implementation(data_dir)
+    if not original_feed:
+        logger.error("Failed to load original implementation")
+        return
+    
+    # Test waiting times for BKK stop F01111
+    stop_id = "F01111"
+    
+    # Get waiting times from both implementations
+    original_waiting_times = original_feed.get_waiting_times(stop_id)
+    parquet_waiting_times = parquet_feed.get_waiting_times(stop_id)
+    
+    # Compare results
+    logger.info(f"Original implementation found {len(original_waiting_times)} waiting times")
+    logger.info(f"Parquet implementation found {len(parquet_waiting_times)} waiting times")
+    
+    if len(original_waiting_times) != len(parquet_waiting_times):
+        logger.error("Different number of waiting times found!")
+        return
+    
+    # Compare waiting time details
+    for orig_wt, parq_wt in zip(original_waiting_times, parquet_waiting_times):
+        if orig_wt.line != parq_wt.line:
+            logger.error(f"Different line: {orig_wt.line} vs {parq_wt.line}")
+        
+        if orig_wt.destination != parq_wt.destination:
+            logger.error(f"Different destination: {orig_wt.destination} vs {parq_wt.destination}")
+        
+        if orig_wt.minutes != parq_wt.minutes:
+            logger.error(f"Different minutes: {orig_wt.minutes} vs {parq_wt.minutes}")
+        
+        if orig_wt.scheduled_time != parq_wt.scheduled_time:
+            logger.error(f"Different scheduled time: {orig_wt.scheduled_time} vs {parq_wt.scheduled_time}")
+        
+        if orig_wt.service_days != parq_wt.service_days:
+            logger.error(f"Different service days: {orig_wt.service_days} vs {parq_wt.service_days}")
+        
+        if orig_wt.service_calendar != parq_wt.service_calendar:
+            logger.error(f"Different service calendar: {orig_wt.service_calendar} vs {parq_wt.service_calendar}")
 
 def compare_shapes(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> None:
     """Compare shapes between original and Parquet implementations."""
@@ -804,22 +798,14 @@ def compare_shapes(original_feed: FlixbusFeed, parquet_feed: FlixbusFeed) -> Non
         logger.info("Shapes match")
 
 
-def run_comparison(data_dir: str, test_original: bool = True):
-    """Run a performance comparison between the original and Parquet implementations."""
-    logger = logging.getLogger(__name__)
-    
-    # Test Parquet implementation first
+def compare_implementations(data_dir: Path) -> None:
+    """Compare the original and Parquet implementations."""
     logger.info("Testing Parquet implementation...")
     parquet_feed = test_parquet_implementation(data_dir)
     if not parquet_feed:
         logger.error("Parquet implementation test failed")
         return
     
-    if not test_original:
-        logger.info("Skipping original implementation test")
-        return
-    
-    # Test original implementation
     logger.info("Testing original implementation...")
     original_feed = test_original_implementation(data_dir)
     if not original_feed:
@@ -847,41 +833,29 @@ def run_comparison(data_dir: str, test_original: bool = True):
     # Compare calendars
     compare_calendars(original_feed, parquet_feed)
 
-    # Compare bounding box queries
-    compare_bbox_queries(original_feed, parquet_feed)
 
-    # Compare waiting times
-    compare_waiting_times(original_feed, parquet_feed)
+def run_comparison():
+    """Run the comparison between original and Parquet implementations."""
+    workspace_root = Path(__file__).parent.parent.parent.parent
+    
+    logger.info("\n=== Testing STIB/MIVB dataset ===")
+    stib_dir = workspace_root / "downloads/mdb-1088_Societe_des_Transports_Intercommunaux_de_Bruxelles_Maatschappij_voor_het_Intercommunaal_Vervoer_te_Brussel_STIB_MIVB/mdb-1088-202412260045"
+    if not stib_dir.exists():
+        logger.error(f"Dataset directory not found: {stib_dir}")
+    else:
+        compare_implementations(stib_dir)
+        compare_bbox_queries(stib_dir)
+        compare_waiting_times(stib_dir)
+    
+    logger.info("\n=== Testing BKK dataset ===")
+    bkk_dir = workspace_root / "downloads/mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412300019"
+    if not bkk_dir.exists():
+        logger.error(f"Dataset directory not found: {bkk_dir}")
+    else:
+        compare_implementations(bkk_dir)
+        compare_bbox_queries(bkk_dir)
+        compare_waiting_times(bkk_dir)
 
 
 if __name__ == "__main__":
-    # Test both datasets
-    datasets = [
-        {
-            "name": "STIB/MIVB",
-            "path": "downloads/mdb-1088_Societe_des_Transports_Intercommunaux_de_Bruxelles_Maatschappij_voor_het_Intercommunaal_Vervoer_te_Brussel_STIB_MIVB/mdb-1088-202501020029",
-            "test": "bbox"
-        },
-        {
-            "name": "BKK",
-            "path": "downloads/mdb-990_Budapesti_Kozlekedesi_Kozpont_BKK/mdb-990-202412300019",
-            "test": "waiting_times"
-        }
-    ]
-    
-    for dataset in datasets:
-        logger.info(f"\n=== Testing {dataset['name']} dataset ===")
-        data_dir = Path(dataset["path"])
-        
-        if not data_dir.exists():
-            logger.error(f"Dataset directory not found: {data_dir}")
-            continue
-            
-        if dataset["test"] == "bbox":
-            # For STIB/MIVB, test bounding box queries
-            logger.info("Testing bounding box queries...")
-            run_comparison(data_dir, test_original=True)
-        else:
-            # For BKK, test waiting times
-            logger.info("Testing waiting times...")
-            run_comparison(data_dir, test_original=True) 
+    run_comparison() 
