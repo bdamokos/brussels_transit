@@ -47,6 +47,7 @@ GRACE_PERIOD = 5
 
 # Configure logging
 logger = logging.getLogger("schedule_explorer.backend")
+logging.basicConfig(level=logging.DEBUG)
 
 app = FastAPI(title="Schedule Explorer API")
 
@@ -927,6 +928,7 @@ async def get_routes(
     "/api/{provider_id}/stations/{station_id}/routes", response_model=List[RouteInfo]
 )
 async def get_station_routes_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     station_id: str = Path(...),
     language: Optional[str] = Query(
@@ -935,6 +937,7 @@ async def get_station_routes_with_provider(
 ):
     """Get all routes that serve this station with detailed information with explicit provider"""
     return await get_station_routes(
+        request=request,
         station_id=station_id,
         language=language,
         provider_id=provider_id,

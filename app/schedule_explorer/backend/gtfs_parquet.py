@@ -224,7 +224,14 @@ class ParquetGTFSLoader:
     def __init__(self, data_dir: str | Path = None):
         """Initialize the loader with the GTFS data directory."""
         self.data_dir = Path(data_dir) if data_dir else Path.cwd()
-        self.db = duckdb.connect(":memory:")
+        
+        # Create a unique database file in a temporary directory
+        self._temp_dir = Path(tempfile.gettempdir()) / f"duckdb_temp_{uuid.uuid4()}"
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        self._db_file = self._temp_dir / "gtfs.db"
+        
+        logger.info(f"Using DuckDB database file: {self._db_file}")
+        self.db = duckdb.connect(str(self._db_file))
         self.stops = {}
         self.routes = {}
         self.translations = {}
@@ -458,16 +465,16 @@ class ParquetGTFSLoader:
         if not parquet_path:
             return
 
-        # First, get the available columns
+        # First, get the available columns by loading just a few rows
         self.db.execute(f"""
             CREATE TEMP TABLE temp_stops AS 
-            SELECT * FROM read_parquet('{parquet_path}')
+            SELECT * FROM parquet_scan('{parquet_path}') LIMIT 5
         """)
         columns = self.db.execute("DESCRIBE temp_stops").fetchdf()['column_name'].tolist()
 
         # Build the query dynamically based on available columns
         optional_columns = {
-            'location_type': 'NULL',
+            'location_type': '0',  # Default to 0 for stops
             'parent_station': 'NULL',
             'platform_code': 'NULL',
             'stop_timezone': 'NULL'
@@ -481,27 +488,47 @@ class ParquetGTFSLoader:
         ]
 
         for col, default in optional_columns.items():
-            select_parts.append(f"COALESCE({col}, {default}) as {col}" if col in columns else f"{default} as {col}")
+            select_parts.append(f"COALESCE(NULLIF({col}, ''), {default}) as {col}" if col in columns else f"{default} as {col}")
 
+        # Drop temporary table before creating the final one
+        self.db.execute("DROP TABLE temp_stops")
+
+        # Create the final stops table with all data
         query = f"""
+            CREATE TEMP TABLE temp_stops AS
+            WITH raw_stops AS (
+                SELECT * FROM parquet_scan('{parquet_path}')
+            )
             SELECT 
-                {', '.join(select_parts)}
-            FROM temp_stops
+                stop_id::VARCHAR as stop_id,
+                stop_name::VARCHAR as stop_name,
+                CAST(stop_lat AS DOUBLE) as stop_lat,
+                CAST(stop_lon AS DOUBLE) as stop_lon,
+                CASE 
+                    WHEN location_type IS NULL THEN 0
+                    ELSE CAST(location_type AS INTEGER)
+                END as location_type,
+                parent_station::VARCHAR as parent_station,
+                NULL::VARCHAR as platform_code,
+                NULL::VARCHAR as stop_timezone
+            FROM raw_stops;
+            
+            SELECT * FROM temp_stops;
         """
         result = self.db.execute(query).fetchdf()
         
         # Create Stop objects
         for _, row in result.iterrows():
             stop = Stop(
-                id=row["stop_id"],
-                name=row["stop_name"],
-                lat=row["stop_lat"],
-                lon=row["stop_lon"],
-                translations=self.translations.get(row["stop_id"], {}),
-                location_type=None if pd.isna(row["location_type"]) else row["location_type"],
-                parent_station=None if pd.isna(row["parent_station"]) else row["parent_station"],
-                platform_code=None if pd.isna(row["platform_code"]) else row["platform_code"],
-                timezone=None if pd.isna(row["stop_timezone"]) else row["stop_timezone"]
+                id=str(row['stop_id']),
+                name=str(row['stop_name']),
+                lat=float(row['stop_lat']),
+                lon=float(row['stop_lon']),
+                translations=self.translations.get(str(row['stop_id']), {}),
+                location_type=int(row['location_type']),  # Now safe because we handle NaN with COALESCE
+                parent_station=str(row['parent_station']) if pd.notna(row['parent_station']) else None,
+                platform_code=str(row['platform_code']) if pd.notna(row['platform_code']) else None,
+                timezone=str(row['stop_timezone']) if pd.notna(row['stop_timezone']) else None
             )
             self.stops[stop.id] = stop
 
@@ -525,16 +552,30 @@ class ParquetGTFSLoader:
             self.db.execute("DROP INDEX IF EXISTS idx_stop_times_trip_stop")
             self.db.execute("DROP INDEX IF EXISTS idx_stop_times_stop_seq")
             
-            # Create stop_times table
+            # Create stop_times table with proper time formatting
             self.db.execute(f"""
                 CREATE TABLE stop_times AS 
                 SELECT 
                     trip_id,
-                    arrival_time,
-                    departure_time,
+                    -- Handle times that might exceed 24:00:00 (service past midnight)
+                    CASE 
+                        WHEN arrival_time ~ '^[0-9]{1,2}:[0-9]{2}:[0-9]{2}$' 
+                        THEN arrival_time 
+                        ELSE REGEXP_REPLACE(arrival_time, '^([0-9]{2,3}):', '\\1:')
+                    END as arrival_time,
+                    CASE 
+                        WHEN departure_time ~ '^[0-9]{1,2}:[0-9]{2}:[0-9]{2}$' 
+                        THEN departure_time 
+                        ELSE REGEXP_REPLACE(departure_time, '^([0-9]{2,3}):', '\\1:')
+                    END as departure_time,
                     stop_id,
                     CAST(stop_sequence AS INTEGER) as stop_sequence
                 FROM parquet_scan('{parquet_path}')
+                WHERE 
+                    arrival_time IS NOT NULL 
+                    AND departure_time IS NOT NULL 
+                    AND stop_id IS NOT NULL
+                    AND stop_sequence IS NOT NULL
                 /*+ PARALLEL({num_threads}) */
             """)
             
@@ -552,6 +593,20 @@ class ParquetGTFSLoader:
                 CREATE INDEX idx_stop_times_stop_seq ON stop_times(stop_id, stop_sequence)
                 /*+ PARALLEL({num_threads}) */
             """)
+            
+            # Verify data quality
+            sample = self.db.execute("""
+                SELECT * FROM stop_times 
+                WHERE NOT (
+                    arrival_time ~ '^[0-9]{1,3}:[0-9]{2}:[0-9]{2}$' 
+                    AND departure_time ~ '^[0-9]{1,3}:[0-9]{2}:[0-9]{2}$'
+                )
+                LIMIT 5
+            """).fetchdf()
+            
+            if not sample.empty:
+                logger.warning(f"Found some potentially invalid time formats:\n{sample}")
+            
             logger.info("Stop times loading complete")
             
         except Exception as e:
@@ -570,74 +625,88 @@ class ParquetGTFSLoader:
             return
             
         logger.info("Loading trips table...")
-        # Create trips table
+        
         try:
-            # First try with all optional fields
+            # Drop existing table and indices if they exist
+            self.db.execute("DROP TABLE IF EXISTS trips")
+            self.db.execute("DROP INDEX IF EXISTS trips_trip_id_idx")
+            self.db.execute("DROP INDEX IF EXISTS trips_route_id_idx")
+            self.db.execute("DROP INDEX IF EXISTS trips_service_id_idx")
+            
+            # First, verify the Parquet file has data
+            sample_df = self.db.execute(f"SELECT * FROM parquet_scan('{parquet_path}') LIMIT 5").fetchdf()
+            if sample_df.empty:
+                logger.error("Parquet file appears to be empty")
+                return
+                
+            logger.info(f"Sample data from trips.txt:\n{sample_df}")
+            
+            # Get the available columns
+            columns = sample_df.columns.tolist()
+            logger.info(f"Available columns: {columns}")
+            
+            # Build the query dynamically based on available columns
+            required_columns = ['route_id', 'service_id', 'trip_id']
+            optional_columns = {
+                'trip_headsign': 'NULL',
+                'direction_id': '0',
+                'block_id': 'NULL',
+                'shape_id': 'NULL'
+            }
+            
+            # Verify required columns exist
+            missing_columns = [col for col in required_columns if col not in columns]
+            if missing_columns:
+                logger.error(f"Missing required columns in trips.txt: {missing_columns}")
+                return
+                
+            # Build select parts
+            select_parts = required_columns.copy()
+            for col, default in optional_columns.items():
+                select_parts.append(f"COALESCE({col}, {default}) as {col}" if col in columns else f"{default} as {col}")
+            
+            # Create trips table
             query = f"""
-            CREATE TABLE IF NOT EXISTS trips AS 
-            SELECT 
-                route_id,
-                service_id,
-                trip_id,
-                COALESCE(trip_headsign, NULL) as trip_headsign,
-                COALESCE(direction_id, '0') as direction_id,
-                COALESCE(block_id, NULL) as block_id,
-                COALESCE(shape_id, NULL) as shape_id
-            FROM parquet_scan('{parquet_path}')
+                CREATE TABLE trips AS 
+                SELECT 
+                    {', '.join(select_parts)}
+                FROM parquet_scan('{parquet_path}')
             """
             logger.info(f"Creating trips table with query: {query}")
             self.db.execute(query)
             
-            # Log the number of trips
+            # Verify data was loaded
             count = self.db.execute("SELECT COUNT(*) as count FROM trips").fetchone()[0]
+            if count == 0:
+                logger.error("No trips were loaded into the table")
+                return
+                
             logger.info(f"Created trips table with {count} trips")
             
             # Log some sample data
             sample = self.db.execute("SELECT * FROM trips LIMIT 5").fetchdf()
             logger.info(f"Sample trips data:\n{sample}")
             
+            # Create indices
+            logger.info("Creating indices...")
+            self.db.execute("CREATE INDEX trips_trip_id_idx ON trips(trip_id)")
+            self.db.execute("CREATE INDEX trips_route_id_idx ON trips(route_id)")
+            self.db.execute("CREATE INDEX trips_service_id_idx ON trips(service_id)")
+            
+            # Verify the indices were created
+            indices = self.db.execute("SELECT * FROM duckdb_indexes() WHERE table_name = 'trips'").fetchdf()
+            logger.info(f"Created indices for trips table:\n{indices}")
+            
+            logger.info("Trips loading complete")
+            
         except Exception as e:
-            logger.warning(f"Failed to create trips table with all fields: {e}")
-            # If that fails, try with only required fields
-            query = f"""
-                CREATE TABLE IF NOT EXISTS trips AS 
-                SELECT 
-                    route_id,
-                    service_id,
-                    trip_id,
-                    COALESCE(trip_headsign, NULL) as trip_headsign,
-                    COALESCE(direction_id, '0') as direction_id,
-                    COALESCE(shape_id, NULL) as shape_id
-                FROM parquet_scan('{parquet_path}')
-            """
-            logger.info(f"Retrying with minimal trips table query: {query}")
-            self.db.execute(query)
-            
-            # Add missing optional columns with NULL values
-            self.db.execute("""
-                ALTER TABLE trips ADD COLUMN IF NOT EXISTS block_id VARCHAR
-            """)
-            
-            # Log the number of trips after fallback
-            count = self.db.execute("SELECT COUNT(*) as count FROM trips").fetchone()[0]
-            logger.info(f"Created minimal trips table with {count} trips")
-            
-        # Create indices
-        logger.info("Creating indices...")
-        self.db.execute("DROP INDEX IF EXISTS trips_trip_id_idx")
-        self.db.execute("DROP INDEX IF EXISTS trips_route_id_idx")
-        self.db.execute("DROP INDEX IF EXISTS trips_service_id_idx")
-        self.db.execute("""
-            CREATE INDEX trips_trip_id_idx ON trips(trip_id);
-            CREATE INDEX trips_route_id_idx ON trips(route_id);
-            CREATE INDEX trips_service_id_idx ON trips(service_id);
-        """)
-        
-        # Verify the indices were created
-        indices = self.db.execute("SELECT * FROM duckdb_indexes() WHERE table_name = 'trips'").fetchdf()
-        logger.info(f"Created indices for trips table:\n{indices}")
-        
-        logger.info("Trips loading complete")
+            logger.error(f"Error loading trips: {e}", exc_info=True)
+            # Clean up if something went wrong
+            self.db.execute("DROP TABLE IF EXISTS trips")
+            self.db.execute("DROP INDEX IF EXISTS trips_trip_id_idx")
+            self.db.execute("DROP INDEX IF EXISTS trips_route_id_idx")
+            self.db.execute("DROP INDEX IF EXISTS trips_service_id_idx")
+            raise  # Re-raise the exception to be handled by the caller
     
     def _load_shapes(self) -> Dict[str, Shape]:
         """Load shapes from shapes.txt into memory.
@@ -695,206 +764,121 @@ class ParquetGTFSLoader:
         return shapes
     
     def _load_routes(self, trip_ids: Optional[List[str]] = None) -> List[Route]:
-        """Load routes from the database and create Route objects.
+        """Load routes from DuckDB as Route objects."""
+        logger.info("Starting route loading...")
+        routes = []
         
-        Args:
-            trip_ids: Optional list of trip IDs to filter routes by.
-
-        Returns:
-            List of Route objects.
-
-        Raises:
-            RuntimeError: If loading fails.
-        """
-        # First load routes into DuckDB
+        # First load routes into DuckDB if not already loaded
         parquet_path = self._csv_to_parquet('routes.txt')
         if not parquet_path:
             logger.error("Failed to convert routes.txt to Parquet")
             raise RuntimeError("Failed to convert routes.txt to Parquet")
-            
-        logger.info("Loading routes table...")
-        try:
-            # First, get the available columns
+        
+        # Check if routes table exists
+        has_routes = self.db.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = 'routes'
+            )
+        """).fetchone()[0]
+        
+        if not has_routes:
+            logger.info("Creating routes table...")
             self.db.execute(f"""
-                CREATE TEMP TABLE temp_routes AS 
-                SELECT * FROM read_parquet('{parquet_path}')
+                CREATE TABLE routes AS 
+                SELECT * FROM parquet_scan('{parquet_path}')
             """)
-            columns = self.db.execute("DESCRIBE temp_routes").fetchdf()['column_name'].tolist()
-            logger.info(f"Available columns in routes.txt: {columns}")
-
-            # Build the query dynamically based on available columns
-            select_parts = [
-                'route_id',  # Required field
-                "COALESCE(route_short_name, '') as route_short_name",
-                "COALESCE(route_long_name, '') as route_long_name",
-                'route_type'  # Required field
-            ]
-
-            optional_columns = {
-                'route_color': "''",
-                'route_text_color': "''",
-                'agency_id': 'NULL'
-            }
-
-            for col, default in optional_columns.items():
-                if col in columns:
-                    select_parts.append(f"COALESCE({col}, {default}) as {col}")
-                else:
-                    select_parts.append(f"{default} as {col}")
-
-            # Create routes table
-            query = f"""
-                CREATE TABLE IF NOT EXISTS routes AS 
-                SELECT 
-                    {', '.join(select_parts)}
-                FROM temp_routes
-            """
-            logger.info(f"Creating routes table with query: {query}")
-            self.db.execute(query)
             
-            # Log the number of routes in the table
-            count = self.db.execute("SELECT COUNT(*) as count FROM routes").fetchone()[0]
-            logger.info(f"Created routes table with {count} routes")
-            
-            # Create index
-            logger.info("Creating route index...")
-            self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
+            # Create index for faster lookups
             self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
-            
-            # Get basic route information, filtered by trip_ids if provided
-            if trip_ids:
-                logger.info(f"Filtering routes by {len(trip_ids)} trip IDs")
-                result = self.db.execute("""
-                    SELECT DISTINCT
-                        r.route_id,
-                        r.route_short_name,
-                        r.route_long_name,
-                        r.route_type,
-                        r.route_color,
-                        r.route_text_color,
-                        r.agency_id
-                    FROM routes r
-                    JOIN trips t ON r.route_id = t.route_id
-                    WHERE t.trip_id IN (
-                        SELECT UNNEST(?)
-                    )
-                """, [trip_ids]).fetchdf()
-            else:
-                logger.info("Getting all routes")
-                result = self.db.execute("""
-                    SELECT 
-                        route_id,
-                        route_short_name,
-                        route_long_name,
-                        route_type,
-                        route_color,
-                        route_text_color,
-                        agency_id
-                    FROM routes
-                """).fetchdf()
-
-            if result is None:
-                raise RuntimeError("Failed to fetch routes from database")
-
-            logger.info(f"Got {len(result)} routes from database")
-
-            routes = []
-            for _, row in result.iterrows():
-                # Get all trips for this route
-                trips_result = self.db.execute("""
-                    SELECT DISTINCT trip_id 
-                    FROM trips 
-                    WHERE route_id = ?
-                    LIMIT 1
-                """, [str(row['route_id'])]).fetchdf()
-                
-                if trips_result.empty:
-                    logger.warning(f"No trips found for route {row['route_id']}")
-                    continue
-
-                # Get the first trip's stops
-                trip_id = str(trips_result['trip_id'].iloc[0])
-                route_stops = self._create_route_stops(trip_id)
-                
-                if not route_stops:
-                    logger.warning(f"No stops found for route {row['route_id']} trip {trip_id}")
-                    continue
-
-                route = Route(
-                    route_id=str(row['route_id']),
-                    route_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else str(row['route_short_name']),
-                    trip_id=trip_id,  # Set the first trip ID
-                    stops=route_stops,  # Set the stops from the first trip
-                    service_days=set(),  # Will be loaded on demand
-                    shape=None,  # Will be loaded on demand
-                    short_name=str(row['route_short_name']) if pd.notna(row['route_short_name']) else None,
-                    long_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else None,
-                    route_type=int(row['route_type']) if pd.notna(row['route_type']) else None,
-                    color=str(row['route_color']) if pd.notna(row['route_color']) else None,
-                    text_color=str(row['route_text_color']) if pd.notna(row['route_text_color']) else None,
-                    agency_id=str(row['agency_id']) if pd.notna(row['agency_id']) else None,
-                    direction_id=None,  # Will be loaded on demand
-                    service_ids=[],  # Will be loaded on demand
-                    trips=[]  # Will be loaded on demand
-                )
-                routes.append(route)
-
-            logger.info(f"Created {len(routes)} route objects")
-            return routes
-
-        except Exception as e:
-            logger.error(f"Error loading routes: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to load routes: {str(e)}")
-    
-    def _create_route_stops(self, trip_id: str) -> List[RouteStop]:
-        """Create RouteStop objects for a trip.
+            logger.info("Routes table created with index")
         
-        Args:
-            trip_id: The trip ID to get stops for.
-            
-        Returns:
-            List of RouteStop objects ordered by stop_sequence.
+        # Base query for routes
+        base_query = """
+            SELECT DISTINCT r.*, t.service_id, t.trip_id
+            FROM routes r
+            JOIN trips t ON r.route_id = t.route_id
         """
-        logger.debug(f"Creating route stops for trip {trip_id}")
         
-        # Get stop times for this trip
-        query = """
-            SELECT 
-                stop_id,
-                arrival_time,
-                departure_time,
-                CAST(stop_sequence AS INTEGER) as stop_sequence
-            FROM stop_times
-            WHERE trip_id = ?
-            ORDER BY stop_sequence
-        """
-        result = self.db.execute(query, [trip_id]).fetchdf()
+        # Add trip_id filter if provided
+        if trip_ids:
+            base_query += " WHERE t.trip_id IN (SELECT UNNEST(?))"
+            result = self.db.execute(base_query, [trip_ids]).fetchdf()
+        else:
+            result = self.db.execute(base_query).fetchdf()
         
         if result.empty:
-            logger.warning(f"No stop times found for trip {trip_id}")
+            logger.warning("No routes found")
             return []
-        
-        logger.debug(f"Found {len(result)} stop times for trip {trip_id}")
-        
-        # Create RouteStop objects
-        route_stops = []
-        for _, row in result.iterrows():
-            stop_id = str(row['stop_id'])
             
-            if stop_id not in self.stops:
-                logger.warning(f"Stop {stop_id} not found in stops dictionary")
+        # Group by route_id to get service_ids for each route
+        for route_id, group in result.groupby('route_id'):
+            first_row = group.iloc[0]
+            
+            # Get service days for this route's services
+            service_ids = set(group['service_id'].dropna())
+            service_days = list(self._get_service_days(service_ids))
+            if not service_days:
+                logger.warning(f"No service days found for route {route_id}")
                 continue
             
-            route_stop = RouteStop(
-                stop=self.stops[stop_id],
-                arrival_time=row['arrival_time'],
-                departure_time=row['departure_time'],
-                stop_sequence=int(row['stop_sequence'])
+            # Get stops for this route's first trip
+            trip_id = str(first_row['trip_id'])
+            stops_query = """
+                SELECT 
+                    st.stop_id,
+                    st.arrival_time,
+                    st.departure_time,
+                    st.stop_sequence
+                FROM stop_times st
+                WHERE st.trip_id = ?
+                ORDER BY st.stop_sequence
+            """
+            stops_result = self.db.execute(stops_query, [trip_id]).fetchdf()
+            
+            # Create RouteStop objects
+            route_stops = []
+            for _, stop_row in stops_result.iterrows():
+                stop_id = str(stop_row['stop_id'])
+                if stop_id not in self.stops:
+                    logger.warning(f"Stop {stop_id} not found in stops dictionary")
+                    continue
+                
+                route_stop = RouteStop(
+                    stop=self.stops[stop_id],
+                    arrival_time=stop_row['arrival_time'],
+                    departure_time=stop_row['departure_time'],
+                    stop_sequence=int(stop_row['stop_sequence'])
+                )
+                route_stops.append(route_stop)
+            
+            # Create route object with all service day information
+            route = Route(
+                route_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else f"Route {route_id}",
+                trip_id=str(first_row['trip_id']),
+                stops=route_stops,  # Now populated with actual stops
+                route_id=str(route_id),
+                short_name=str(first_row['route_short_name']) if pd.notna(first_row['route_short_name']) else None,
+                long_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else None,
+                route_desc=str(first_row['route_desc']) if 'route_desc' in first_row and pd.notna(first_row['route_desc']) else None,
+                route_type=int(first_row['route_type']),
+                route_url=str(first_row['route_url']) if 'route_url' in first_row and pd.notna(first_row['route_url']) else None,
+                color=str(first_row['route_color']) if pd.notna(first_row['route_color']) else None,
+                text_color=str(first_row['route_text_color']) if pd.notna(first_row['route_text_color']) else None,
+                service_days=service_days,
+                translations=self.translations.get(str(route_id), {}),
+                service_days_explicit=self._get_service_days_explicit(service_ids),
+                calendar_dates_additions=self._get_calendar_dates_additions(service_ids),
+                calendar_dates_removals=self._get_calendar_dates_removals(service_ids),
+                valid_calendar_days=self._get_valid_calendar_days(service_ids)
             )
-            route_stops.append(route_stop)
+            routes.append(route)
+            logger.debug(f"Created route {route_id} with {len(route_stops)} stops and service days {service_days}")
         
-        logger.debug(f"Created {len(route_stops)} route stops for trip {trip_id}")
-        return route_stops    
+        logger.info(f"Loaded {len(routes)} routes")
+        return routes
+    
     def _load_calendar(self) -> None:
         """Load calendar data into DuckDB using parallel processing."""
         calendar_path = self._csv_to_parquet('calendar.txt')
@@ -903,60 +887,89 @@ class ParquetGTFSLoader:
         # Use multiple threads but limit based on available memory
         num_threads = min(2, os.cpu_count() or 1)  # Conservative for RPi
         
-        if calendar_path:
-            self.db.execute(f"""
-                CREATE TABLE calendar AS 
-                SELECT 
-                    service_id,
-                    CAST(monday AS BOOLEAN) as monday,
-                    CAST(tuesday AS BOOLEAN) as tuesday,
-                    CAST(wednesday AS BOOLEAN) as wednesday,
-                    CAST(thursday AS BOOLEAN) as thursday,
-                    CAST(friday AS BOOLEAN) as friday,
-                    CAST(saturday AS BOOLEAN) as saturday,
-                    CAST(sunday AS BOOLEAN) as sunday,
-                    strptime(start_date, '%Y%m%d') as start_date,
-                    strptime(end_date, '%Y%m%d') as end_date
-                FROM parquet_scan('{calendar_path}')
-                /*+ PARALLEL({num_threads}) */
-            """)
-            self.db.execute(f"""
-                CREATE INDEX idx_calendar_service_id ON calendar(service_id)
-                /*+ PARALLEL({num_threads}) */
-            """)
+        try:
+            # Drop existing tables if they exist
+            self.db.execute("DROP TABLE IF EXISTS calendar")
+            self.db.execute("DROP TABLE IF EXISTS calendar_dates")
+            
+            if calendar_path:
+                logger.info("Creating calendar table...")
+                self.db.execute(f"""
+                    CREATE TABLE calendar AS 
+                    SELECT 
+                        service_id,
+                        CAST(monday AS BOOLEAN) as monday,
+                        CAST(tuesday AS BOOLEAN) as tuesday,
+                        CAST(wednesday AS BOOLEAN) as wednesday,
+                        CAST(thursday AS BOOLEAN) as thursday,
+                        CAST(friday AS BOOLEAN) as friday,
+                        CAST(saturday AS BOOLEAN) as saturday,
+                        CAST(sunday AS BOOLEAN) as sunday,
+                        start_date,
+                        end_date
+                    FROM parquet_scan('{calendar_path}')
+                    /*+ PARALLEL({num_threads}) */
+                """)
+                
+                # Create index
+                self.db.execute("CREATE INDEX idx_calendar_service_id ON calendar(service_id)")
+                
+                # Log some statistics
+                count = self.db.execute("SELECT COUNT(*) FROM calendar").fetchone()[0]
+                logger.info(f"Created calendar table with {count} entries")
+                
+                # Log a sample
+                sample = self.db.execute("SELECT * FROM calendar LIMIT 5").fetchdf()
+                logger.info(f"Sample calendar entries:\n{sample}")
+            else:
+                logger.warning("No calendar.txt found")
+            
+            if calendar_dates_path:
+                logger.info("Creating calendar_dates table...")
+                self.db.execute(f"""
+                    CREATE TABLE calendar_dates AS 
+                    SELECT 
+                        service_id,
+                        date,
+                        CAST(exception_type AS INTEGER) as exception_type
+                    FROM parquet_scan('{calendar_dates_path}')
+                    /*+ PARALLEL({num_threads}) */
+                """)
+                
+                # Create index
+                self.db.execute("CREATE INDEX idx_calendar_dates_service_id ON calendar_dates(service_id)")
+                
+                # Log some statistics
+                count = self.db.execute("SELECT COUNT(*) FROM calendar_dates").fetchone()[0]
+                logger.info(f"Created calendar_dates table with {count} entries")
+                
+                # Log a sample
+                sample = self.db.execute("SELECT * FROM calendar_dates LIMIT 5").fetchdf()
+                logger.info(f"Sample calendar_dates entries:\n{sample}")
+            else:
+                logger.warning("No calendar_dates.txt found")
+            
+            # Verify tables were created
+            tables = self.db.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_name IN ('calendar', 'calendar_dates')
+            """).fetchdf()
+            logger.info(f"Created tables: {tables['table_name'].tolist()}")
         
-        if calendar_dates_path:
-            self.db.execute(f"""
-                CREATE TABLE calendar_dates AS 
-                SELECT 
-                    service_id,
-                    strptime(date, '%Y%m%d') as date,
-                    CAST(exception_type AS INTEGER) as exception_type
-                FROM parquet_scan('{calendar_dates_path}')
-                /*+ PARALLEL({num_threads}) */
-            """)
-            self.db.execute(f"""
-                CREATE INDEX idx_calendar_dates_service_id ON calendar_dates(service_id)
-                /*+ PARALLEL({num_threads}) */
-            """)
+        except Exception as e:
+            logger.error(f"Error loading calendar data: {e}", exc_info=True)
+            # Clean up if something went wrong
+            self.db.execute("DROP TABLE IF EXISTS calendar")
+            self.db.execute("DROP TABLE IF EXISTS calendar_dates")
+            raise
     
     def load_feed(
         self, 
         target_stops: Optional[Set[str]] = None
     ) -> FlixbusFeed:
-        """Load the GTFS feed into DuckDB and return a FlixbusFeed object.
-        If target_stops is provided, only loads routes that contain those stops.
-
-        Args:
-            target_stops: Optional set of stop IDs to filter routes by.
-
-        Returns:
-            FlixbusFeed object containing the loaded GTFS data.
-
-        Raises:
-            RuntimeError: If loading fails.
-        """
-        logger.info("Loading GTFS feed into DuckDB...")
+        """Load the GTFS feed into DuckDB and return a FlixbusFeed object."""
+        logger.info("Starting GTFS feed loading...")
         
         try:
             # Set up DuckDB configuration first
@@ -964,14 +977,16 @@ class ParquetGTFSLoader:
 
             # Load translations first (doesn't require DuckDB)
             self.translations = load_translations(self.data_dir)
-            if not isinstance(self.translations, dict):
-                raise RuntimeError("Failed to load translations")
+            logger.info(f"Loaded {len(self.translations)} translations")
+            
+            # Load calendar data first as it's needed for route service days
+            logger.info("Loading calendar data...")
+            self._load_calendar()
             
             # Load only the essential components initially
             logger.info("Loading stops...")
-            self._load_stops()  # Creates stops table and populates self.stops dictionary
-            if not self.stops:
-                raise RuntimeError("Failed to load stops")
+            self._load_stops()
+            logger.info(f"Loaded {len(self.stops)} stops")
             
             # Load stop times and trips before routes to enable filtering
             logger.info("Loading stop times...")
@@ -983,7 +998,6 @@ class ParquetGTFSLoader:
             # If we have target stops, pre-filter the trips that contain them
             if target_stops:
                 logger.info(f"Pre-filtering trips containing stops: {target_stops}")
-                # Get trips that contain any of our target stops
                 trip_ids = self.db.execute("""
                     SELECT DISTINCT trip_id 
                     FROM stop_times 
@@ -992,43 +1006,44 @@ class ParquetGTFSLoader:
                     )
                 """, [list(target_stops)]).fetchdf()['trip_id'].tolist()
                 
-                if not trip_ids:
-                    logger.warning("No trips found containing target stops")
-                    trip_ids = []
-                
                 logger.info(f"Found {len(trip_ids)} trips containing target stops")
             else:
-                trip_ids = None  # Load all trips
+                trip_ids = None
             
             logger.info("Loading routes...")
-            routes = self._load_routes(trip_ids)  # Uses all previous tables
-            if routes is None:
-                raise RuntimeError("Failed to load routes")
+            routes = self._load_routes(trip_ids)
+            logger.info(f"Loaded {len(routes)} routes")
             
-            # Get calendars and calendar dates
+            # Get calendars and calendar dates objects
+            logger.info("Creating calendar objects...")
             calendars = self._get_calendars()
             calendar_dates = self._get_calendar_dates()
+            logger.info(f"Created {len(calendars)} calendar objects and {len(calendar_dates)} calendar date objects")
 
             # Load agencies
             logger.info("Loading agencies...")
             agencies = self._load_agencies()
+            logger.info(f"Loaded {len(agencies)} agencies")
             
-            logger.info("GTFS feed loaded successfully")
+            logger.info("Creating FlixbusFeed object...")
             feed = FlixbusFeed(
                 stops=self.stops,
                 routes=routes,
                 calendars=calendars,
                 calendar_dates=calendar_dates,
-                trips={},  # Empty initially, will be loaded on demand
-                stop_times_dict={},  # Empty initially, will be loaded on demand
+                trips={},
+                stop_times_dict={},
                 agencies=agencies,
                 translations=self.translations
             )
 
             # Set feed reference on all routes
-            for route in feed.routes:
+            logger.info("Setting feed reference on routes...")
+            for route in routes:
                 route._feed = feed
+                #logger.debug(f"Set feed reference for route {route.route_id}")
 
+            logger.info("GTFS feed loading completed successfully")
             return feed
         except Exception as e:
             logger.error(f"Error loading GTFS feed: {e}", exc_info=True)
@@ -1221,7 +1236,7 @@ class ParquetGTFSLoader:
                             
                         # Create Stop object
                         stop = Stop(
-                            id=stop_id,
+                            id=str(row['stop_id']),
                             name=str(row['stop_name']),
                             lat=float(row['stop_lat']),
                             lon=float(row['stop_lon']),
@@ -1231,8 +1246,8 @@ class ParquetGTFSLoader:
                         # Create RouteStop object
                         route_stop = RouteStop(
                             stop=stop,
-                            arrival_time=str(row['arrival_time']),
-                            departure_time=str(row['departure_time']),
+                            arrival_time=row['arrival_time'],
+                            departure_time=row['departure_time'],
                             stop_sequence=int(row['stop_sequence'])
                         )
                         
@@ -1274,7 +1289,7 @@ class ParquetGTFSLoader:
     
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
         """Get the service days for a set of service IDs."""
-        logger.debug(f"Getting service days for service IDs: {service_ids}")
+        logger.info(f"Calculating service days for service IDs: {service_ids}")
         service_days = set()
         
         # Check if calendar table exists
@@ -1285,7 +1300,7 @@ class ParquetGTFSLoader:
                 WHERE table_name = 'calendar'
             )
         """).fetchone()[0]
-        logger.debug(f"Has calendar table: {has_calendar}")
+        logger.info(f"Calendar table exists: {has_calendar}")
         
         # Check if calendar_dates table exists
         has_calendar_dates = self.db.execute("""
@@ -1295,29 +1310,15 @@ class ParquetGTFSLoader:
                 WHERE table_name = 'calendar_dates'
             )
         """).fetchone()[0]
-        logger.debug(f"Has calendar_dates table: {has_calendar_dates}")
+        logger.info(f"Calendar dates table exists: {has_calendar_dates}")
         
-        if has_calendar_dates:
-            # First check calendar_dates.txt for type 1 exceptions (added service)
-            calendar_dates_query = """
-                SELECT service_id, date, exception_type
-                FROM calendar_dates
-                WHERE service_id = ?
-            """
-            
-            # Check calendar_dates for type 1 exceptions first
-            for service_id in service_ids:
-                dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
-                if not dates_result.empty:
-                    # Only consider type 1 exceptions (additions)
-                    additions = dates_result[dates_result['exception_type'] == 1]
-                    for _, row in additions.iterrows():
-                        weekday = row['date'].strftime('%A').lower()
-                        service_days.add(weekday)
-                        logger.debug(f"Added service day {weekday} from calendar_dates for service {service_id}")
+        # If neither table exists, we can't determine service days
+        if not has_calendar and not has_calendar_dates:
+            logger.warning("Neither calendar.txt nor calendar_dates.txt found - assuming service runs every day")
+            return {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
         
         if has_calendar:
-            # Then check calendar.txt for regular service
+            # First check regular calendar
             calendar_query = """
                 SELECT 
                     service_id,
@@ -1325,41 +1326,87 @@ class ParquetGTFSLoader:
                     start_date, end_date
                 FROM calendar
                 WHERE service_id = ?
+                AND CAST(
+                    CONCAT(
+                        SUBSTR(start_date, 1, 4), '-',
+                        SUBSTR(start_date, 5, 2), '-',
+                        SUBSTR(start_date, 7, 2)
+                    ) AS DATE
+                ) <= CURRENT_DATE
+                AND CAST(
+                    CONCAT(
+                        SUBSTR(end_date, 1, 4), '-',
+                        SUBSTR(end_date, 5, 2), '-',
+                        SUBSTR(end_date, 7, 2)
+                    ) AS DATE
+                ) >= CURRENT_DATE
             """
             
-            has_regular_calendar = False
             for service_id in service_ids:
                 # Check regular calendar
                 calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
+                logger.debug(f"Calendar query result for service_id {service_id}:\n{calendar_result}")
+                
                 if not calendar_result.empty:
                     row = calendar_result.iloc[0]
                     # Only consider this calendar if it has at least one day set to 1
                     if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
                            row['friday'], row['saturday'], row['sunday']]):
-                        has_regular_calendar = True
                         logger.debug(f"Found regular calendar for service {service_id}")
-                    if row['monday']: service_days.add('monday')
-                    if row['tuesday']: service_days.add('tuesday')
-                    if row['wednesday']: service_days.add('wednesday')
-                    if row['thursday']: service_days.add('thursday')
-                    if row['friday']: service_days.add('friday')
-                    if row['saturday']: service_days.add('saturday')
-                    if row['sunday']: service_days.add('sunday')
+                        if row['monday']: service_days.add('monday')
+                        if row['tuesday']: service_days.add('tuesday')
+                        if row['wednesday']: service_days.add('wednesday')
+                        if row['thursday']: service_days.add('thursday')
+                        if row['friday']: service_days.add('friday')
+                        if row['saturday']: service_days.add('saturday')
+                        if row['sunday']: service_days.add('sunday')
+                        logger.debug(f"Service days after calendar check: {service_days}")
+        
+        if has_calendar_dates:
+            # Then check calendar_dates.txt for type 1 exceptions (added service)
+            calendar_dates_query = """
+                SELECT service_id, date, exception_type
+                FROM calendar_dates
+                WHERE service_id = ?
+                AND CAST(
+                    CONCAT(
+                        SUBSTR(date, 1, 4), '-',
+                        SUBSTR(date, 5, 2), '-',
+                        SUBSTR(date, 7, 2)
+                    ) AS DATE
+                ) >= CURRENT_DATE
+                AND CAST(
+                    CONCAT(
+                        SUBSTR(date, 1, 4), '-',
+                        SUBSTR(date, 5, 2), '-',
+                        SUBSTR(date, 7, 2)
+                    ) AS DATE
+                ) <= date_add(CURRENT_DATE, INTERVAL 3 MONTH)  -- Look ahead 3 months
+            """
             
-            # If we have regular calendar, check for type 2 exceptions (removals)
-            if has_regular_calendar and has_calendar_dates:
-                for service_id in service_ids:
-                    dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
-                    if not dates_result.empty:
+            for service_id in service_ids:
+                dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
+                logger.debug(f"Calendar dates query result for service_id {service_id}:\n{dates_result}")
+                
+                if not dates_result.empty:
+                    # Only consider type 1 exceptions (additions)
+                    additions = dates_result[dates_result['exception_type'] == 1]
+                    for _, row in additions.iterrows():
+                        weekday = datetime.strptime(str(row['date']), '%Y%m%d').strftime('%A').lower()
+                        service_days.add(weekday)
+                        logger.debug(f"Added service day {weekday} from calendar_dates for service {service_id}")
+                    
+                    # If we have regular calendar, check for type 2 exceptions (removals)
+                    if has_calendar:
                         removals = dates_result[dates_result['exception_type'] == 2]
                         if not removals.empty:
                             # Group removals by weekday
                             removals_by_day = {}
                             for _, row in removals.iterrows():
-                                weekday = row['date'].strftime('%A').lower()
+                                weekday = datetime.strptime(str(row['date']), '%Y%m%d').strftime('%A').lower()
                                 if weekday not in removals_by_day:
                                     removals_by_day[weekday] = set()
-                                removals_by_day[weekday].add(row['service_id'])
+                                removals_by_day[weekday].add(service_id)
                             
                             # Remove days that are completely excluded by type 2 exceptions
                             for day, removed_services in removals_by_day.items():
@@ -1367,8 +1414,13 @@ class ParquetGTFSLoader:
                                     service_days.discard(day)
                                     logger.debug(f"Removed service day {day} due to type 2 exception")
         
-        logger.debug(f"Final service days: {sorted(list(service_days))}")
-        return service_days 
+        # If we still have no service days after checking both tables, assume service runs every day
+        if not service_days:
+            logger.warning(f"No service days found for services {service_ids} - assuming service runs every day")
+            service_days = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
+        
+        logger.info(f"Final service days for {service_ids}: {sorted(list(service_days))}")
+        return service_days
     
     def _create_stop_times(self, trip_id: str) -> List[StopTime]:
         """Create StopTime objects for a trip.
@@ -1482,23 +1534,12 @@ class ParquetGTFSLoader:
                 )
                 trips.append(trip)
                 logger.debug(f"Created trip {trip_id} with {len(trip.stop_times)} stop times")
-            
-            # Create route object
-            route = Route(
-                route_id=route_id,
-                route_name=first_row['route_long_name'] if pd.notna(first_row['route_long_name']) else first_row['route_short_name'],
-                trip_id=trip_id,
-                trips=trips,
-                service_days=sorted(list(service_days)),
-                service_ids=list(service_ids)
-            )
-            
-            return trips
-            
-        return [] 
+        
+        return trips
     
     def _get_calendars(self) -> Dict[str, Calendar]:
         """Get calendars from DuckDB as Calendar objects."""
+        logger.info("Starting calendar data loading...")
         calendars = {}
         
         # Check if calendar table exists
@@ -1510,6 +1551,8 @@ class ParquetGTFSLoader:
             )
         """).fetchone()[0]
         
+        logger.info(f"Calendar table exists: {has_calendar}")
+        
         if has_calendar:
             result = self.db.execute("""
                 SELECT 
@@ -1520,24 +1563,43 @@ class ParquetGTFSLoader:
                 FROM calendar
             """).fetchdf()
             
+            logger.info(f"Found {len(result)} calendar entries")
+            logger.info(f"Sample calendar data:\n{result.head()}")
+            
             for _, row in result.iterrows():
-                calendars[str(row['service_id'])] = Calendar(
-                    service_id=str(row['service_id']),
-                    monday=bool(row['monday']),
-                    tuesday=bool(row['tuesday']),
-                    wednesday=bool(row['wednesday']),
-                    thursday=bool(row['thursday']),
-                    friday=bool(row['friday']),
-                    saturday=bool(row['saturday']),
-                    sunday=bool(row['sunday']),
-                    start_date=row['start_date'],
-                    end_date=row['end_date']
-                )
+                try:
+                    # Convert date strings to datetime objects if they're strings
+                    start_date = row['start_date']
+                    end_date = row['end_date']
+                    if isinstance(start_date, str):
+                        start_date = datetime.strptime(start_date, '%Y%m%d')
+                    if isinstance(end_date, str):
+                        end_date = datetime.strptime(end_date, '%Y%m%d')
+
+                    service_id = str(row['service_id'])
+                    calendars[service_id] = Calendar(
+                        service_id=service_id,
+                        monday=bool(row['monday']),
+                        tuesday=bool(row['tuesday']),
+                        wednesday=bool(row['wednesday']),
+                        thursday=bool(row['thursday']),
+                        friday=bool(row['friday']),
+                        saturday=bool(row['saturday']),
+                        sunday=bool(row['sunday']),
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    #logger.debug(f"Created calendar for service_id {service_id}: {calendars[service_id]}")
+                except Exception as e:
+                    logger.error(f"Error creating Calendar object for service_id {row['service_id']}: {e}", exc_info=True)
+                    continue
         
+        logger.info(f"Loaded {len(calendars)} calendar entries")
         return calendars
     
     def _get_calendar_dates(self) -> List[CalendarDate]:
         """Get calendar dates from DuckDB as CalendarDate objects."""
+        logger.info("Starting calendar dates loading...")
         calendar_dates = []
         
         # Check if calendar_dates table exists
@@ -1549,6 +1611,8 @@ class ParquetGTFSLoader:
             )
         """).fetchone()[0]
         
+        logger.info(f"Calendar dates table exists: {has_calendar_dates}")
+        
         if has_calendar_dates:
             result = self.db.execute("""
                 SELECT 
@@ -1558,52 +1622,63 @@ class ParquetGTFSLoader:
                 FROM calendar_dates
             """).fetchdf()
             
-            for _, row in result.iterrows():
-                calendar_dates.append(CalendarDate(
-                    service_id=str(row['service_id']),
-                    date=row['date'],
-                    exception_type=int(row['exception_type'])
-                ))
-        
-        return calendar_dates 
-
-    def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[StationResponse], Dict[str, int]]:
-        """Get all stops within a bounding box.
-        
-        Args:
-            bbox: BoundingBox object with min/max lat/lon
-            count_only: If True, only return the count of stops
+            logger.info(f"Found {len(result)} calendar date entries")
+            logger.info(f"Sample calendar dates:\n{result.head()}")
             
-        Returns:
-            If count_only is True, returns Dict with count
-            Otherwise returns List of StationResponse objects
-        """
-        # Filter stops within the bounding box
-        stops_in_bbox = []
-        for stop_id, stop in self.stops.items():
-            if (bbox.min_lat <= stop.lat <= bbox.max_lat) and (
-                bbox.min_lon <= stop.lon <= bbox.max_lon
-            ):
-                # If we only need the count, just add the ID
-                if count_only:
-                    stops_in_bbox.append(stop_id)
-                    continue
+            for _, row in result.iterrows():
+                try:
+                    # Convert date string to datetime object if it's a string
+                    date = row['date']
+                    if isinstance(date, str):
+                        date = datetime.strptime(date, '%Y%m%d')
 
-                # Create StationResponse object
-                stops_in_bbox.append(
-                    StationResponse(
-                        id=stop_id,
-                        name=stop.name,
-                        location=Location(lat=stop.lat, lon=stop.lon),
-                        translations=stop.translations,
-                        routes=[]  # Routes will be added by the API endpoint
+                    service_id = str(row['service_id'])
+                    calendar_date = CalendarDate(
+                        service_id=service_id,
+                        date=date,
+                        exception_type=int(row['exception_type'])
                     )
-                )
+                    calendar_dates.append(calendar_date)
+                    #logger.debug(f"Created calendar date for service_id {service_id}: {calendar_date}")
+                except Exception as e:
+                    logger.error(f"Error creating CalendarDate object for service_id {row['service_id']}: {e}", exc_info=True)
+                    continue
+        
+        logger.info(f"Loaded {len(calendar_dates)} calendar date entries")
+        return calendar_dates
 
+    def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[Stop], Dict[str, int]]:
+        """Get all stops within a bounding box."""
+        logger.debug(f"Getting stops in bbox: {bbox}")
+        
+        query = """
+            SELECT *
+            FROM stops
+            WHERE stop_lat BETWEEN ? AND ?
+            AND stop_lon BETWEEN ? AND ?
+        """
+        
+        result = self.db.execute(query, [bbox.min_lat, bbox.max_lat, bbox.min_lon, bbox.max_lon]).fetchdf()
+        
         if count_only:
-            return {"count": len(stops_in_bbox)}
+            return {"count": len(result)}
 
-        return stops_in_bbox
+        stops = []
+        for _, row in result.iterrows():
+            stop = Stop(
+                id=str(row['stop_id']),
+                name=str(row['stop_name']),
+                lat=float(row['stop_lat']),
+                lon=float(row['stop_lon']),
+                translations=self.translations.get(str(row['stop_id']), {}),
+                location_type=int(row['location_type']),  # Now safe because we handle NaN with COALESCE
+                parent_station=str(row['parent_station']) if pd.notna(row['parent_station']) else None,
+                platform_code=str(row['platform_code']) if pd.notna(row['platform_code']) else None,
+                timezone=str(row['stop_timezone']) if pd.notna(row['stop_timezone']) else None
+            )
+            stops.append(stop)
+        
+        return stops or []
 
     def _load_agencies(self) -> Dict[str, Agency]:
         """Load agencies from agency.txt into DuckDB.
@@ -1686,6 +1761,316 @@ class ParquetGTFSLoader:
         finally:
             # Clean up temporary table
             self.db.execute("DROP TABLE IF EXISTS temp_agencies")
+
+    def find_trips_between_stations(self, start_id: str, end_id: str) -> List[Route]:
+        """Find all trips/services between two stations, including duplicates for different times."""
+        if not start_id or not end_id:
+            logger.warning("Invalid station IDs provided")
+            return []
+
+        if start_id not in self.stops:
+            logger.warning(f"Start station not found: {start_id}")
+            return []
+            
+        if end_id not in self.stops:
+            logger.warning(f"End station not found: {end_id}")
+            return []
+
+        try:
+            logger.info(f"Searching for trips between stations {start_id} and {end_id}")
+            
+            # First check if the tables exist
+            tables_exist = self.db.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'stop_times'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'trips'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'routes'
+                ) AND EXISTS (
+                    SELECT 1 FROM information_schema.tables WHERE table_name = 'stops'
+                )
+            """).fetchone()[0]
+            
+            if not tables_exist:
+                logger.error("Required tables do not exist. Make sure the GTFS feed is loaded properly.")
+                return []
+
+            # Find all trips that serve both stations in sequence
+            query = """
+            WITH stop_pairs AS (
+                -- Find all possible stop time pairs for the stations
+                SELECT 
+                    st1.trip_id,
+                    st1.stop_sequence as start_seq,
+                    st2.stop_sequence as end_seq,
+                    st1.departure_time as start_time,
+                    st2.arrival_time as end_time
+                FROM stop_times st1
+                JOIN stop_times st2 ON st1.trip_id = st2.trip_id 
+                    AND st1.stop_sequence < st2.stop_sequence
+                WHERE st1.stop_id = ?
+                    AND st2.stop_id = ?
+            ),
+            valid_trips AS (
+                -- Get valid trips with their route info
+                SELECT DISTINCT 
+                    sp.trip_id,
+                    t.route_id,
+                    sp.start_seq,
+                    sp.end_seq,
+                    sp.start_time,
+                    sp.end_time
+                FROM stop_pairs sp
+                JOIN trips t ON t.trip_id = sp.trip_id
+            ),
+            route_stops AS (
+                -- Get all intermediate stops for valid trips
+                SELECT 
+                    vt.trip_id,
+                    vt.route_id,
+                    st.stop_sequence,
+                    st.stop_id,
+                    st.arrival_time,
+                    st.departure_time
+                FROM valid_trips vt
+                JOIN stop_times st ON st.trip_id = vt.trip_id
+                    AND st.stop_sequence BETWEEN vt.start_seq AND vt.end_seq
+            ),
+            route_details AS (
+                -- Combine with route and stop information
+                SELECT 
+                    r.route_id,
+                    COALESCE(r.route_short_name, '') as route_short_name,
+                    COALESCE(r.route_long_name, '') as route_long_name,
+                    t.trip_id,
+                    COALESCE(t.trip_headsign, '') as trip_headsign,
+                    rs.stop_sequence,
+                    rs.stop_id,
+                    s.stop_name,
+                    s.stop_lat,
+                    s.stop_lon,
+                    rs.arrival_time,
+                    rs.departure_time
+                FROM route_stops rs
+                JOIN trips t ON t.trip_id = rs.trip_id
+                JOIN routes r ON r.route_id = rs.route_id
+                JOIN stops s ON s.stop_id = rs.stop_id
+            )
+            SELECT * FROM route_details
+            ORDER BY trip_id, stop_sequence
+            """
+            
+            logger.debug(f"Executing query to find trips: {query}")
+            trips_df = self.db.execute(query, [start_id, end_id]).fetchdf()
+            logger.debug(f"Found {len(trips_df) if not trips_df.empty else 0} trips")
+            
+            if trips_df.empty:
+                # Let's check if the stops exist in stop_times
+                stop_check = self.db.execute("""
+                    SELECT stop_id, COUNT(*) as count
+                    FROM stop_times
+                    WHERE stop_id IN (?, ?)
+                    GROUP BY stop_id
+                """, [start_id, end_id]).fetchdf()
+                logger.debug(f"Stop occurrences in stop_times: {stop_check}")
+                return []
+
+            routes = []
+            for _, trip_row in trips_df.iterrows():
+                trip_id = str(trip_row['trip_id'])
+                route_id = str(trip_row['route_id'])
+                logger.debug(f"Processing trip {trip_id} on route {route_id}")
+
+                # Get all stops for this trip between start and end
+                stops_query = """
+                WITH trip_stops AS (
+                    SELECT 
+                        st1.stop_sequence as start_seq,
+                        st2.stop_sequence as end_seq
+                    FROM stop_times st1
+                    JOIN stop_times st2 ON st1.trip_id = st2.trip_id
+                    WHERE st1.trip_id = ?
+                        AND st1.stop_id = ?
+                        AND st2.stop_id = ?
+                        AND st1.stop_sequence < st2.stop_sequence
+                    LIMIT 1
+                )
+                SELECT 
+                    st.stop_id,
+                    st.arrival_time,
+                    st.departure_time,
+                    st.stop_sequence,
+                    s.stop_name,
+                    s.stop_lat,
+                    s.stop_lon
+                FROM stop_times st
+                JOIN trip_stops ts ON st.stop_sequence BETWEEN ts.start_seq AND ts.end_seq
+                JOIN stops s ON s.stop_id = st.stop_id
+                WHERE st.trip_id = ?
+                ORDER BY st.stop_sequence
+                """
+                
+                logger.debug(f"Executing query to get stops for trip {trip_id}")
+                stops_df = self.db.execute(stops_query, [trip_id, start_id, end_id, trip_id]).fetchdf()
+                logger.debug(f"Found {len(stops_df) if not stops_df.empty else 0} stops for trip {trip_id}")
+                
+                if stops_df.empty:
+                    continue
+
+                # Create RouteStop objects
+                route_stops = []
+                for _, stop_row in stops_df.iterrows():
+                    stop_id = str(stop_row['stop_id'])
+                    if stop_id not in self.stops:
+                        logger.warning(f"Stop {stop_id} not found in stops dictionary")
+                        continue
+
+                    route_stop = RouteStop(
+                        stop=self.stops[stop_id],
+                        arrival_time=stop_row['arrival_time'],
+                        departure_time=stop_row['departure_time'],
+                        stop_sequence=int(stop_row['stop_sequence'])
+                    )
+                    route_stops.append(route_stop)
+
+                if len(route_stops) < 2:
+                    logger.warning(f"Trip {trip_id} has fewer than 2 valid stops")
+                    continue
+
+                # Get service days for this trip
+                service_days = list(self._get_service_days({str(trip_row['service_id'])}))
+                logger.debug(f"Service days for trip {trip_id}: {service_days}")
+
+                # Create Route object with trip-specific information
+                route = Route(
+                    route_id=route_id,
+                    route_name=str(trip_row['route_long_name']) if pd.notna(trip_row['route_long_name']) else str(trip_row['route_short_name']) if pd.notna(trip_row['route_short_name']) else f"Route {route_id}",
+                    trip_id=trip_id,
+                    service_days=service_days,
+                    stops=route_stops,
+                    short_name=str(trip_row['route_short_name']) if pd.notna(trip_row['route_short_name']) else None,
+                    long_name=str(trip_row['route_long_name']) if pd.notna(trip_row['route_long_name']) else None,
+                    route_type=int(trip_row['route_type']) if pd.notna(trip_row['route_type']) else None,
+                    color=str(trip_row['route_color']) if pd.notna(trip_row['route_color']) else None,
+                    text_color=str(trip_row['route_text_color']) if pd.notna(trip_row['route_text_color']) else None,
+                    agency_id=str(trip_row['agency_id']) if pd.notna(trip_row['agency_id']) else None,
+                    service_ids=[str(trip_row['service_id'])],
+                    direction_id=str(trip_row['direction_id']) if pd.notna(trip_row['direction_id']) else None
+                )
+                routes.append(route)
+                logger.debug(f"Added route {route_id} with {len(route_stops)} stops")
+
+            logger.info(f"Found {len(routes)} trips between stations {start_id} and {end_id}")
+            return routes
+
+        except Exception as e:
+            logger.error(f"Error finding trips between stations: {e}", exc_info=True)
+            return []
+
+    def _get_service_days_explicit(self, service_ids: set[str]) -> List[str]:
+        """Get explicit service days from calendar.txt."""
+        if not service_ids:
+            return []
+        
+        result = self.db.execute("""
+            SELECT DISTINCT
+                CASE WHEN monday = 1 THEN 'Monday' END as monday,
+                CASE WHEN tuesday = 1 THEN 'Tuesday' END as tuesday,
+                CASE WHEN wednesday = 1 THEN 'Wednesday' END as wednesday,
+                CASE WHEN thursday = 1 THEN 'Thursday' END as thursday,
+                CASE WHEN friday = 1 THEN 'Friday' END as friday,
+                CASE WHEN saturday = 1 THEN 'Saturday' END as saturday,
+                CASE WHEN sunday = 1 THEN 'Sunday' END as sunday
+            FROM calendar
+            WHERE service_id IN (SELECT UNNEST(?))
+        """, [list(service_ids)]).fetchdf()
+        
+        days = []
+        for _, row in result.iterrows():
+            days.extend([day for day in row if pd.notna(day)])
+        return sorted(list(set(days)))
+
+    def _get_calendar_dates_additions(self, service_ids: set[str]) -> List[datetime]:
+        """Get dates added via exceptions."""
+        if not service_ids:
+            return []
+        
+        result = self.db.execute("""
+            SELECT DISTINCT date
+            FROM calendar_dates
+            WHERE service_id IN (SELECT UNNEST(?))
+            AND exception_type = 1
+            ORDER BY date
+        """, [list(service_ids)]).fetchdf()
+        
+        return [datetime.strptime(date, '%Y%m%d') for date in result['date']]
+
+    def _get_calendar_dates_removals(self, service_ids: set[str]) -> List[datetime]:
+        """Get dates removed via exceptions."""
+        if not service_ids:
+            return []
+        
+        result = self.db.execute("""
+            SELECT DISTINCT date
+            FROM calendar_dates
+            WHERE service_id IN (SELECT UNNEST(?))
+            AND exception_type = 2
+            ORDER BY date
+        """, [list(service_ids)]).fetchdf()
+        
+        return [datetime.strptime(date, '%Y%m%d') for date in result['date']]
+
+    def _get_valid_calendar_days(self, service_ids: set[str]) -> List[datetime]:
+        """Get all valid service days."""
+        if not service_ids:
+            return []
+        
+        result = self.db.execute("""
+            WITH service_days AS (
+                SELECT service_id, start_date, end_date
+                FROM calendar
+                WHERE service_id IN (SELECT UNNEST(?))
+            ),
+            calendar_dates_exceptions AS (
+                SELECT service_id, date, exception_type
+                FROM calendar_dates
+                WHERE service_id IN (SELECT UNNEST(?))
+            ),
+            date_series AS (
+                SELECT DISTINCT
+                    service_id,
+                    unnest(
+                        generate_series(
+                            strptime(MIN(start_date), '%Y%m%d'),
+                            strptime(MAX(end_date), '%Y%m%d'),
+                            INTERVAL '1 day'
+                        )
+                    )::DATE as service_date
+                FROM service_days
+                GROUP BY service_id
+            )
+            SELECT DISTINCT 
+                strftime(service_date, '%Y%m%d') as date
+            FROM date_series d
+            JOIN service_days s ON d.service_id = s.service_id
+            WHERE service_date >= strptime(s.start_date, '%Y%m%d')::DATE
+            AND service_date <= strptime(s.end_date, '%Y%m%d')::DATE
+            AND service_date NOT IN (
+                SELECT strptime(date, '%Y%m%d')::DATE
+                FROM calendar_dates_exceptions
+                WHERE service_id = d.service_id
+                AND exception_type = 2
+            )
+            UNION
+            SELECT DISTINCT date
+            FROM calendar_dates_exceptions
+            WHERE service_id IN (SELECT UNNEST(?))
+            AND exception_type = 1
+            ORDER BY date
+        """, [list(service_ids), list(service_ids), list(service_ids)]).fetchdf()
+        
+        return [datetime.strptime(date, '%Y%m%d') for date in result['date']]
 
 
 def load_feed(

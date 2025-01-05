@@ -668,6 +668,15 @@ class FlixbusFeed:
         for route in self.routes:
             route._feed = self
 
+    def get_stops_in_bbox(self, bbox) -> List[Stop]:
+        """Get all stops within a bounding box."""
+        result = []
+        for stop in self.stops.values():
+            if (bbox.min_lat <= stop.lat <= bbox.max_lat and 
+                bbox.min_lon <= stop.lon <= bbox.max_lon):
+                result.append(stop)
+        return result
+
     def find_routes_between_stations(self, start_id: str, end_id: str) -> List[Route]:
         """Find all routes between two stations in any direction (start_id → end_id or end_id → start_id)"""
         routes = []
