@@ -194,6 +194,13 @@ async def get_feed(provider_id: str) -> AsyncGenerator[Optional[FlixbusFeed], No
         yield None
         return
 
+    # Check if we have a cached feed
+    feed = gtfs_cache.get_feed(provider_id)
+    if feed:
+        logger.debug(f"Using cached feed for provider {provider_id}")
+        yield feed
+        return
+
     # Find the provider's dataset directory from metadata
     metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
     if not metadata_file.exists():
@@ -239,6 +246,10 @@ async def get_feed(provider_id: str) -> AsyncGenerator[Optional[FlixbusFeed], No
 
             # Load feed
             feed = loader.load_feed()
+            if feed:
+                # Cache the feed
+                gtfs_cache.cache_feed(provider_id, feed)
+                logger.info(f"Cached feed for provider {provider_id}")
             try:
                 yield feed
             finally:
@@ -654,7 +665,7 @@ async def get_providers():
 @app.post("/provider/{provider_id}")
 async def set_provider(provider_id: str):
     """Set the current GTFS provider and load its data"""
-    global current_provider, available_providers
+    global current_provider, available_providers, gtfs_cache
 
     # Get provider info
     provider = get_provider_by_id(provider_id)
@@ -717,15 +728,25 @@ async def set_provider(provider_id: str):
                 detail=f"GTFS data not found for provider {provider.id}",
             )
 
-        # Get or create loader from cache
+        # Get or create loader from cache with correct directory
         loader = gtfs_cache.get_loader(provider.id, str(dataset_dir))
         if not loader:
-            return False, f"Failed to load GTFS data for provider {provider.id}", None
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load GTFS data for provider {provider.id}",
+            )
 
-        # Load feed using the loader
+        # Load feed
         feed = loader.load_feed()
         if not feed:
-            return False, f"Failed to load feed for provider {provider.id}", None
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load feed for provider {provider.id}",
+            )
+
+        # Cache the feed
+        gtfs_cache.cache_feed(provider.id, feed)
+        logger.info(f"Cached feed for provider {provider.id}")
 
         current_provider = provider.id
         return {
@@ -1110,8 +1131,7 @@ async def get_station_routes(
                         )
                         text_color = (
                             route.text_color
-                            if hasattr(route, "text_color")
-                            and not pd.isna(route.text_color)
+                            if hasattr(route, "text_color") and not pd.isna(route.text_color)
                             else None
                         )
 

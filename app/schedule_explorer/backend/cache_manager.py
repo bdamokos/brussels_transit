@@ -19,6 +19,9 @@ class GTFSCache:
         # In-memory cache for ParquetGTFSLoader instances
         self._loaders: Dict[str, ParquetGTFSLoader] = {}
         
+        # In-memory cache for feed instances
+        self._feeds: Dict[str, FlixbusFeed] = {}
+        
         # Cache for stop times
         self._stop_times_cache: Dict[str, Dict] = {}
         self._stop_times_expiry: Dict[str, datetime] = {}
@@ -54,6 +57,29 @@ class GTFSCache:
         except Exception as e:
             logger.error(f"Error getting loader for provider {provider_id}: {e}")
             return None
+
+    def get_feed(self, provider_id: str) -> Optional[FlixbusFeed]:
+        """
+        Get a cached feed for a provider.
+        
+        Args:
+            provider_id: The ID of the provider
+            
+        Returns:
+            FlixbusFeed instance or None if not cached
+        """
+        return self._feeds.get(provider_id)
+
+    def cache_feed(self, provider_id: str, feed: FlixbusFeed):
+        """
+        Cache a feed for a provider.
+        
+        Args:
+            provider_id: The ID of the provider
+            feed: The feed to cache
+        """
+        self._feeds[provider_id] = feed
+        logger.debug(f"Cached feed for {provider_id}")
 
     def get_stop_times(self, provider_id: str, stop_id: str) -> Optional[Dict]:
         """
@@ -100,11 +126,17 @@ class GTFSCache:
         self._stop_times_expiry.clear()
         logger.info("Cleared stop times cache")
 
+    def clear_feed_cache(self):
+        """Clear the feed cache."""
+        self._feeds.clear()
+        logger.info("Cleared feed cache")
+
     def close(self):
         """Close all loaders and clear caches."""
         for loader in self._loaders.values():
             loader.close()
         self._loaders.clear()
+        self._feeds.clear()
         self.clear_stop_times_cache()
         logger.info("Closed all loaders and cleared caches")
 
