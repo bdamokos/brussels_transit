@@ -1,7 +1,6 @@
 import httpx
 from datetime import datetime, timedelta
 import logging
-from config import get_config
 
 # Get logger
 logger = logging.getLogger("utils")
