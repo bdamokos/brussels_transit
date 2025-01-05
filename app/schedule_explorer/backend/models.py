@@ -170,7 +170,6 @@ class ArrivalInfo(BaseModel):
     provider: str
     scheduled_time: Optional[str] = None
     departure_time: Optional[str] = None
-    current_time: Optional[str] = None
 
 
 class RouteMetadata(BaseModel):

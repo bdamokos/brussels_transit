@@ -823,19 +823,36 @@ class ParquetGTFSLoader:
                 logger.warning(f"No service days found for route {route_id}")
                 continue
             
-            # Get stops for this route's first trip
-            trip_id = str(first_row['trip_id'])
-            stops_query = """
-                SELECT 
-                    st.stop_id,
-                    st.arrival_time,
-                    st.departure_time,
-                    st.stop_sequence
-                FROM stop_times st
-                WHERE st.trip_id = ?
-                ORDER BY st.stop_sequence
+            # Get all trips for this route
+            trips_query = """
+                SELECT DISTINCT t.trip_id
+                FROM trips t
+                WHERE t.route_id = ?
             """
-            stops_result = self.db.execute(stops_query, [trip_id]).fetchdf()
+            trips_result = self.db.execute(trips_query, [route_id]).fetchdf()
+            
+            # Get all stops for all trips of this route
+            stops_query = """
+                WITH trip_stops AS (
+                    SELECT DISTINCT
+                        st.stop_id,
+                        st.arrival_time,
+                        st.departure_time,
+                        st.stop_sequence
+                    FROM stop_times st
+                    WHERE st.trip_id IN (
+                        SELECT trip_id FROM trips WHERE route_id = ?
+                    )
+                )
+                SELECT DISTINCT
+                    ts.stop_id,
+                    ts.arrival_time,
+                    ts.departure_time,
+                    ts.stop_sequence
+                FROM trip_stops ts
+                ORDER BY ts.stop_sequence
+            """
+            stops_result = self.db.execute(stops_query, [route_id]).fetchdf()
             
             # Create RouteStop objects
             route_stops = []
