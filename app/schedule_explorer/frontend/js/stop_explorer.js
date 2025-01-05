@@ -421,10 +421,12 @@ async function loadAllRoutes() {
                                             <div class="text-muted">
                                                 ${route.route_name}<br>
                                                 From: ${route.first_stop}<br>
-                                                To: ${route.last_stop}<br>
-                                                Service days: ${route.service_days.map(day =>
-                                                    day.charAt(0).toUpperCase() + day.slice(1)
-                                                ).join(', ')}
+                                                To: ${route.last_stop}
+                                            </div>
+                                            <div class="service-days-container" id="service-days-${route.route_id}">
+                                                <button class="btn btn-sm btn-outline-secondary mt-2" onclick="loadServiceDays('${route.route_id}')">
+                                                    Show service days
+                                                </button>
                                             </div>
                                             <div class="mt-2">
                                                 <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
@@ -842,3 +844,52 @@ async function copyToClipboard(text) {
 
 // Make copy function available globally
 window.copyToClipboard = copyToClipboard;
+
+// Function to load service days for a route
+async function loadServiceDays(routeId) {
+    const container = document.getElementById(`service-days-${routeId}`);
+    if (!container) return;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/${providerSelect.value}/routes/${routeId}/service_days`);
+        if (!response.ok) throw new Error('Failed to load service days');
+        
+        const data = await response.json();
+        
+        // Format service days information
+        const serviceDays = data.service_days.map(day =>
+            day.charAt(0).toUpperCase() + day.slice(1)
+        ).join(', ');
+        
+        // Create HTML for service days information
+        let html = `<div class="service-days-info mt-2">
+            <strong>Service days:</strong> ${serviceDays}
+        `;
+        
+        // Add additional calendar information if available
+        if (data.service_days_explicit) {
+            html += `<br><small>Explicit service days available</small>`;
+        }
+        if (data.calendar_dates_additions?.length > 0) {
+            html += `<br><small>Additional service dates: ${data.calendar_dates_additions.length}</small>`;
+        }
+        if (data.calendar_dates_removals?.length > 0) {
+            html += `<br><small>Service exceptions: ${data.calendar_dates_removals.length}</small>`;
+        }
+        
+        html += '</div>';
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading service days:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger mt-2">
+                Failed to load service days
+            </div>
+        `;
+    }
+}
+
+// Make loadServiceDays available globally
+window.loadServiceDays = loadServiceDays;

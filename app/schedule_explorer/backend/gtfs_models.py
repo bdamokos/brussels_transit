@@ -199,8 +199,12 @@ class Route:
     translations: Optional[Dict[str, str]] = field(default=None)  # language -> translated name
 
     def __post_init__(self):
-        """Calculate service days after initialization"""
-        if not self.service_days and self.trips and self._feed:
+        """Post initialization setup"""
+        pass  # Skip service days calculation on initialization
+
+    def ensure_service_days_calculated(self):
+        """Ensure service days are calculated. Call this before accessing any service day related attributes."""
+        if not self.service_days and hasattr(self, '_feed') and self._feed:
             self.calculate_service_info()
 
     @property

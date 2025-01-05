@@ -1145,6 +1145,9 @@ async def get_station_routes(
                             else None
                         )
 
+                        # Calculate service days only when needed
+                        route.ensure_service_days_calculated()
+
                         routes_info.append(
                             RouteInfo(
                                 route_id=route.route_id,
@@ -1160,8 +1163,6 @@ async def get_station_routes(
                                 last_stop=stop_names[-1],
                                 stops=stop_names,
                                 headsign=route.stops[-1].stop.name,
-                                service_days=route.service_days,
-                                parent_station_id=parent_id,
                                 terminus_stop_id=route.stops[-1].stop.id,
                                 service_days_explicit=(
                                     route.service_days_explicit
@@ -1535,7 +1536,7 @@ async def get_waiting_times_impl(
                 ),
                 first_stop=route.stops[0].stop.name,
                 last_stop=route.stops[-1].stop.name,
-                stops=None,  # Don't include full stop list
+                 # Don't include full stop list
                 headsign=route.stops[-1].stop.name,
                 service_days=route.service_days,
                 terminus_stop_id=route.stops[-1].stop.id,
@@ -1860,138 +1861,102 @@ async def get_stops_in_bbox(
         async with get_feed(provider_id) as feed:
             if not feed:
                 raise HTTPException(status_code=503, detail="GTFS data not loaded")
-        # Get stops using the new method
-        result = feed.get_stops_in_bbox(bbox, count_only)
 
-        if count_only:
-            return result
+            # Get stops using the new method
+            result = feed.get_stops_in_bbox(bbox, count_only)
+            if result is None:
+                return [] if not count_only else {"count": 0}
 
-        # Sort stops by ID to ensure consistent pagination
-        stops = sorted(result, key=lambda x: x.id)
+            if count_only:
+                return result
 
-        # Apply pagination
-        paginated_stops = stops[offset:]
-        if limit is not None:
-            paginated_stops = paginated_stops[:limit]
+            # Sort stops by ID to ensure consistent pagination
+            stops = sorted(result, key=lambda x: x.id)
 
-        # Now process routes only for the paginated stops
-        for stop in paginated_stops:
-            routes_info = []
-            seen_route_ids = set()
+            # Apply pagination
+            paginated_stops = stops[offset:]
+            if limit is not None:
+                paginated_stops = paginated_stops[:limit]
 
-            for route in feed.routes:
-                # Skip if we've already seen this route
-                if route.route_id in seen_route_ids:
-                    continue
+            # Now process routes only for the paginated stops
+            for stop in paginated_stops:
+                routes_info = []
+                seen_route_ids = set()
 
-                # Check if this stop is served by this route
-                station_in_route = False
-                for route_stop in route.stops:
-                    if route_stop.stop.id == stop.id:
-                        station_in_route = True
-                        break
+                if feed.routes:  # Only process routes if they exist
+                    for route in feed.routes:
+                        # Skip if we've already seen this route
+                        if route.route_id in seen_route_ids:
+                            continue
 
-                if station_in_route:
-                    seen_route_ids.add(route.route_id)
+                        # Check if this stop is served by this route
+                        station_in_route = False
+                        for route_stop in route.stops:
+                            if route_stop.stop.id == stop.id:
+                                station_in_route = True
+                                break
 
-                    # Get stop names in the correct language
-                    stop_names = [
-                        (
-                            feed.get_stop_name(s.stop.id, language)
-                            if language != "default"
-                            else s.stop.name
-                        )
-                        for s in route.stops
-                    ]
+                        if station_in_route:
+                            seen_route_ids.add(route.route_id)
 
-                    # Handle NaN values in route name and colors
-                    route_name = route.route_name
-                    if pd.isna(route_name):
-                        route_name = f"Route {route.route_id}"
+                            # Get stop names in the correct language
+                            stop_names = [
+                                (
+                                    feed.get_stop_name(s.stop.id, language)
+                                    if language != "default"
+                                    else s.stop.name
+                                )
+                                for s in route.stops
+                            ]
 
-                    color = (
-                        route.color
-                        if hasattr(route, "color") and not pd.isna(route.color)
-                        else None
-                    )
-                    text_color = (
-                        route.text_color
-                        if hasattr(route, "text_color") and not pd.isna(route.text_color)
-                        else None
-                    )
+                            # Handle NaN values in route name and colors
+                            route_name = route.route_name
+                            if pd.isna(route_name):
+                                route_name = f"Route {route.route_id}"
 
-                    routes_info.append(
-                        RouteInfo(
-                            route_id=route.route_id,
-                            route_name=route_name,
-                            short_name=(
-                                route.short_name
-                                if hasattr(route, "short_name")
+                            color = (
+                                route.color
+                                if hasattr(route, "color") and not pd.isna(route.color)
                                 else None
-                            ),
-                            color=color,
-                            text_color=text_color,
-                            first_stop=stop_names[0],
-                            last_stop=stop_names[-1],
-                            stops=stop_names,
-                            headsign=route.stops[-1].stop.name,
-                            service_days=route.service_days,
-                            parent_station_id=getattr(stop, "parent_station", None),
-                            terminus_stop_id=route.stops[-1].stop.id,
-                            service_days_explicit=(
-                                route.service_days_explicit
-                                if hasattr(route, "service_days_explicit")
+                            )
+                            text_color = (
+                                route.text_color
+                                if hasattr(route, "text_color") and not pd.isna(route.text_color)
                                 else None
-                            ),
-                            calendar_dates_additions=(
-                                route.calendar_dates_additions
-                                if hasattr(route, "calendar_dates_additions")
-                                else None
-                            ),
-                            calendar_dates_removals=(
-                                route.calendar_dates_removals
-                                if hasattr(route, "calendar_dates_removals")
-                                else None
-                            ),
-                            valid_calendar_days=(
-                                route.valid_calendar_days
-                                if hasattr(route, "valid_calendar_days")
-                                else None
-                            ),
-                            service_calendar=(
-                                route.service_calendar
-                                if hasattr(route, "service_calendar")
-                                else None
-                            ),
-                        )
-                    )
+                            )
 
-            stop.routes = routes_info
+                            routes_info.append(
+                                RouteInfo(
+                                    route_id=route.route_id,
+                                    route_name=route_name,
+                                    short_name=(
+                                        route.short_name
+                                        if hasattr(route, "short_name")
+                                        else None
+                                    ),
+                                    color=color,
+                                    text_color=text_color,
+                                    first_stop=stop_names[0],
+                                    last_stop=stop_names[-1],
+                                    stops=stop_names,
+                                    headsign=route.stops[-1].stop.name,
+                                    terminus_stop_id=route.stops[-1].stop.id,
+                                    parent_station_id=getattr(stop, "parent_station", None)
+                                )
+                            )
 
-        return paginated_stops
+                stop.routes = routes_info
+
+            return paginated_stops
 
 
-@app.get("/api/{provider_id}/routes/find", response_model=List[RouteInfo])
-async def find_route_by_name(
+@app.get("/api/{provider_id}/routes/{route_id}/service_days")
+async def get_route_service_days(
+    request: Request,
     provider_id: str = Path(...),
-    route_name: Optional[str] = Query(
-        None, description="Full route name to search for"
-    ),
-    short_name: Optional[str] = Query(
-        None, description="Short name (line number) to search for"
-    ),
-    language: Optional[str] = Query(
-        "default", description="Language code (e.g., 'fr', 'nl') or 'default'"
-    ),
+    route_id: str = Path(...),
 ):
-    """Find route IDs by searching with route names or short names.
-    Returns all matching routes with their details."""
-
-    if not route_name and not short_name:
-        raise HTTPException(
-            status_code=400, detail="Either route_name or short_name must be provided"
-        )
-
+    """Get service days information for a specific route."""
     # Check provider availability and load if needed
     is_ready, message, provider = await ensure_provider_loaded(provider_id)
     if not is_ready:
@@ -2001,101 +1966,43 @@ async def find_route_by_name(
         )
 
     async with get_feed(provider_id) as feed:
-            if not feed:
-                raise HTTPException(status_code=503, detail="GTFS data not loaded")
-    matching_routes = []
-    for route in feed.routes:
-        # Check if route matches any of the search criteria
-        matches = False
+        if not feed:
+            raise HTTPException(status_code=503, detail="GTFS data not loaded")
 
-        if route_name:
-            # Check route_name against various name fields
-            route_full_name = (
-                route.route_name
-                if hasattr(route, "route_name") and not pd.isna(route.route_name)
-                else ""
-            )
-            if route_name.lower() in route_full_name.lower():
-                matches = True
+        # Find the route
+        route = next((r for r in feed.routes if r.route_id == route_id), None)
+        if not route:
+            raise HTTPException(status_code=404, detail=f"Route {route_id} not found")
 
-        if short_name and not matches:
-            # Check short_name
-            route_short = (
-                route.short_name
-                if hasattr(route, "short_name") and not pd.isna(route.short_name)
-                else ""
-            )
-            if short_name.lower() == route_short.lower():
-                matches = True
+        # Calculate service days if not already calculated
+        route.ensure_service_days_calculated()
 
-        if matches:
-            # Get stop names in the correct language
-            stop_names = [
-                (
-                    feed.get_stop_name(s.stop.id, language)
-                    if language != "default"
-                    else s.stop.name
-                )
-                for s in route.stops
-            ]
-
-            # Handle NaN values in route name and colors
-            route_name = route.route_name
-            if pd.isna(route_name):
-                route_name = f"Route {route.route_id}"
-
-            color = (
-                route.color
-                if hasattr(route, "color") and not pd.isna(route.color)
+        # Return service days information
+        return {
+            "service_days": route.service_days,
+            "service_days_explicit": (
+                route.service_days_explicit
+                if hasattr(route, "service_days_explicit")
                 else None
-            )
-            text_color = (
-                route.text_color
-                if hasattr(route, "text_color") and not pd.isna(route.text_color)
+            ),
+            "calendar_dates_additions": (
+                route.calendar_dates_additions
+                if hasattr(route, "calendar_dates_additions")
                 else None
-            )
-
-            matching_routes.append(
-                RouteInfo(
-                    route_id=route.route_id,
-                    route_name=route_name,
-                    short_name=(
-                        route.short_name if hasattr(route, "short_name") else None
-                    ),
-                    color=color,
-                    text_color=text_color,
-                    first_stop=stop_names[0],
-                    last_stop=stop_names[-1],
-                    stops=stop_names,
-                    headsign=route.stops[-1].stop.name,
-                    service_days=route.service_days,
-                    terminus_stop_id=route.stops[-1].stop.id,
-                    service_days_explicit=(
-                        route.service_days_explicit
-                        if hasattr(route, "service_days_explicit")
-                        else None
-                    ),
-                    calendar_dates_additions=(
-                        route.calendar_dates_additions
-                        if hasattr(route, "calendar_dates_additions")
-                        else None
-                    ),
-                    calendar_dates_removals=(
-                        route.calendar_dates_removals
-                        if hasattr(route, "calendar_dates_removals")
-                        else None
-                    ),
-                    valid_calendar_days=(
-                        route.valid_calendar_days
-                        if hasattr(route, "valid_calendar_days")
-                        else None
-                    ),
-                    service_calendar=(
-                        route.service_calendar
-                        if hasattr(route, "service_calendar")
-                        else None
-                    ),
-                )
-            )
-
-    return matching_routes
+            ),
+            "calendar_dates_removals": (
+                route.calendar_dates_removals
+                if hasattr(route, "calendar_dates_removals")
+                else None
+            ),
+            "valid_calendar_days": (
+                route.valid_calendar_days
+                if hasattr(route, "valid_calendar_days")
+                else None
+            ),
+            "service_calendar": (
+                route.service_calendar
+                if hasattr(route, "service_calendar")
+                else None
+            ),
+        }

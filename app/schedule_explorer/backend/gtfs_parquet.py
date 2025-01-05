@@ -9,13 +9,14 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set, Union, Tuple
+from datetime import datetime, timedelta, date, time
 import pandas as pd
 import os
 import tempfile
 import uuid
 import shutil
+import numpy as np
 
 from .gtfs_models import (
     Translation,
@@ -29,8 +30,9 @@ from .gtfs_models import (
     Route,
     FlixbusFeed,
     Agency,
+    BoundingBox,
 )
-from .models import BoundingBox, StationResponse, Location
+from .models import StationResponse, Location
 
 logger = logging.getLogger("schedule_explorer.gtfs_parquet")
 
@@ -179,12 +181,12 @@ class ParquetGTFSLoader:
             'bikes_allowed': 'INTEGER'
         },
         'routes.txt': {
-            'agency_id': 'VARCHAR',
             'route_id': 'VARCHAR',
+            'agency_id': 'VARCHAR',
             'route_short_name': 'VARCHAR',
             'route_long_name': 'VARCHAR',
             'route_desc': 'VARCHAR',
-            'route_type': 'INTEGER',
+            'route_type': 'INTEGER',  # Will be handled with COALESCE in the query
             'route_url': 'VARCHAR',
             'route_color': 'VARCHAR',
             'route_text_color': 'VARCHAR',
@@ -339,7 +341,7 @@ class ParquetGTFSLoader:
                         logger.error(f"Missing route_id values found in {filename}")
                         return False  # This is a critical error
                 
-                # Check for route_type if present, but don't fail if invalid
+                # Check for route_type if present, but don't fail if invalid or missing
                 if 'route_type' in df.columns:
                     # Convert route_type to integer, handling any non-numeric values
                     df['route_type'] = pd.to_numeric(df['route_type'], errors='coerce')
@@ -347,6 +349,9 @@ class ParquetGTFSLoader:
                     if not invalid_route_types.empty:
                         logger.warning(f"Invalid route_type values found in {filename} - these will be treated as type 3 (bus)")
                         has_warnings = True
+                else:
+                    logger.warning(f"route_type column not found in {filename} - all routes will be treated as type 3 (bus)")
+                    has_warnings = True
             
             return True  # Even with warnings, we can proceed
             
@@ -359,6 +364,10 @@ class ParquetGTFSLoader:
         csv_path = self.data_dir / filename
         parquet_path = self.data_dir / f"{filename}.parquet"
         
+        logger.info(f"Converting {filename} to Parquet")
+        logger.info(f"CSV path: {csv_path}")
+        logger.info(f"Parquet path: {parquet_path}")
+        
         # If the Parquet file already exists, use it
         if parquet_path.exists():
             logger.info(f"Using existing Parquet file: {parquet_path}")
@@ -366,9 +375,25 @@ class ParquetGTFSLoader:
         
         if not csv_path.exists():
             logger.warning(f"File not found: {csv_path}")
+            # List files in directory to help diagnose
+            try:
+                logger.info(f"Files in directory {self.data_dir}:")
+                for f in self.data_dir.glob("*.txt"):
+                    logger.info(f"  - {f.name}")
+            except Exception as e:
+                logger.error(f"Error listing directory contents: {e}")
             return None
         
         try:
+            # Log file size and first few lines
+            logger.info(f"File size: {csv_path.stat().st_size} bytes")
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                header = f.readline().strip()
+                logger.info(f"Header: {header}")
+                # Read first data line
+                first_line = f.readline().strip()
+                logger.info(f"First data line: {first_line}")
+
             # Validate data before conversion
             if not self._validate_gtfs_data(csv_path, filename):
                 logger.error(f"Validation failed for {filename}")
@@ -780,209 +805,142 @@ class ParquetGTFSLoader:
         return shapes
     
     def _load_routes(self, trip_ids: Optional[List[str]] = None) -> List[Route]:
-        """Load routes from DuckDB as Route objects."""
+        """Load routes from routes.txt and create Route objects."""
         logger.info("Starting route loading...")
-        routes = []
-        
-        # First load routes into DuckDB if not already loaded
-        parquet_path = self._csv_to_parquet('routes.txt')
+        parquet_path = self._csv_to_parquet("routes.txt")
         if not parquet_path:
             logger.error("Failed to convert routes.txt to Parquet")
-            raise RuntimeError("Failed to convert routes.txt to Parquet")
-        
-        # Check if routes table exists
-        has_routes = self.db.execute("""
-            SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.tables 
-                WHERE table_name = 'routes'
-            )
-        """).fetchone()[0]
-        
-        if not has_routes:
-            logger.info("Creating routes table...")
-            try:
-                # First, verify the Parquet file has data
-                sample_df = self.db.execute(f"SELECT * FROM parquet_scan('{parquet_path}') LIMIT 5").fetchdf()
-                if sample_df.empty:
-                    logger.error("Parquet file appears to be empty")
-                    return []
-                    
-                logger.info(f"Sample data from routes.txt:\n{sample_df}")
-                
-                # Get the available columns
-                columns = sample_df.columns.tolist()
-                logger.info(f"Available columns: {columns}")
-                
-                # Build the query dynamically based on available columns
-                required_columns = ['route_id']
-                optional_columns = {
-                    'route_short_name': 'NULL',
-                    'route_long_name': 'NULL',
-                    'route_desc': 'NULL',
-                    'route_type': '3',  # Default to bus if not specified
-                    'route_url': 'NULL',
-                    'route_color': 'NULL',
-                    'route_text_color': 'NULL',
-                    'agency_id': 'NULL'
-                }
-                
-                # Verify required columns exist
-                missing_columns = [col for col in required_columns if col not in columns]
-                if missing_columns:
-                    logger.error(f"Missing required columns in routes.txt: {missing_columns}")
-                    return []
-                
-                # Build select parts
-                select_parts = []
-                for col in required_columns:
-                    select_parts.append(f"{col}::VARCHAR as {col}")
-                
-                for col, default in optional_columns.items():
-                    if col in columns:
-                        if col == 'route_type':
-                            select_parts.append(f"COALESCE(NULLIF(CAST({col} AS INTEGER), 0), 3) as {col}")
-                        else:
-                            select_parts.append(f"COALESCE({col}, {default}) as {col}")
-                    else:
-                        select_parts.append(f"{default} as {col}")
-                
-                # Create routes table
-                query = f"""
-                    CREATE TABLE routes AS 
-                    SELECT 
-                        {', '.join(select_parts)}
-                    FROM parquet_scan('{parquet_path}')
-                """
-                logger.info(f"Creating routes table with query: {query}")
-                self.db.execute(query)
-                
-                # Create index for faster lookups
-                self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
-                logger.info("Routes table created with index")
-                
-                # Verify data was loaded
-                count = self.db.execute("SELECT COUNT(*) as count FROM routes").fetchone()[0]
-                if count == 0:
-                    logger.error("No routes were loaded into the table")
-                    return []
-                    
-                logger.info(f"Created routes table with {count} routes")
-                
-                # Log some sample data
-                sample = self.db.execute("SELECT * FROM routes LIMIT 5").fetchdf()
-                logger.info(f"Sample routes data:\n{sample}")
-                
-            except Exception as e:
-                logger.error(f"Error creating routes table: {e}", exc_info=True)
-                # Clean up if something went wrong
-                self.db.execute("DROP TABLE IF EXISTS routes")
-                self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
-                raise
-        
-        # Base query for routes
-        base_query = """
-            SELECT DISTINCT r.*, t.service_id, t.trip_id
-            FROM routes r
-            JOIN trips t ON r.route_id = t.route_id
-        """
-        
-        # Add trip_id filter if provided
-        if trip_ids:
-            base_query += " WHERE t.trip_id IN (SELECT UNNEST(?))"
-            result = self.db.execute(base_query, [trip_ids]).fetchdf()
-        else:
-            result = self.db.execute(base_query).fetchdf()
-        
-        if result.empty:
-            logger.warning("No routes found")
             return []
-            
-        # Group by route_id to get service_ids for each route
-        for route_id, group in result.groupby('route_id'):
-            first_row = group.iloc[0]
-            
-            # Get service days for this route's services
-            service_ids = set(group['service_id'].dropna())
-            service_days = list(self._get_service_days(service_ids))
-            if not service_days:
-                logger.warning(f"No service days found for route {route_id}")
-                continue
-            
-            # Get all trips for this route
-            trips_query = """
-                SELECT DISTINCT t.trip_id
-                FROM trips t
-                WHERE t.route_id = ?
+
+        # Create routes table with more lenient handling of missing values
+        logger.info("Creating routes table...")
+        try:
+            # First, get sample data to understand what we're working with
+            sample_df = self.db.execute(f"""
+                SELECT * FROM parquet_scan('{parquet_path}') LIMIT 5
+            """).fetchdf()
+            logger.info("Sample data from routes.txt:")
+            logger.info(sample_df)
+            logger.info(f"Available columns: {sample_df.columns.tolist()}")
+
+            # Create routes table with COALESCE for optional fields
+            query = f"""
+                CREATE TABLE routes AS 
+                SELECT 
+                    route_id::VARCHAR as route_id,
+                    COALESCE(route_short_name, NULL) as route_short_name,
+                    COALESCE(route_long_name, NULL) as route_long_name,
+                    COALESCE(route_desc, NULL) as route_desc,
+                    COALESCE(NULLIF(CAST(route_type AS INTEGER), 0), 3) as route_type,
+                    COALESCE(route_url, NULL) as route_url,
+                    COALESCE(route_color, NULL) as route_color,
+                    COALESCE(route_text_color, NULL) as route_text_color,
+                    COALESCE(agency_id, NULL) as agency_id
+                FROM parquet_scan('{parquet_path}')
             """
-            trips_result = self.db.execute(trips_query, [route_id]).fetchdf()
-            
-            # Get all stops for all trips of this route
-            stops_query = """
-                WITH trip_stops AS (
-                    SELECT DISTINCT
-                        st.stop_id,
-                        st.arrival_time,
-                        st.departure_time,
-                        st.stop_sequence
-                    FROM stop_times st
-                    WHERE st.trip_id IN (
-                        SELECT trip_id FROM trips WHERE route_id = ?
-                    )
-                )
-                SELECT DISTINCT
-                    ts.stop_id,
-                    ts.arrival_time,
-                    ts.departure_time,
-                    ts.stop_sequence
-                FROM trip_stops ts
-                ORDER BY ts.stop_sequence
-            """
-            stops_result = self.db.execute(stops_query, [route_id]).fetchdf()
-            
-            # Create RouteStop objects
-            route_stops = []
-            for _, stop_row in stops_result.iterrows():
-                stop_id = str(stop_row['stop_id'])
-                if stop_id not in self.stops:
-                    logger.warning(f"Stop {stop_id} not found in stops dictionary")
-                    continue
+            logger.info(f"Creating routes table with query: \n{query}")
+            self.db.execute(query)
+
+            # Create index on route_id
+            self.db.execute("CREATE INDEX routes_route_id_idx ON routes(route_id)")
+            logger.info("Routes table created with index")
+
+            # Get all routes
+            routes_df = self.db.execute("SELECT * FROM routes").fetchdf()
+            logger.info(f"Created routes table with {len(routes_df)} routes")
+            logger.info("Sample routes data:")
+            logger.info(routes_df.head())
+
+            # Process routes and create Route objects
+            routes = []
+            for _, row in routes_df.iterrows():
+                route_id = str(row['route_id'])
                 
-                route_stop = RouteStop(
-                    stop=self.stops[stop_id],
-                    arrival_time=stop_row['arrival_time'],
-                    departure_time=stop_row['departure_time'],
-                    stop_sequence=int(stop_row['stop_sequence'])
+                # Get all trips for this route
+                trips_query = """
+                    SELECT DISTINCT t.trip_id, t.service_id
+                    FROM trips t
+                    WHERE t.route_id = ?
+                """
+                trips_result = self.db.execute(trips_query, [route_id]).fetchdf()
+                
+                if trips_result.empty:
+                    logger.warning(f"No trips found for route {route_id}")
+                    continue
+
+                # Get service days for this route's services
+                service_ids = set(trips_result['service_id'].dropna())
+                service_days = list(self._get_service_days(service_ids))
+                if not service_days:
+                    logger.warning(f"No service days found for route {route_id}")
+                    continue
+
+                # Get all stops for this route's trips
+                stops_query = """
+                    WITH trip_stops AS (
+                        SELECT DISTINCT
+                            st.stop_id,
+                            st.arrival_time,
+                            st.departure_time,
+                            st.stop_sequence
+                        FROM stop_times st
+                        WHERE st.trip_id IN (
+                            SELECT trip_id FROM trips WHERE route_id = ?
+                        )
+                    )
+                    SELECT DISTINCT
+                        ts.stop_id,
+                        ts.arrival_time,
+                        ts.departure_time,
+                        ts.stop_sequence
+                    FROM trip_stops ts
+                    ORDER BY ts.stop_sequence
+                """
+                stops_result = self.db.execute(stops_query, [route_id]).fetchdf()
+                
+                # Create RouteStop objects
+                route_stops = []
+                for _, stop_row in stops_result.iterrows():
+                    stop_id = str(stop_row['stop_id'])
+                    if stop_id not in self.stops:
+                        logger.warning(f"Stop {stop_id} not found in stops dictionary")
+                        continue
+                    
+                    route_stop = RouteStop(
+                        stop=self.stops[stop_id],
+                        arrival_time=stop_row['arrival_time'],
+                        departure_time=stop_row['departure_time'],
+                        stop_sequence=int(stop_row['stop_sequence'])
+                    )
+                    route_stops.append(route_stop)
+
+                # Create route object
+                route = Route(
+                    route_id=route_id,
+                    route_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else f"Route {route_id}",
+                    trip_id=str(trips_result.iloc[0]['trip_id']),
+                    service_days=service_days,
+                    stops=route_stops,
+                    short_name=str(row['route_short_name']) if pd.notna(row['route_short_name']) else None,
+                    long_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else None,
+                    route_type=int(row['route_type']) if pd.notna(row['route_type']) else 3,
+                    color=str(row['route_color']) if pd.notna(row['route_color']) else None,
+                    text_color=str(row['route_text_color']) if pd.notna(row['route_text_color']) else None,
+                    translations=self.translations.get(route_id, {})
                 )
-                route_stops.append(route_stop)
-            
-            # Create route object with all service day information
-            valid_calendar_days = self._get_valid_calendar_days(service_ids)
-            route = Route(
-                route_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else f"Route {route_id}",
-                trip_id=str(first_row['trip_id']),
-                stops=route_stops,  # Now populated with actual stops
-                route_id=str(route_id),
-                short_name=str(first_row['route_short_name']) if pd.notna(first_row['route_short_name']) else None,
-                long_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else None,
-                route_desc=str(first_row['route_desc']) if 'route_desc' in first_row and pd.notna(first_row['route_desc']) else None,
-                route_type=int(first_row['route_type']) if pd.notna(first_row['route_type']) else 3,  # Default to bus
-                route_url=str(first_row['route_url']) if 'route_url' in first_row and pd.notna(first_row['route_url']) else None,
-                color=str(first_row['route_color']) if pd.notna(first_row['route_color']) else None,
-                text_color=str(first_row['route_text_color']) if pd.notna(first_row['route_text_color']) else None,
-                service_days=service_days,
-                translations=self.translations.get(str(route_id), {}),
-                service_days_explicit=self._get_service_days_explicit(service_ids),
-                calendar_dates_additions=self._get_calendar_dates_additions(service_ids),
-                calendar_dates_removals=self._get_calendar_dates_removals(service_ids),
-                valid_calendar_days=valid_calendar_days,
-                service_calendar=f"{valid_calendar_days[0].strftime('%Y-%m-%d')} to {valid_calendar_days[-1].strftime('%Y-%m-%d')}" if valid_calendar_days else None
-            )
-            routes.append(route)
-            logger.debug(f"Created route {route_id} with {len(route_stops)} stops and service days {service_days}")
-        
-        logger.info(f"Loaded {len(routes)} routes")
-        return routes
+                routes.append(route)
+                logger.debug(f"Created route {route_id} with {len(route_stops)} stops and service days {service_days}")
+
+            logger.info(f"Loaded {len(routes)} routes")
+            return routes
+
+        except Exception as e:
+            logger.error(f"Error loading routes: {e}", exc_info=True)
+            return []
+        finally:
+            # Clean up temporary tables
+            self.db.execute("DROP TABLE IF EXISTS routes")
+            self.db.execute("DROP INDEX IF EXISTS routes_route_id_idx")
     
     def _load_calendar(self) -> None:
         """Load calendar data into DuckDB using parallel processing."""
@@ -1646,38 +1604,105 @@ class ParquetGTFSLoader:
         logger.info(f"Loaded {len(calendar_dates)} calendar date entries")
         return calendar_dates
 
-    def get_stops_in_bbox(self, bbox: BoundingBox, count_only: bool = False) -> Union[List[Stop], Dict[str, int]]:
+    def get_stops_in_bbox(
+        self,
+        min_lat: float,
+        max_lat: float,
+        min_lon: float,
+        max_lon: float,
+        count_only: bool = False,
+    ) -> Union[List[StationResponse], Dict[str, int]]:
         """Get all stops within a bounding box."""
-        logger.debug(f"Getting stops in bbox: {bbox}")
-        
-        query = """
-            SELECT *
-            FROM stops
-            WHERE stop_lat BETWEEN ? AND ?
-            AND stop_lon BETWEEN ? AND ?
-        """
-        
-        result = self.db.execute(query, [bbox.min_lat, bbox.max_lat, bbox.min_lon, bbox.max_lon]).fetchdf()
-        
-        if count_only:
-            return {"count": len(result)}
+        logger.info(f"Getting stops in bbox: {min_lat}, {max_lat}, {min_lon}, {max_lon}")
+        try:
+            # Filter stops within the bounding box
+            filtered_stops = [
+                stop for stop in self.stops.values()
+                if min_lat <= stop.location.lat <= max_lat
+                and min_lon <= stop.location.lon <= max_lon
+            ]
 
-        stops = []
-        for _, row in result.iterrows():
-            stop = Stop(
-                id=str(row['stop_id']),
-                name=str(row['stop_name']),
-                lat=float(row['stop_lat']),
-                lon=float(row['stop_lon']),
-                translations=self.translations.get(str(row['stop_id']), {}),
-                location_type=int(row['location_type']),  # Now safe because we handle NaN with COALESCE
-                parent_station=str(row['parent_station']) if pd.notna(row['parent_station']) else None,
-                platform_code=str(row['platform_code']) if pd.notna(row['platform_code']) else None,
-                timezone=str(row['stop_timezone']) if pd.notna(row['stop_timezone']) else None
-            )
-            stops.append(stop)
-        
-        return stops or []
+            if count_only:
+                return {"count": len(filtered_stops)}
+
+            # Get all routes for all stops in one query
+            stop_ids = [stop.stop_id for stop in filtered_stops]
+            if not stop_ids:
+                return []
+
+            # Create a map of stop_id to routes
+            stop_routes: Dict[str, List[Route]] = {stop_id: [] for stop_id in stop_ids}
+
+            try:
+                # Get route IDs for all stops in one query
+                routes_query = """
+                    SELECT DISTINCT 
+                        st.stop_id,
+                        t.route_id,
+                        r.route_short_name,
+                        r.route_long_name,
+                        r.route_type,
+                        r.route_color,
+                        r.route_text_color,
+                        t.service_id
+                    FROM stop_times st
+                    JOIN trips t ON t.trip_id = st.trip_id
+                    JOIN routes r ON r.route_id = t.route_id
+                    WHERE st.stop_id IN (SELECT UNNEST(?))
+                """
+                routes_result = self.db.execute(routes_query, [stop_ids]).fetchdf()
+
+                if not routes_result.empty:
+                    # Group routes by stop_id and route_id to avoid duplicates
+                    route_groups = routes_result.groupby(['stop_id', 'route_id'])
+                    for (stop_id, route_id), group in route_groups:
+                        first_row = group.iloc[0]
+                        try:
+                            route = Route(
+                                route_id=str(route_id),
+                                route_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else str(first_row['route_short_name']) if pd.notna(first_row['route_short_name']) else f"Route {route_id}",
+                                trip_id=None,  # Not needed for stop display
+                                service_days=None,  # Will be loaded on demand
+                                stops=[],  # Not needed for stop display
+                                short_name=str(first_row['route_short_name']) if pd.notna(first_row['route_short_name']) else None,
+                                long_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else None,
+                                route_type=int(first_row['route_type']) if pd.notna(first_row['route_type']) else 3,
+                                color=str(first_row['route_color']) if pd.notna(first_row['route_color']) else None,
+                                text_color=str(first_row['route_text_color']) if pd.notna(first_row['route_text_color']) else None,
+                                translations=self.translations.get(str(route_id), {})
+                            )
+                            stop_routes[str(stop_id)].append(route)
+                        except Exception as e:
+                            logger.error(f"Error creating Route object for route {route_id}: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Error getting routes for stops: {e}")
+                # Continue without routes if query fails
+
+            # Convert stops to StationResponse objects
+            station_responses = []
+            for stop in filtered_stops:
+                try:
+                    # Create StationResponse object
+                    station = StationResponse(
+                        id=stop.stop_id,
+                        name=stop.stop_name,
+                        location=Location(lat=stop.location.lat, lon=stop.location.lon),
+                        routes=stop_routes.get(stop.stop_id, [])
+                    )
+                    station_responses.append(station)
+                except Exception as e:
+                    logger.error(f"Error creating StationResponse for stop {stop.stop_id}: {e}")
+                    continue
+
+            logger.info(f"Found {len(station_responses)} stops in bbox")
+            return station_responses
+
+        except Exception as e:
+            logger.error(f"Error getting stops in bbox: {e}", exc_info=True)
+            if count_only:
+                return {"count": 0}
+            return []
 
     def _load_agencies(self) -> Dict[str, Agency]:
         """Load agencies from agency.txt into DuckDB.
@@ -2110,6 +2135,31 @@ class ParquetGTFSLoader:
             """, [list(service_ids)]).fetchdf()
         
         return [datetime.strptime(date, '%Y%m%d') for date in result['date']]
+
+    def _get_routes_for_stop(self, stop_id: str) -> List[Route]:
+        """Get all routes that serve a specific stop."""
+        try:
+            # Get all trips that serve this stop
+            trips_query = """
+                SELECT DISTINCT t.route_id
+                FROM trips t
+                JOIN stop_times st ON t.trip_id = st.trip_id
+                WHERE st.stop_id = ?
+            """
+            routes_result = self.db.execute(trips_query, [stop_id]).fetchdf()
+            
+            if routes_result.empty:
+                return []
+
+            # Get the routes
+            route_ids = set(routes_result['route_id'].dropna())
+            routes = [route for route in self.routes if route.route_id in route_ids]
+            
+            return routes
+
+        except Exception as e:
+            logger.error(f"Error getting routes for stop {stop_id}: {e}", exc_info=True)
+            return []
 
 
 def load_feed(
