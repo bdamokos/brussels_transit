@@ -11,6 +11,7 @@ os.environ["PROJECT_ROOT"] = PROJECT_ROOT
 
 # Add app directory to Python path
 app_dir = Path(__file__).parent / "app"
+sys.path.insert(0, str(app_dir))
 sys.path.append(str(app_dir))
 
 
