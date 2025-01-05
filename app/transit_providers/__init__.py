@@ -92,38 +92,41 @@ def import_providers():
     """Dynamically import all provider modules"""
     logger.debug("Starting provider discovery")
     
-    # Ensure app directory is in Python path
-    app_dir = Path(__file__).resolve().parent.parent  # Get app directory
-    app_path = str(app_dir)
-    if app_path not in sys.path:
-        logger.debug(f"Adding {app_path} to Python path")
-        sys.path.insert(0, app_path)
-    
     # Get the directory containing this file
     providers_dir = Path(__file__).parent
     
-    # Walk through all subdirectories
-    for root, dirs, files in os.walk(providers_dir):
-        # Convert root path to module path
-        module_path = Path(root).relative_to(providers_dir.parent)
-        module_parts = list(module_path.parts)
+    # Store original sys.path
+    original_path = sys.path[:]
+    
+    try:
+        # Add app directory to path temporarily if needed
+        app_dir = providers_dir.parent
+        if str(app_dir) not in sys.path:
+            sys.path.insert(0, str(app_dir))
+            logger.debug(f"Temporarily added {app_dir} to Python path")
         
-        # Skip __pycache__ directories
-        if '__pycache__' in module_parts:
-            continue
-            
-        # Look for __init__.py files
-        if '__init__.py' in files:
-            # Convert path to module notation
-            module_name = '.'.join(module_parts)
-            try:
-                logger.debug(f"Attempting to import module: {module_name}")
-                importlib.import_module(module_name)
-                logger.debug(f"Successfully imported module: {module_name}")
-            except Exception as e:
-                logger.error(f"Error importing module {module_name}: {e}")
-                import traceback
-                logger.error(traceback.format_exc())  # Add traceback for better debugging
+        # Walk through all subdirectories
+        for root, dirs, files in os.walk(providers_dir):
+            if '__pycache__' in dirs:
+                dirs.remove('__pycache__')  # Skip __pycache__ directories
+                
+            if '__init__.py' in files:
+                # Convert root path to module path
+                module_path = Path(root).relative_to(providers_dir.parent)
+                module_name = '.'.join(module_path.parts)
+                
+                try:
+                    logger.debug(f"Attempting to import module: {module_name}")
+                    importlib.import_module(module_name)
+                    logger.debug(f"Successfully imported module: {module_name}")
+                except Exception as e:
+                    logger.error(f"Error importing module {module_name}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    
+    finally:
+        # Restore original sys.path
+        sys.path[:] = original_path
 
 def get_provider_from_path(provider_path: str) -> str:
     """Convert a provider path (e.g. 'be/stib') back to a provider ID (e.g. 'stib')

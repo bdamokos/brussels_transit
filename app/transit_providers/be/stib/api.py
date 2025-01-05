@@ -9,8 +9,13 @@ import asyncio
 from pathlib import Path
 from dataclasses import asdict
 
-import pytz
-from app.utils import RateLimiter, get_client, select_language, matches_destination
+
+try:
+        # Then try from app
+        from app.utils import RateLimiter, get_client, select_language, matches_destination
+except ImportError:
+        # Finally try direct import (if app is in PYTHONPATH)
+        from utils import RateLimiter, get_client, select_language, matches_destination
 from dataclasses import dataclass
 from collections import defaultdict
 from transit_providers.be.stib.get_stop_names import get_stop_names
