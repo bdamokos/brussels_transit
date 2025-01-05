@@ -194,19 +194,59 @@ async def get_feed(provider_id: str) -> AsyncGenerator[Optional[FlixbusFeed], No
         yield None
         return
 
-    # Get loader from cache
-    loader = gtfs_cache.get_loader(provider_id, str(DOWNLOAD_DIR))
-    if not loader:
+    # Find the provider's dataset directory from metadata
+    metadata_file = DOWNLOAD_DIR / "datasets_metadata.json"
+    if not metadata_file.exists():
+        logger.error(f"No metadata found for provider {provider_id}")
         yield None
         return
 
-    # Load feed
-    feed = loader.load_feed()
     try:
-        yield feed
-    finally:
-        # Any cleanup if needed
-        pass
+        with open(metadata_file, "r") as f:
+            metadata = json.load(f)
+            dataset_info = None
+            provider = get_provider_by_id(provider_id)
+            if not provider:
+                logger.error(f"Provider {provider_id} not found")
+                yield None
+                return
+
+            for info in metadata.values():
+                if (
+                    info.get("provider_id") == provider.raw_id
+                    and info.get("dataset_id") == provider.latest_dataset.id
+                ):
+                    dataset_info = info
+                    break
+
+            if not dataset_info:
+                logger.error(f"No dataset info found for provider {provider_id}")
+                yield None
+                return
+
+            dataset_dir = FilePath(dataset_info["download_path"])
+            if not dataset_dir.exists():
+                logger.error(f"Dataset directory not found: {dataset_dir}")
+                yield None
+                return
+
+            # Get loader from cache with correct directory
+            loader = gtfs_cache.get_loader(provider_id, str(dataset_dir))
+            if not loader:
+                logger.error(f"Failed to get loader for provider {provider_id}")
+                yield None
+                return
+
+            # Load feed
+            feed = loader.load_feed()
+            try:
+                yield feed
+            finally:
+                # Any cleanup if needed
+                pass
+    except Exception as e:
+        logger.error(f"Error in get_feed for provider {provider_id}: {e}", exc_info=True)
+        yield None
 
 
 async def ensure_provider_loaded(
@@ -1376,10 +1416,17 @@ async def get_waiting_times_impl(
                 detail=message,
             )
 
+        # Check cache first
+        if gtfs_cache:
+            cached_times = gtfs_cache.get_stop_times(provider_id, stop_id)
+            if cached_times:
+                logger.info(f"Using cached stop times for {provider_id}/{stop_id}")
+                return cached_times
+
         async with get_feed(provider_id) as feed:
             if not feed:
                 raise HTTPException(status_code=503, detail="GTFS data not loaded")
-        # Use feed here
+
         # Get the stop
         gtfs_stop = feed.stops.get(stop_id)
         if not gtfs_stop:
@@ -1559,6 +1606,11 @@ async def get_waiting_times_impl(
                 )
             },
         )
+
+        # Cache the response
+        if gtfs_cache:
+            gtfs_cache.cache_stop_times(provider_id, stop_id, response)
+            logger.info(f"Cached stop times for {provider_id}/{stop_id}")
 
         return response
 

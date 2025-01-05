@@ -179,13 +179,16 @@ class ParquetGTFSLoader:
             'bikes_allowed': 'INTEGER'
         },
         'routes.txt': {
+            'agency_id': 'VARCHAR',
             'route_id': 'VARCHAR',
             'route_short_name': 'VARCHAR',
             'route_long_name': 'VARCHAR',
+            'route_desc': 'VARCHAR',
             'route_type': 'INTEGER',
+            'route_url': 'VARCHAR',
             'route_color': 'VARCHAR',
             'route_text_color': 'VARCHAR',
-            'agency_id': 'VARCHAR'
+            'route_sort_order': 'INTEGER'
         },
         'stops.txt': {
             'stop_id': 'VARCHAR',
@@ -224,6 +227,7 @@ class ParquetGTFSLoader:
     def __init__(self, data_dir: str | Path = None):
         """Initialize the loader with the GTFS data directory."""
         self.data_dir = Path(data_dir) if data_dir else Path.cwd()
+        logger.info(f"Initializing ParquetGTFSLoader with data directory: {self.data_dir}")
         
         # Create a unique database file in a temporary directory
         self._temp_dir = Path(tempfile.gettempdir()) / f"duckdb_temp_{uuid.uuid4()}"
@@ -285,7 +289,7 @@ class ParquetGTFSLoader:
             required_columns = {
                 'stop_times.txt': ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'],
                 'trips.txt': ['route_id', 'service_id', 'trip_id'],
-                'routes.txt': ['route_id', 'route_type'],
+                'routes.txt': ['route_id'],  # Only route_id is truly required
                 'stops.txt': ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'],
                 'calendar.txt': ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
                 'calendar_dates.txt': ['service_id', 'date', 'exception_type']
@@ -296,11 +300,14 @@ class ParquetGTFSLoader:
                 if missing_cols:
                     logger.error(f"Missing required columns in {filename}: {missing_cols}")
                     return False  # This is a critical error
+
+            # Log all columns for debugging
+            logger.info(f"Columns in {filename}: {df.columns.tolist()}")
             
             # Specific validations for each file type
             if filename == 'stop_times.txt':
                 # Check for valid time format (HH:MM:SS)
-                time_pattern = r'^([0-9]{1,2}|[0-9]{3,}):([0-5][0-9]):([0-5][0-9])$'
+                time_pattern = r'^([0-9]{1,3}):([0-5][0-9]):([0-5][0-9])$'
                 for col in ['arrival_time', 'departure_time']:
                     invalid_times = df[~df[col].str.match(time_pattern, na=True)]
                     if not invalid_times.empty:
@@ -324,28 +331,24 @@ class ParquetGTFSLoader:
                     logger.warning(f"Invalid lat/lon values found in {filename} - these stops will be ignored")
                     has_warnings = True
             
-            elif filename == 'calendar.txt':
-                # Validate binary values for weekdays
-                weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-                for day in weekdays:
-                    invalid_vals = df[~df[day].isin([0, 1])]
-                    if not invalid_vals.empty:
-                        logger.warning(f"Invalid values found in {day} column - non-binary values will be treated as 0")
-                        has_warnings = True
+            elif filename == 'routes.txt':
+                # Check for missing route_id
+                if 'route_id' in df.columns:
+                    missing_route_ids = df[df['route_id'].isna()]
+                    if not missing_route_ids.empty:
+                        logger.error(f"Missing route_id values found in {filename}")
+                        return False  # This is a critical error
                 
-                # Validate date format (YYYYMMDD)
-                date_pattern = r'^[0-9]{8}$'
-                for col in ['start_date', 'end_date']:
-                    invalid_dates = df[~df[col].astype(str).str.match(date_pattern, na=True)]
-                    if not invalid_dates.empty:
-                        logger.warning(f"Invalid date format found in {col} - these rows will be ignored")
+                # Check for route_type if present, but don't fail if invalid
+                if 'route_type' in df.columns:
+                    # Convert route_type to integer, handling any non-numeric values
+                    df['route_type'] = pd.to_numeric(df['route_type'], errors='coerce')
+                    invalid_route_types = df[~df['route_type'].isin([0, 1, 2, 3, 4, 5, 6, 7, 11, 12])]
+                    if not invalid_route_types.empty:
+                        logger.warning(f"Invalid route_type values found in {filename} - these will be treated as type 3 (bus)")
                         has_warnings = True
             
-            if has_warnings:
-                logger.warning(f"Validation completed for {filename} with warnings - proceeding with data loading")
-            else:
-                logger.info(f"Validation completed for {filename} successfully")
-            return True
+            return True  # Even with warnings, we can proceed
             
         except Exception as e:
             logger.error(f"Error validating {filename}: {e}")
@@ -354,6 +357,13 @@ class ParquetGTFSLoader:
     def _csv_to_parquet(self, filename: str) -> Optional[Path]:
         """Convert a CSV file to Parquet format using DuckDB."""
         csv_path = self.data_dir / filename
+        parquet_path = self.data_dir / f"{filename}.parquet"
+        
+        # If the Parquet file already exists, use it
+        if parquet_path.exists():
+            logger.info(f"Using existing Parquet file: {parquet_path}")
+            return parquet_path
+        
         if not csv_path.exists():
             logger.warning(f"File not found: {csv_path}")
             return None
@@ -369,7 +379,7 @@ class ParquetGTFSLoader:
             file_temp_dir.mkdir(parents=True, exist_ok=True)
             
             # Use the temporary directory for the parquet file
-            parquet_path = file_temp_dir / f"{filename}.parquet"
+            temp_parquet_path = file_temp_dir / f"{filename}.parquet"
             
             # First read the header to get actual columns
             with open(csv_path, 'r', encoding='utf-8') as f:
@@ -401,11 +411,12 @@ class ParquetGTFSLoader:
                     {', '.join(type_specs)}
                 )
             """
+            logger.info(f"Creating table with SQL: {create_table_sql}")
             db.execute(create_table_sql)
             
             # Load data with COPY, handling invalid data
             try:
-                db.execute(f"""
+                copy_sql = f"""
                     COPY {table_name} FROM '{csv_path}' (
                         AUTO_DETECT FALSE,
                         HEADER TRUE,
@@ -413,12 +424,14 @@ class ParquetGTFSLoader:
                         QUOTE '"',
                         IGNORE_ERRORS TRUE
                     )
-                """)
+                """
+                logger.info(f"Copying data with SQL: {copy_sql}")
+                db.execute(copy_sql)
             except Exception as e:
                 logger.warning(f"Error during COPY operation for {filename}: {e}")
                 # Try to load with auto-detection as fallback
                 db.execute(f"DROP TABLE IF EXISTS {table_name}")
-                db.execute(f"""
+                auto_sql = f"""
                     CREATE TABLE {table_name} AS 
                     SELECT * FROM read_csv_auto(
                         '{csv_path}',
@@ -426,25 +439,28 @@ class ParquetGTFSLoader:
                         sample_size=-1,
                         ignore_errors=true
                     )
-                """)
+                """
+                logger.info(f"Trying auto-detection with SQL: {auto_sql}")
+                db.execute(auto_sql)
             
             # Write to Parquet using DuckDB's COPY command with compression
-            db.execute(f"""
-                COPY {table_name} TO '{parquet_path}' (
+            copy_to_sql = f"""
+                COPY {table_name} TO '{temp_parquet_path}' (
                     FORMAT 'parquet',
                     COMPRESSION 'SNAPPY'
                 )
-            """)
+            """
+            logger.info(f"Writing to Parquet with SQL: {copy_to_sql}")
+            db.execute(copy_to_sql)
             
             # Drop temporary table and close connection
             db.execute(f"DROP TABLE {table_name}")
             db.close()
             
             # Move the file to its final destination
-            final_path = self.data_dir / f"{filename}.parquet"
-            shutil.move(str(parquet_path), str(final_path))
+            shutil.move(str(temp_parquet_path), str(parquet_path))
             
-            return final_path
+            return parquet_path
             
         except Exception as e:
             logger.error(f"Error converting {filename} to Parquet: {e}", exc_info=True)
@@ -785,14 +801,84 @@ class ParquetGTFSLoader:
         
         if not has_routes:
             logger.info("Creating routes table...")
-            self.db.execute(f"""
-                CREATE TABLE routes AS 
-                SELECT * FROM parquet_scan('{parquet_path}')
-            """)
-            
-            # Create index for faster lookups
-            self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
-            logger.info("Routes table created with index")
+            try:
+                # First, verify the Parquet file has data
+                sample_df = self.db.execute(f"SELECT * FROM parquet_scan('{parquet_path}') LIMIT 5").fetchdf()
+                if sample_df.empty:
+                    logger.error("Parquet file appears to be empty")
+                    return []
+                    
+                logger.info(f"Sample data from routes.txt:\n{sample_df}")
+                
+                # Get the available columns
+                columns = sample_df.columns.tolist()
+                logger.info(f"Available columns: {columns}")
+                
+                # Build the query dynamically based on available columns
+                required_columns = ['route_id']
+                optional_columns = {
+                    'route_short_name': 'NULL',
+                    'route_long_name': 'NULL',
+                    'route_desc': 'NULL',
+                    'route_type': '3',  # Default to bus if not specified
+                    'route_url': 'NULL',
+                    'route_color': 'NULL',
+                    'route_text_color': 'NULL',
+                    'agency_id': 'NULL'
+                }
+                
+                # Verify required columns exist
+                missing_columns = [col for col in required_columns if col not in columns]
+                if missing_columns:
+                    logger.error(f"Missing required columns in routes.txt: {missing_columns}")
+                    return []
+                
+                # Build select parts
+                select_parts = []
+                for col in required_columns:
+                    select_parts.append(f"{col}::VARCHAR as {col}")
+                
+                for col, default in optional_columns.items():
+                    if col in columns:
+                        if col == 'route_type':
+                            select_parts.append(f"COALESCE(NULLIF(CAST({col} AS INTEGER), 0), 3) as {col}")
+                        else:
+                            select_parts.append(f"COALESCE({col}, {default}) as {col}")
+                    else:
+                        select_parts.append(f"{default} as {col}")
+                
+                # Create routes table
+                query = f"""
+                    CREATE TABLE routes AS 
+                    SELECT 
+                        {', '.join(select_parts)}
+                    FROM parquet_scan('{parquet_path}')
+                """
+                logger.info(f"Creating routes table with query: {query}")
+                self.db.execute(query)
+                
+                # Create index for faster lookups
+                self.db.execute("CREATE INDEX idx_routes_id ON routes(route_id)")
+                logger.info("Routes table created with index")
+                
+                # Verify data was loaded
+                count = self.db.execute("SELECT COUNT(*) as count FROM routes").fetchone()[0]
+                if count == 0:
+                    logger.error("No routes were loaded into the table")
+                    return []
+                    
+                logger.info(f"Created routes table with {count} routes")
+                
+                # Log some sample data
+                sample = self.db.execute("SELECT * FROM routes LIMIT 5").fetchdf()
+                logger.info(f"Sample routes data:\n{sample}")
+                
+            except Exception as e:
+                logger.error(f"Error creating routes table: {e}", exc_info=True)
+                # Clean up if something went wrong
+                self.db.execute("DROP TABLE IF EXISTS routes")
+                self.db.execute("DROP INDEX IF EXISTS idx_routes_id")
+                raise
         
         # Base query for routes
         base_query = """
@@ -880,7 +966,7 @@ class ParquetGTFSLoader:
                 short_name=str(first_row['route_short_name']) if pd.notna(first_row['route_short_name']) else None,
                 long_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else None,
                 route_desc=str(first_row['route_desc']) if 'route_desc' in first_row and pd.notna(first_row['route_desc']) else None,
-                route_type=int(first_row['route_type']),
+                route_type=int(first_row['route_type']) if pd.notna(first_row['route_type']) else 3,  # Default to bus
                 route_url=str(first_row['route_url']) if 'route_url' in first_row and pd.notna(first_row['route_url']) else None,
                 color=str(first_row['route_color']) if pd.notna(first_row['route_color']) else None,
                 text_color=str(first_row['route_text_color']) if pd.notna(first_row['route_text_color']) else None,
@@ -989,6 +1075,16 @@ class ParquetGTFSLoader:
     ) -> FlixbusFeed:
         """Load the GTFS feed into DuckDB and return a FlixbusFeed object."""
         logger.info("Starting GTFS feed loading...")
+        logger.info(f"Using data directory: {self.data_dir}")
+        
+        # List files in the data directory
+        try:
+            files = list(self.data_dir.glob("*.txt"))
+            logger.info(f"Found {len(files)} GTFS files: {[f.name for f in files]}")
+            parquet_files = list(self.data_dir.glob("*.parquet"))
+            logger.info(f"Found {len(parquet_files)} Parquet files: {[f.name for f in parquet_files]}")
+        except Exception as e:
+            logger.warning(f"Error listing files in data directory: {e}")
         
         try:
             # Set up DuckDB configuration first
