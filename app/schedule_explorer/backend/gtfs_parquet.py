@@ -854,6 +854,7 @@ class ParquetGTFSLoader:
                 route_stops.append(route_stop)
             
             # Create route object with all service day information
+            valid_calendar_days = self._get_valid_calendar_days(service_ids)
             route = Route(
                 route_name=str(first_row['route_long_name']) if pd.notna(first_row['route_long_name']) else f"Route {route_id}",
                 trip_id=str(first_row['trip_id']),
@@ -871,7 +872,8 @@ class ParquetGTFSLoader:
                 service_days_explicit=self._get_service_days_explicit(service_ids),
                 calendar_dates_additions=self._get_calendar_dates_additions(service_ids),
                 calendar_dates_removals=self._get_calendar_dates_removals(service_ids),
-                valid_calendar_days=self._get_valid_calendar_days(service_ids)
+                valid_calendar_days=valid_calendar_days,
+                service_calendar=f"{valid_calendar_days[0].strftime('%Y-%m-%d')} to {valid_calendar_days[-1].strftime('%Y-%m-%d')}" if valid_calendar_days else None
             )
             routes.append(route)
             logger.debug(f"Created route {route_id} with {len(route_stops)} stops and service days {service_days}")
@@ -1290,134 +1292,18 @@ class ParquetGTFSLoader:
     def _get_service_days(self, service_ids: Set[str]) -> Set[str]:
         """Get the service days for a set of service IDs."""
         logger.info(f"Calculating service days for service IDs: {service_ids}")
+        
+        # Get all valid calendar days
+        valid_days = self._get_valid_calendar_days(service_ids)
+        if not valid_days:
+            logger.warning("No valid calendar days found - assuming service runs every day")
+            return {'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'}
+        
+        # Calculate which days of the week the service runs on
         service_days = set()
-        
-        # Check if calendar table exists
-        has_calendar = self.db.execute("""
-            SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.tables 
-                WHERE table_name = 'calendar'
-            )
-        """).fetchone()[0]
-        logger.info(f"Calendar table exists: {has_calendar}")
-        
-        # Check if calendar_dates table exists
-        has_calendar_dates = self.db.execute("""
-            SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.tables 
-                WHERE table_name = 'calendar_dates'
-            )
-        """).fetchone()[0]
-        logger.info(f"Calendar dates table exists: {has_calendar_dates}")
-        
-        # If neither table exists, we can't determine service days
-        if not has_calendar and not has_calendar_dates:
-            logger.warning("Neither calendar.txt nor calendar_dates.txt found - assuming service runs every day")
-            return {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
-        
-        if has_calendar:
-            # First check regular calendar
-            calendar_query = """
-                SELECT 
-                    service_id,
-                    monday, tuesday, wednesday, thursday, friday, saturday, sunday,
-                    start_date, end_date
-                FROM calendar
-                WHERE service_id = ?
-                AND CAST(
-                    CONCAT(
-                        SUBSTR(start_date, 1, 4), '-',
-                        SUBSTR(start_date, 5, 2), '-',
-                        SUBSTR(start_date, 7, 2)
-                    ) AS DATE
-                ) <= CURRENT_DATE
-                AND CAST(
-                    CONCAT(
-                        SUBSTR(end_date, 1, 4), '-',
-                        SUBSTR(end_date, 5, 2), '-',
-                        SUBSTR(end_date, 7, 2)
-                    ) AS DATE
-                ) >= CURRENT_DATE
-            """
-            
-            for service_id in service_ids:
-                # Check regular calendar
-                calendar_result = self.db.execute(calendar_query, [service_id]).fetchdf()
-                logger.debug(f"Calendar query result for service_id {service_id}:\n{calendar_result}")
-                
-                if not calendar_result.empty:
-                    row = calendar_result.iloc[0]
-                    # Only consider this calendar if it has at least one day set to 1
-                    if any([row['monday'], row['tuesday'], row['wednesday'], row['thursday'], 
-                           row['friday'], row['saturday'], row['sunday']]):
-                        logger.debug(f"Found regular calendar for service {service_id}")
-                        if row['monday']: service_days.add('monday')
-                        if row['tuesday']: service_days.add('tuesday')
-                        if row['wednesday']: service_days.add('wednesday')
-                        if row['thursday']: service_days.add('thursday')
-                        if row['friday']: service_days.add('friday')
-                        if row['saturday']: service_days.add('saturday')
-                        if row['sunday']: service_days.add('sunday')
-                        logger.debug(f"Service days after calendar check: {service_days}")
-        
-        if has_calendar_dates:
-            # Then check calendar_dates.txt for type 1 exceptions (added service)
-            calendar_dates_query = """
-                SELECT service_id, date, exception_type
-                FROM calendar_dates
-                WHERE service_id = ?
-                AND CAST(
-                    CONCAT(
-                        SUBSTR(date, 1, 4), '-',
-                        SUBSTR(date, 5, 2), '-',
-                        SUBSTR(date, 7, 2)
-                    ) AS DATE
-                ) >= CURRENT_DATE
-                AND CAST(
-                    CONCAT(
-                        SUBSTR(date, 1, 4), '-',
-                        SUBSTR(date, 5, 2), '-',
-                        SUBSTR(date, 7, 2)
-                    ) AS DATE
-                ) <= date_add(CURRENT_DATE, INTERVAL 3 MONTH)  -- Look ahead 3 months
-            """
-            
-            for service_id in service_ids:
-                dates_result = self.db.execute(calendar_dates_query, [service_id]).fetchdf()
-                logger.debug(f"Calendar dates query result for service_id {service_id}:\n{dates_result}")
-                
-                if not dates_result.empty:
-                    # Only consider type 1 exceptions (additions)
-                    additions = dates_result[dates_result['exception_type'] == 1]
-                    for _, row in additions.iterrows():
-                        weekday = datetime.strptime(str(row['date']), '%Y%m%d').strftime('%A').lower()
-                        service_days.add(weekday)
-                        logger.debug(f"Added service day {weekday} from calendar_dates for service {service_id}")
-                    
-                    # If we have regular calendar, check for type 2 exceptions (removals)
-                    if has_calendar:
-                        removals = dates_result[dates_result['exception_type'] == 2]
-                        if not removals.empty:
-                            # Group removals by weekday
-                            removals_by_day = {}
-                            for _, row in removals.iterrows():
-                                weekday = datetime.strptime(str(row['date']), '%Y%m%d').strftime('%A').lower()
-                                if weekday not in removals_by_day:
-                                    removals_by_day[weekday] = set()
-                                removals_by_day[weekday].add(service_id)
-                            
-                            # Remove days that are completely excluded by type 2 exceptions
-                            for day, removed_services in removals_by_day.items():
-                                if removed_services == service_ids:  # All services have this day removed
-                                    service_days.discard(day)
-                                    logger.debug(f"Removed service day {day} due to type 2 exception")
-        
-        # If we still have no service days after checking both tables, assume service runs every day
-        if not service_days:
-            logger.warning(f"No service days found for services {service_ids} - assuming service runs every day")
-            service_days = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'}
+        for day in valid_days:
+            weekday = day.strftime('%A')  # Already capitalized
+            service_days.add(weekday)
         
         logger.info(f"Final service days for {service_ids}: {sorted(list(service_days))}")
         return service_days
