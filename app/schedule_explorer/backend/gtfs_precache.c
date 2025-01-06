@@ -8,10 +8,12 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
+#define PATH_MAX MAX_PATH
 #else
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <limits.h>
 #ifdef __linux__
 #include <sys/sysinfo.h>
 #endif
@@ -257,7 +259,104 @@ int get_column_indices(char* header, int* indices) {
     return 0;
 }
 
+// Function to get the current executable path
+int get_executable_path(char* path, size_t size) {
+#ifdef _WIN32
+    return GetModuleFileName(NULL, path, size) != 0 ? 0 : -1;
+#else
+    ssize_t len = readlink("/proc/self/exe", path, size - 1);
+    if (len != -1) {
+        path[len] = '\0';
+        return 0;
+    }
+    return -1;
+#endif
+}
+
+// Function to read version from header file
+int read_header_version(char* version, size_t size) {
+    FILE* fp = fopen("gtfs_precache_version.h", "r");
+    if (!fp) return -1;
+
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "GTFS_PRECACHE_VERSION_STRING")) {
+            char* start = strchr(line, '"');
+            if (start) {
+                start++;
+                char* end = strchr(start, '"');
+                if (end) {
+                    size_t len = end - start;
+                    if (len < size) {
+                        strncpy(version, start, len);
+                        version[len] = '\0';
+                        fclose(fp);
+                        return 0;
+                    }
+                }
+            }
+        }
+    }
+    fclose(fp);
+    return -1;
+}
+
+// Function to check if we need to rebuild
+int check_rebuild() {
+    char header_version[32] = {0};
+    if (read_header_version(header_version, sizeof(header_version)) != 0) {
+        fprintf(stderr, "Warning: Could not read version from header\n");
+        return 0;  // Continue without rebuild if we can't read the header
+    }
+
+    // Compare versions
+    if (strcmp(header_version, GTFS_PRECACHE_VERSION_STRING) != 0) {
+        printf("Version mismatch: binary=%s, header=%s\n", 
+               GTFS_PRECACHE_VERSION_STRING, header_version);
+        printf("Rebuilding...\n");
+
+        // Get our own path
+        char exe_path[PATH_MAX];
+        if (get_executable_path(exe_path, sizeof(exe_path)) != 0) {
+            fprintf(stderr, "Error: Could not get executable path\n");
+            return -1;
+        }
+
+        // Build command
+#ifdef _WIN32
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd), "cmake --build . && copy /Y gtfs_precache.exe \"%s\"", exe_path);
+#else
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd), "make && cp -f gtfs_precache \"%s\"", exe_path);
+#endif
+
+        // Execute build command
+        int result = system(cmd);
+        if (result != 0) {
+            fprintf(stderr, "Error: Rebuild failed\n");
+            return -1;
+        }
+
+        printf("Rebuild successful, restarting...\n\n");
+
+        // Re-execute ourselves
+        execv(exe_path, __argv);
+        
+        // If we get here, execv failed
+        fprintf(stderr, "Error: Failed to restart after rebuild\n");
+        return -1;
+    }
+
+    return 0;  // No rebuild needed
+}
+
 int main(int argc, char* argv[]) {
+    // Check for rebuild first
+    if (check_rebuild() != 0) {
+        return 1;
+    }
+
     int cpu_limit = DEFAULT_CPU_LIMIT;
     char* input_file = NULL;
     char* output_file = NULL;
