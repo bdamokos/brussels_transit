@@ -7,7 +7,6 @@ import os
 import hashlib
 import logging
 import msgpack
-import lzma
 import psutil
 import time
 from .memory_util import check_memory_for_file
@@ -1098,7 +1097,7 @@ CACHE_VERSION = "3.0.0.0"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
-    """Serialize GTFS feed data using msgpack and lzma compression."""
+    """Serialize GTFS feed data using msgpack."""
     try:
         logger.info("Starting GTFS feed serialization")
         t00 = time.time()
@@ -1182,44 +1181,26 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
             f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s"
         )
 
-        # Compress with lzma
-        logger.info("Compressing data with lzma")
-        t0 = time.time()
-        compressed_data = lzma.compress(
-            packed_data,
-            format=lzma.FORMAT_XZ,
-            filters=[{"id": lzma.FILTER_LZMA2, "preset": 6}],
-        )
-        logger.info(
-            f"Compressed data size:{bytes_to_mb(len(packed_data))} MB --> {bytes_to_mb(len(compressed_data))} MB in {time.time() - t0:.2f}s"
-        )
         logger.info(
             f"GTFS feed serialization completed successfully in {time.time() - t00:.2f}s"
         )
 
-        return compressed_data
+        return packed_data
     except Exception as e:
         logger.error(f"Error serializing GTFS data: {e}", exc_info=True)
         raise
 
 
 def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
-    """Deserialize GTFS feed data from msgpack and lzma compression."""
+    """Deserialize GTFS feed data from msgpack."""
     try:
         start_time = time.time()
         logger.info("Starting GTFS feed deserialization")
 
-        # Decompress with lzma
-        t0 = time.time()
-        decompressed_data = lzma.decompress(data)
-        logger.info(
-            f"LZMA decompression: {bytes_to_mb(len(data))} MB -> {bytes_to_mb(len(decompressed_data))} MB in {time.time() - t0:.2f}s"
-        )
-
         # Unpack with msgpack
         logger.info("Unpacking data with msgpack")
         t0 = time.time()
-        raw_data = msgpack.unpackb(decompressed_data, raw=False)
+        raw_data = msgpack.unpackb(data, raw=False)
         logger.info(f"Msgpack unpacking took {time.time() - t0:.2f} seconds")
 
         # Convert back to objects
