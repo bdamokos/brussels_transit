@@ -93,3 +93,10 @@ app/transit_providers/hu/bkk/protos/gtfs-realtime-realcity.proto
 app/transit_providers/hu/bkk/test.py
 .pre-commit-config.yaml
 profiling_results/
+app/config/backups/*
+._.DS_Store
+._.gitignore
+._docker-compose.yaml
+.gitignore
+app/._.DS_Store
+app/config/._local.py
