@@ -9,7 +9,7 @@ import time
 import logging
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 import msgpack
 from dataclasses import asdict
 import re
@@ -60,6 +60,28 @@ def get_gtfs_dir(provider_id: str, downloads_dir: str = "downloads") -> Optional
         logger.error(f"Error finding GTFS directory for {provider_id}: {e}")
         return None
 
+def create_cpu_limiter(max_cpu_percent: float = 85.0, check_interval: float = 1.0) -> Callable:
+    """
+    Create a CPU limiter function that can be passed to other functions.
+    
+    Args:
+        max_cpu_percent: Maximum CPU usage percentage (0-100)
+        check_interval: How often to check CPU usage (seconds)
+        
+    Returns:
+        A function that checks CPU usage and sleeps if necessary
+    """
+    def check_cpu_usage():
+        """Check CPU usage and sleep if necessary"""
+        while True:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            if cpu_percent > max_cpu_percent:
+                logger.info(f"CPU usage {cpu_percent}% > {max_cpu_percent}%, sleeping...")
+                time.sleep(check_interval)
+            else:
+                break
+    return check_cpu_usage
+
 def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_interval: float = 1.0) -> None:
     """
     Pre-calculate GTFS cache with CPU usage limits.
@@ -73,6 +95,9 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     logger.info(f"CPU limit: {max_cpu_percent}%")
     
     start_time = time.time()
+    
+    # Create CPU limiter function
+    check_cpu_usage = create_cpu_limiter(max_cpu_percent, check_interval)
     
     # Check if data_dir is a provider ID
     if isinstance(data_dir, str) and PROVIDER_ID_PATTERN.match(data_dir):
@@ -88,19 +113,9 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     if not data_path.exists():
         raise ValueError(f"Data directory does not exist: {data_path}")
     
-    def check_cpu_usage():
-        """Check CPU usage and sleep if necessary"""
-        while True:
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            if cpu_percent > max_cpu_percent:
-                logger.info(f"CPU usage {cpu_percent}% > {max_cpu_percent}%, sleeping...")
-                time.sleep(check_interval)
-            else:
-                break
-    
     # Load the feed with CPU checks
     logger.info("Loading GTFS feed...")
-    feed = load_feed(data_path)
+    feed = load_feed(data_path, cpu_check_fn=check_cpu_usage)
     check_cpu_usage()
     
     # Serialize the feed
