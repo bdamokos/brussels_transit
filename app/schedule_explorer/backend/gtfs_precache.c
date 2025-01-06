@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <msgpack.h>
+#include "gtfs_precache_version.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -266,6 +267,9 @@ int main(int argc, char* argv[]) {
         if (strcmp(argv[i], "--cpu-limit") == 0 && i + 1 < argc) {
             cpu_limit = atoi(argv[i + 1]);
             i++;
+        } else if (strcmp(argv[i], "--version") == 0) {
+            printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
+            return 0;
         } else if (!input_file) {
             input_file = argv[i];
         } else if (!output_file) {
@@ -274,11 +278,13 @@ int main(int argc, char* argv[]) {
     }
     
     if (!input_file || !output_file) {
-        fprintf(stderr, "Usage: %s [--cpu-limit PERCENT] <input_file> <output_file>\n", argv[0]);
+        fprintf(stderr, "GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
+        fprintf(stderr, "Usage: %s [--cpu-limit PERCENT] [--version] <input_file> <output_file>\n", argv[0]);
         return 1;
     }
     
-    printf("Starting GTFS precache with CPU limit: %d%%\n", cpu_limit);
+    printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
+    printf("Starting with CPU limit: %d%%\n", cpu_limit);
     
     // Initialize progress tracking
     Progress progress = {0};

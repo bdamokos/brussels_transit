@@ -1,6 +1,9 @@
 # Detect OS
 UNAME_S := $(shell uname -s)
 
+# Get version from header
+VERSION := $(shell grep 'GTFS_PRECACHE_VERSION_STRING' gtfs_precache_version.h | cut -d'"' -f2)
+
 # Common flags
 CFLAGS = -Wall -O3
 
@@ -17,10 +20,15 @@ endif
 
 all: gtfs_precache
 
-gtfs_precache: gtfs_precache.c
+gtfs_precache: gtfs_precache.c gtfs_precache_version.h
+	@echo "Building GTFS Precache Tool v$(VERSION)"
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	@echo "Build complete: v$(VERSION)"
 
 clean:
 	rm -f gtfs_precache
 
-.PHONY: all clean 
+version:
+	@echo "GTFS Precache Tool v$(VERSION)"
+
+.PHONY: all clean version 

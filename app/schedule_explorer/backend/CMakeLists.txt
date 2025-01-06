@@ -5,6 +5,18 @@ project(gtfs_precache C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Read version from header file
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/gtfs_precache_version.h" version_h)
+string(REGEX MATCH "GTFS_PRECACHE_VERSION_STRING \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ ${version_h})
+set(GTFS_PRECACHE_VERSION ${CMAKE_MATCH_1})
+
+# Configure version information
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/gtfs_precache_version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/gtfs_precache_version.h"
+    @ONLY
+)
+
 # Find msgpack
 if(WIN32)
     # On Windows, expect msgpack to be installed in a standard location
@@ -27,6 +39,9 @@ endif()
 
 # Add executable
 add_executable(gtfs_precache gtfs_precache.c)
+
+# Add include directories
+target_include_directories(gtfs_precache PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Link libraries
 target_link_libraries(gtfs_precache PRIVATE ${MSGPACK_LIBRARIES})
