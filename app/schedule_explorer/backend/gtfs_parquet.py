@@ -823,6 +823,10 @@ class ParquetGTFSLoader:
             logger.info(sample_df)
             logger.info(f"Available columns: {sample_df.columns.tolist()}")
 
+            # Drop existing table and index if they exist
+            self.db.execute("DROP TABLE IF EXISTS routes")
+            self.db.execute("DROP INDEX IF EXISTS routes_route_id_idx")
+
             # Create routes table with COALESCE for optional fields
             query = f"""
                 CREATE TABLE routes AS 
@@ -834,8 +838,7 @@ class ParquetGTFSLoader:
                     COALESCE(NULLIF(CAST(route_type AS INTEGER), 0), 3) as route_type,
                     COALESCE(route_url, NULL) as route_url,
                     COALESCE(route_color, NULL) as route_color,
-                    COALESCE(route_text_color, NULL) as route_text_color,
-                    COALESCE(agency_id, NULL) as agency_id
+                    COALESCE(route_text_color, NULL) as route_text_color
                 FROM parquet_scan('{parquet_path}')
             """
             logger.info(f"Creating routes table with query: \n{query}")
@@ -914,11 +917,15 @@ class ParquetGTFSLoader:
                     )
                     route_stops.append(route_stop)
 
-                # Create route object
+                if not route_stops:
+                    logger.warning(f"No valid stops found for route {route_id}")
+                    continue
+
+                # Create Route object
                 route = Route(
                     route_id=route_id,
-                    route_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else f"Route {route_id}",
-                    trip_id=str(trips_result.iloc[0]['trip_id']),
+                    route_name=str(row['route_long_name']) if pd.notna(row['route_long_name']) else str(row['route_short_name']) if pd.notna(row['route_short_name']) else f"Route {route_id}",
+                    trip_id=None,  # Not needed for route display
                     service_days=service_days,
                     stops=route_stops,
                     short_name=str(row['route_short_name']) if pd.notna(row['route_short_name']) else None,
@@ -926,21 +933,15 @@ class ParquetGTFSLoader:
                     route_type=int(row['route_type']) if pd.notna(row['route_type']) else 3,
                     color=str(row['route_color']) if pd.notna(row['route_color']) else None,
                     text_color=str(row['route_text_color']) if pd.notna(row['route_text_color']) else None,
-                    translations=self.translations.get(route_id, {})
+                    translations=self.translations.get(str(route_id), {})
                 )
                 routes.append(route)
-                logger.debug(f"Created route {route_id} with {len(route_stops)} stops and service days {service_days}")
 
-            logger.info(f"Loaded {len(routes)} routes")
             return routes
 
         except Exception as e:
             logger.error(f"Error loading routes: {e}", exc_info=True)
             return []
-        finally:
-            # Clean up temporary tables
-            self.db.execute("DROP TABLE IF EXISTS routes")
-            self.db.execute("DROP INDEX IF EXISTS routes_route_id_idx")
     
     def _load_calendar(self) -> None:
         """Load calendar data into DuckDB using parallel processing."""
