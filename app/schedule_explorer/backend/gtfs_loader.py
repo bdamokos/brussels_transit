@@ -1330,6 +1330,27 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
         
         try:
+            # First pass: count total rows and validate data
+            logger.info("First pass: counting rows and validating data...")
+            total_rows = 0
+            header = None
+            with open(txt_path, 'r') as f:
+                for line_num, line in enumerate(f):
+                    if line_num == 0:
+                        header = line.strip().split(',')
+                        # Validate required columns
+                        required_columns = ['trip_id', 'stop_id', 'arrival_time', 'departure_time', 'stop_sequence']
+                        missing_columns = [col for col in required_columns if col not in header]
+                        if missing_columns:
+                            raise ValueError(f"Missing required columns: {missing_columns}")
+                        continue
+                    total_rows += 1
+                    if total_rows % 10000 == 0:
+                        logger.info(f"Counted {total_rows:,} rows...")
+                        time.sleep(0.1)  # Sleep every 10k rows
+            
+            logger.info(f"Found {total_rows:,} rows to process")
+            
             # Define schema
             schema = pa.schema([
                 ('trip_id', pa.string()),
@@ -1339,55 +1360,62 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
                 ('stop_sequence', pa.int32())
             ])
             
-            # Create writer
+            # Second pass: convert to Parquet
+            logger.info("Second pass: converting to Parquet...")
             writer = pq.ParquetWriter(temp_parquet_path, schema, compression='snappy')
             
-            # Process the file line by line
-            batch_size = 1000  # Small batch size to minimize memory usage
+            batch_size = 500  # Smaller batch size
             current_batch = []
-            total_rows = 0
-            header = None
+            processed_rows = 0
+            last_progress = 0
             
             with open(txt_path, 'r') as f:
                 for line_num, line in enumerate(f):
-                    # Handle header
-                    if line_num == 0:
-                        header = line.strip().split(',')
+                    if line_num == 0:  # Skip header
                         continue
-                    
-                    # Parse line
-                    values = line.strip().split(',')
-                    row = {
-                        'trip_id': str(values[header.index('trip_id')]),
-                        'stop_id': str(values[header.index('stop_id')]),
-                        'arrival_time': values[header.index('arrival_time')],
-                        'departure_time': values[header.index('departure_time')],
-                        'stop_sequence': int(values[header.index('stop_sequence')])
-                    }
-                    current_batch.append(row)
-                    
-                    # Write batch when it reaches the batch size
-                    if len(current_batch) >= batch_size:
-                        # Convert batch to Arrow table
-                        arrays = {
-                            field.name: [row[field.name] for row in current_batch]
-                            for field in schema
+                        
+                    try:
+                        # Parse line
+                        values = line.strip().split(',')
+                        row = {
+                            'trip_id': str(values[header.index('trip_id')]),
+                            'stop_id': str(values[header.index('stop_id')]),
+                            'arrival_time': values[header.index('arrival_time')],
+                            'departure_time': values[header.index('departure_time')],
+                            'stop_sequence': int(values[header.index('stop_sequence')])
                         }
-                        batch_table = pa.Table.from_pydict(arrays, schema=schema)
+                        current_batch.append(row)
                         
-                        # Write batch
-                        writer.write_table(batch_table)
-                        
-                        # Update progress
-                        total_rows += len(current_batch)
-                        if total_rows % 10000 == 0:
-                            logger.info(f"Processed {total_rows:,} rows...")
-                        
-                        # Clear batch
-                        current_batch = []
-                        
-                        # Sleep briefly to prevent overloading
-                        time.sleep(0.01)
+                        # Write batch when it reaches the batch size
+                        if len(current_batch) >= batch_size:
+                            # Convert batch to Arrow table
+                            arrays = {
+                                field.name: [row[field.name] for row in current_batch]
+                                for field in schema
+                            }
+                            batch_table = pa.Table.from_pydict(arrays, schema=schema)
+                            
+                            # Write batch
+                            writer.write_table(batch_table)
+                            
+                            # Update progress
+                            processed_rows += len(current_batch)
+                            progress = (processed_rows * 100) // total_rows
+                            if progress > last_progress:
+                                logger.info(f"Progress: {progress}% ({processed_rows:,}/{total_rows:,} rows)")
+                                last_progress = progress
+                            
+                            # Clear batch and memory
+                            current_batch = []
+                            del batch_table
+                            del arrays
+                            
+                            # Sleep to prevent overload
+                            time.sleep(0.05)
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing line {line_num + 1}: {e}")
+                        raise
             
             # Write any remaining rows
             if current_batch:
@@ -1397,7 +1425,7 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
                 }
                 batch_table = pa.Table.from_pydict(arrays, schema=schema)
                 writer.write_table(batch_table)
-                total_rows += len(current_batch)
+                processed_rows += len(current_batch)
             
             # Close writer
             writer.close()
@@ -1413,13 +1441,19 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
             try:
                 pf = pq.ParquetFile(temp_parquet_path)
                 logger.info(f"Created Parquet file with {pf.num_row_groups} row groups")
+                if pf.metadata.num_rows != total_rows:
+                    logger.warning(
+                        f"Row count mismatch: expected {total_rows}, got {pf.metadata.num_rows}"
+                    )
             except Exception as e:
                 raise RuntimeError(f"Created Parquet file is invalid: {e}")
             
             # If all checks pass, move the temporary file to the final location
             temp_parquet_path.replace(parquet_path)
             
-            logger.info(f"Converted {total_rows:,} rows to Parquet in {time.time() - t0:.2f} seconds")
+            logger.info(
+                f"Converted {processed_rows:,} rows to Parquet in {time.time() - t0:.2f} seconds"
+            )
             
         except Exception as e:
             logger.error(f"Error converting to Parquet: {e}")
