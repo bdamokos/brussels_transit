@@ -1,12 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <time.h>
 #include <msgpack.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#else
+#include <unistd.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#ifdef __linux__
+#include <sys/sysinfo.h>
+#endif
+#endif
+
 #define MAX_LINE_LENGTH 1024
 #define BATCH_SIZE 500
+#define DEFAULT_CPU_LIMIT 50  // Default CPU limit in percentage
 
 // Structure to hold a stop time entry
 typedef struct {
@@ -16,6 +28,167 @@ typedef struct {
     char departure_time[16];
     int stop_sequence;
 } StopTime;
+
+// Structure to hold progress statistics
+typedef struct {
+    long total_rows;
+    long processed_rows;
+    double start_time;
+    double last_progress;
+    double rows_per_second;
+    long memory_usage;
+} Progress;
+
+// Cross-platform function to get current timestamp in seconds
+double get_timestamp() {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / frequency.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+#endif
+}
+
+// Cross-platform function to get current memory usage in bytes
+long get_memory_usage() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return pmc.WorkingSetSize;
+    }
+    return 0;
+#else
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_maxrss * 1024;  // Convert KB to bytes
+#endif
+}
+
+// Cross-platform function to sleep for microseconds
+void platform_sleep(long microseconds) {
+#ifdef _WIN32
+    Sleep(microseconds / 1000);  // Windows Sleep takes milliseconds
+#else
+    struct timespec ts = {
+        .tv_sec = microseconds / 1000000,
+        .tv_nsec = (microseconds % 1000000) * 1000
+    };
+    nanosleep(&ts, NULL);
+#endif
+}
+
+// Cross-platform function to get CPU time
+double get_cpu_time() {
+#ifdef _WIN32
+    FILETIME create_time, exit_time, kernel_time, user_time;
+    if (GetProcessTimes(GetCurrentProcess(), &create_time, &exit_time, &kernel_time, &user_time)) {
+        ULARGE_INTEGER ui;
+        ui.LowPart = user_time.dwLowDateTime;
+        ui.HighPart = user_time.dwHighDateTime;
+        return (double)ui.QuadPart / 10000000.0;  // Convert to seconds
+    }
+    return 0;
+#else
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / 1e6;
+#endif
+}
+
+// Function to format size in human readable format
+void format_size(long bytes, char* buffer) {
+    const char* units[] = {"B", "KB", "MB", "GB"};
+    int unit = 0;
+    double size = bytes;
+    while (size >= 1024 && unit < 3) {
+        size /= 1024;
+        unit++;
+    }
+    sprintf(buffer, "%.1f %s", size, units[unit]);
+}
+
+// Function to format time in human readable format
+void format_time(int seconds, char* buffer) {
+    int hours = seconds / 3600;
+    int minutes = (seconds % 3600) / 60;
+    seconds = seconds % 60;
+    if (hours > 0) {
+        sprintf(buffer, "%dh %dm %ds", hours, minutes, seconds);
+    } else if (minutes > 0) {
+        sprintf(buffer, "%dm %ds", minutes, seconds);
+    } else {
+        sprintf(buffer, "%ds", seconds);
+    }
+}
+
+// Function to update and display progress
+void update_progress(Progress* progress) {
+    double now = get_timestamp();
+    if (now - progress->last_progress >= 1.0) {  // Update every second
+        // Calculate statistics
+        double elapsed = now - progress->start_time;
+        progress->rows_per_second = progress->processed_rows / elapsed;
+        int eta = (progress->total_rows - progress->processed_rows) / progress->rows_per_second;
+        progress->memory_usage = get_memory_usage();
+        
+        // Format memory usage
+        char memory_str[32];
+        format_size(progress->memory_usage, memory_str);
+        
+        // Format ETA
+        char eta_str[32];
+        format_time(eta, eta_str);
+        
+        // Print progress (use \r only on Unix-like systems)
+#ifdef _WIN32
+        printf("Progress: %.1f%% (%ld/%ld) | Speed: %.0f rows/s | Memory: %s | ETA: %s\n",
+#else
+        printf("\rProgress: %.1f%% (%ld/%ld) | Speed: %.0f rows/s | Memory: %s | ETA: %s",
+#endif
+               (float)progress->processed_rows / progress->total_rows * 100,
+               progress->processed_rows, progress->total_rows,
+               progress->rows_per_second,
+               memory_str,
+               eta_str);
+        fflush(stdout);
+        
+        progress->last_progress = now;
+    }
+}
+
+// Function to limit CPU usage
+void limit_cpu(int cpu_limit) {
+    static double last_check = 0;
+    static double last_cpu_time = 0;
+    
+    double now = get_timestamp();
+    if (now - last_check < 0.1) return;  // Check every 100ms
+    
+    double cpu_time = get_cpu_time();
+    
+    if (last_cpu_time > 0) {
+        // Calculate CPU usage percentage
+        double time_diff = cpu_time - last_cpu_time;
+        double real_diff = now - last_check;
+        double cpu_usage = (time_diff / real_diff) * 100;
+        
+        // If CPU usage is too high, sleep
+        if (cpu_usage > cpu_limit) {
+            long sleep_time = (long)((time_diff * 100 / cpu_limit - real_diff) * 1000000);  // microseconds
+            if (sleep_time > 0) {
+                platform_sleep(sleep_time);
+            }
+        }
+    }
+    
+    last_check = now;
+    last_cpu_time = cpu_time;
+}
 
 // Function to parse a CSV line into a StopTime struct
 int parse_line(char* line, StopTime* stop_time, int* column_indices) {
@@ -84,13 +257,33 @@ int get_column_indices(char* header, int* indices) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input_file> <output_file>\n", argv[0]);
+    int cpu_limit = DEFAULT_CPU_LIMIT;
+    char* input_file = NULL;
+    char* output_file = NULL;
+    
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--cpu-limit") == 0 && i + 1 < argc) {
+            cpu_limit = atoi(argv[i + 1]);
+            i++;
+        } else if (!input_file) {
+            input_file = argv[i];
+        } else if (!output_file) {
+            output_file = argv[i];
+        }
+    }
+    
+    if (!input_file || !output_file) {
+        fprintf(stderr, "Usage: %s [--cpu-limit PERCENT] <input_file> <output_file>\n", argv[0]);
         return 1;
     }
     
-    char* input_file = argv[1];
-    char* output_file = argv[2];
+    printf("Starting GTFS precache with CPU limit: %d%%\n", cpu_limit);
+    
+    // Initialize progress tracking
+    Progress progress = {0};
+    progress.start_time = get_timestamp();
+    progress.last_progress = progress.start_time;
     
     // Open input file
     FILE* fp = fopen(input_file, "r");
@@ -116,11 +309,11 @@ int main(int argc, char* argv[]) {
     }
     
     // Count total rows
-    long total_rows = 0;
+    progress.total_rows = 0;
     while (fgets(line, sizeof(line), fp)) {
-        total_rows++;
+        progress.total_rows++;
     }
-    printf("Total rows to process: %ld\n", total_rows);
+    printf("Total rows to process: %ld\n", progress.total_rows);
     rewind(fp);
     fgets(line, sizeof(line), fp);  // Skip header again
     
@@ -128,15 +321,15 @@ int main(int argc, char* argv[]) {
     msgpack_pack_map(pk, 1);  // Root map with 1 key
     msgpack_pack_str(pk, 11);  // Key length
     msgpack_pack_str_body(pk, "stop_times", 11);
-    msgpack_pack_array(pk, total_rows);  // Array of stop times
+    msgpack_pack_array(pk, progress.total_rows);  // Array of stop times
     
     // Process rows
-    long processed_rows = 0;
-    StopTime stop_time;
-    time_t last_progress = time(NULL);
-    
     while (fgets(line, sizeof(line), fp)) {
+        // Limit CPU usage
+        limit_cpu(cpu_limit);
+        
         // Parse line
+        StopTime stop_time;
         if (parse_line(line, &stop_time, column_indices) != 0) {
             fprintf(stderr, "Error parsing line: %s\n", line);
             continue;
@@ -174,19 +367,8 @@ int main(int argc, char* argv[]) {
         msgpack_pack_str_body(pk, "stop_sequence", 13);
         msgpack_pack_int(pk, stop_time.stop_sequence);
         
-        processed_rows++;
-        
-        // Show progress every second
-        time_t now = time(NULL);
-        if (now > last_progress) {
-            printf("Progress: %.1f%% (%ld/%ld)\n", 
-                   (float)processed_rows / total_rows * 100,
-                   processed_rows, total_rows);
-            last_progress = now;
-            
-            // Sleep briefly to prevent overload
-            usleep(10000);  // 10ms
-        }
+        progress.processed_rows++;
+        update_progress(&progress);
     }
     
     // Write buffer to output file
@@ -203,6 +385,6 @@ int main(int argc, char* argv[]) {
     msgpack_packer_free(pk);
     fclose(fp);
     
-    printf("Successfully processed %ld rows\n", processed_rows);
+    printf("\nCompleted processing %ld rows\n", progress.processed_rows);
     return 0;
 } 

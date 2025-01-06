@@ -3,9 +3,13 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [GTFS Precache Tool](#gtfs-precache-tool)
-  - [Compilation](#compilation)
+  - [Prerequisites](#prerequisites)
     - [On Debian/Ubuntu/Raspberry Pi:](#on-debianubunturaspberry-pi)
     - [On macOS:](#on-macos)
+    - [On Windows:](#on-windows)
+  - [Building](#building)
+    - [Unix-like systems (Linux, macOS)](#unix-like-systems-linux-macos)
+    - [Windows](#windows)
   - [Usage](#usage)
   - [Development](#development)
 
@@ -15,32 +19,75 @@
 
 This directory contains a C-based tool for efficient GTFS data preprocessing, specifically designed for memory-constrained environments like the Raspberry Pi.
 
-## Compilation
+## Prerequisites
 
 The tool requires the MessagePack development library:
 
 ### On Debian/Ubuntu/Raspberry Pi:
 ```bash
 sudo apt-get update
-sudo apt-get install libmsgpack-dev build-essential
+sudo apt-get install libmsgpack-dev build-essential cmake
 ```
 
 ### On macOS:
 ```bash
-brew install msgpack
+brew install msgpack cmake
 ```
 
-Then compile the tool:
+### On Windows:
+1. Install [Visual Studio](https://visualstudio.microsoft.com/downloads/) with C++ support
+2. Install [CMake](https://cmake.org/download/)
+3. Install [vcpkg](https://github.com/Microsoft/vcpkg)
+4. Install msgpack:
+```bash
+vcpkg install msgpack:x64-windows
+```
+
+## Building
+
+### Unix-like systems (Linux, macOS)
+You can use either Make or CMake:
+
+Using Make:
 ```bash
 make
+```
+
+Using CMake:
+```bash
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+### Windows
+Using CMake:
+```bash
+mkdir build
+cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake ..
+cmake --build . --config Release
 ```
 
 ## Usage
 
 The tool is automatically used by the Python GTFS loader when available. If not found, the loader will fall back to a pure Python implementation.
 
+To run manually:
+```bash
+./gtfs_precache [--cpu-limit PERCENT] <input_file> <output_file>
+```
+
+Options:
+- `--cpu-limit PERCENT`: Limit CPU usage to the specified percentage (default: 50)
+- `input_file`: Path to stop_times.txt
+- `output_file`: Path for output msgpack file
+
 ## Development
 
 - `gtfs_precache.c`: Main C implementation
-- `Makefile`: Build configuration
-- The tool reads GTFS stop_times.txt and outputs a msgpack file that's more memory-efficient to process 
+- `CMakeLists.txt`: CMake build configuration
+- `Makefile`: Unix Make build configuration (alternative to CMake)
+- The tool reads GTFS stop_times.txt and outputs a msgpack file that's more memory-efficient to process
+- Cross-platform support for Linux, macOS, and Windows 
