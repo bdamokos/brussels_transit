@@ -1,0 +1,66 @@
+name: Build GTFS Precache Tool
+
+on:
+  push:
+    paths:
+      - 'app/schedule_explorer/backend/gtfs_precache.c'
+      - 'app/schedule_explorer/backend/gtfs_precache_version.h'
+      - 'app/schedule_explorer/backend/CMakeLists.txt'
+      - 'app/schedule_explorer/backend/Makefile'
+  pull_request:
+    paths:
+      - 'app/schedule_explorer/backend/gtfs_precache.c'
+      - 'app/schedule_explorer/backend/gtfs_precache_version.h'
+      - 'app/schedule_explorer/backend/CMakeLists.txt'
+      - 'app/schedule_explorer/backend/Makefile'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            install: sudo apt-get update && sudo apt-get install -y libmsgpack-dev
+          - os: macos-latest
+            install: brew install msgpack
+          - os: windows-latest
+            install: vcpkg install msgpack:x64-windows
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: ${{ matrix.install }}
+
+    - name: Set up vcpkg (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: lukka/run-vcpkg@v7
+      with:
+        vcpkgGitCommitId: 'a42af01b72c28a8e1d7b48107b33e4f286a55ef6'
+
+    - name: Build with Make (Unix)
+      if: matrix.os != 'windows-latest'
+      working-directory: app/schedule_explorer/backend
+      run: make
+
+    - name: Build with CMake (Windows)
+      if: matrix.os == 'windows-latest'
+      working-directory: app/schedule_explorer/backend
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake ..
+        cmake --build . --config Release
+
+    - name: Test version output
+      if: matrix.os != 'windows-latest'
+      working-directory: app/schedule_explorer/backend
+      run: ./gtfs_precache --version
+
+    - name: Test version output (Windows)
+      if: matrix.os == 'windows-latest'
+      working-directory: app/schedule_explorer/backend/build/Release
+      run: ./gtfs_precache.exe --version 

@@ -302,7 +302,7 @@ int read_header_version(char* version, size_t size) {
 }
 
 // Function to check if we need to rebuild
-int check_rebuild() {
+int check_rebuild(int argc, char* argv[]) {
     char header_version[32] = {0};
     if (read_header_version(header_version, sizeof(header_version)) != 0) {
         fprintf(stderr, "Warning: Could not read version from header\n");
@@ -340,8 +340,8 @@ int check_rebuild() {
 
         printf("Rebuild successful, restarting...\n\n");
 
-        // Re-execute ourselves
-        execv(exe_path, __argv);
+        // Re-execute ourselves with the same arguments
+        execv(exe_path, argv);
         
         // If we get here, execv failed
         fprintf(stderr, "Error: Failed to restart after rebuild\n");
@@ -353,7 +353,7 @@ int check_rebuild() {
 
 int main(int argc, char* argv[]) {
     // Check for rebuild first
-    if (check_rebuild() != 0) {
+    if (check_rebuild(argc, argv) != 0) {
         return 1;
     }
 
