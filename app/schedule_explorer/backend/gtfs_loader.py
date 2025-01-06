@@ -1456,35 +1456,69 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
     t0 = time.time()
     
     stop_times_dict = {}
+    total_rows = 0
     
     # Read Parquet file in chunks
     parquet_file = pq.ParquetFile(parquet_path)
     num_row_groups = parquet_file.num_row_groups
+    logger.info(f"Processing {num_row_groups} row groups...")
     
+    # Process each row group
     for i in range(num_row_groups):
         # Read one row group at a time
-        df = parquet_file.read_row_group(i).to_pandas()
+        row_group = parquet_file.read_row_group(i)
         
-        for _, row in df.iterrows():
-            if row.trip_id not in stop_times_dict:
-                stop_times_dict[row.trip_id] = []
-            stop_times_dict[row.trip_id].append({
-                "stop_id": str(row.stop_id),
-                "arrival_time": row.arrival_time,
-                "departure_time": row.departure_time,
-                "stop_sequence": row.stop_sequence,
-            })
+        # Convert to dictionary for more efficient memory usage
+        trip_ids = row_group.column('trip_id').to_pylist()
+        stop_ids = row_group.column('stop_id').to_pylist()
+        arrival_times = row_group.column('arrival_time').to_pylist()
+        departure_times = row_group.column('departure_time').to_pylist()
+        stop_sequences = row_group.column('stop_sequence').to_pylist()
+        
+        # Process in smaller batches
+        batch_size = 1000
+        for j in range(0, len(trip_ids), batch_size):
+            batch_end = min(j + batch_size, len(trip_ids))
             
-            if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
+            # Process each row in the batch
+            for k in range(j, batch_end):
+                trip_id = trip_ids[k]
+                if trip_id not in stop_times_dict:
+                    stop_times_dict[trip_id] = []
+                stop_times_dict[trip_id].append({
+                    "stop_id": str(stop_ids[k]),
+                    "arrival_time": arrival_times[k],
+                    "departure_time": departure_times[k],
+                    "stop_sequence": stop_sequences[k],
+                })
+                
+            total_rows += (batch_end - j)
+            if total_rows % 10000 == 0:
+                logger.info(f"Processed {total_rows:,} rows...")
+            
+            # Check CPU usage and sleep if needed
+            if cpu_check_fn:
                 cpu_check_fn()
+            
+            # Brief sleep to prevent overload
+            time.sleep(0.01)
+        
+        # Log progress after each row group
+        logger.info(f"Completed row group {i + 1}/{num_row_groups} ({total_rows:,} total rows)")
+        
+        # Free memory explicitly
+        del trip_ids, stop_ids, arrival_times, departure_times, stop_sequences
+        if cpu_check_fn:
+            cpu_check_fn()
     
     # Sort stop times by sequence for each trip
+    logger.info("Sorting stop times...")
     for trip_id in stop_times_dict:
         stop_times_dict[trip_id].sort(key=lambda x: x["stop_sequence"])
         if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
             cpu_check_fn()
     
-    logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
+    logger.info(f"Loaded {total_rows:,} stop times in {time.time() - t0:.2f} seconds")
     return stop_times_dict
 
 
