@@ -1326,41 +1326,83 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         logger.info("Converting stop_times.txt to Parquet format...")
         t0 = time.time()
         
-        # Calculate chunk size based on available memory
-        available_memory = psutil.virtual_memory().available
-        chunk_size = min(10000, max(1000, available_memory // (200 * 10)))  # Reduced chunk size for lower memory usage
-        logger.info(f"Using chunk size of {chunk_size} rows for Parquet conversion")
-        
-        # First read the CSV to get total number of rows
-        total_rows = sum(1 for _ in open(txt_path))
-        logger.info(f"Total rows in stop_times.txt: {total_rows:,}")
-        
         # Create a temporary file path
         temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
         
         try:
-            # Read all data into a DataFrame first
-            logger.info("Reading stop_times.txt...")
-            df = pd.read_csv(
-                txt_path,
-                dtype={
-                    "trip_id": str,
-                    "stop_id": str,
-                    "arrival_time": str,
-                    "departure_time": str,
-                    "stop_sequence": int,
+            # Define schema
+            schema = pa.schema([
+                ('trip_id', pa.string()),
+                ('stop_id', pa.string()),
+                ('arrival_time', pa.string()),
+                ('departure_time', pa.string()),
+                ('stop_sequence', pa.int32())
+            ])
+            
+            # Create writer
+            writer = pq.ParquetWriter(temp_parquet_path, schema, compression='snappy')
+            
+            # Process the file line by line
+            batch_size = 1000  # Small batch size to minimize memory usage
+            current_batch = []
+            total_rows = 0
+            header = None
+            
+            with open(txt_path, 'r') as f:
+                for line_num, line in enumerate(f):
+                    # Handle header
+                    if line_num == 0:
+                        header = line.strip().split(',')
+                        continue
+                    
+                    # Parse line
+                    values = line.strip().split(',')
+                    row = {
+                        'trip_id': str(values[header.index('trip_id')]),
+                        'stop_id': str(values[header.index('stop_id')]),
+                        'arrival_time': values[header.index('arrival_time')],
+                        'departure_time': values[header.index('departure_time')],
+                        'stop_sequence': int(values[header.index('stop_sequence')])
+                    }
+                    current_batch.append(row)
+                    
+                    # Write batch when it reaches the batch size
+                    if len(current_batch) >= batch_size:
+                        # Convert batch to Arrow table
+                        arrays = {
+                            field.name: [row[field.name] for row in current_batch]
+                            for field in schema
+                        }
+                        batch_table = pa.Table.from_pydict(arrays, schema=schema)
+                        
+                        # Write batch
+                        writer.write_table(batch_table)
+                        
+                        # Update progress
+                        total_rows += len(current_batch)
+                        if total_rows % 10000 == 0:
+                            logger.info(f"Processed {total_rows:,} rows...")
+                        
+                        # Clear batch
+                        current_batch = []
+                        
+                        # Sleep briefly to prevent overloading
+                        time.sleep(0.01)
+            
+            # Write any remaining rows
+            if current_batch:
+                arrays = {
+                    field.name: [row[field.name] for row in current_batch]
+                    for field in schema
                 }
-            )
+                batch_table = pa.Table.from_pydict(arrays, schema=schema)
+                writer.write_table(batch_table)
+                total_rows += len(current_batch)
             
-            # Write to temporary Parquet file
-            logger.info("Writing to Parquet format...")
-            df.to_parquet(
-                temp_parquet_path,
-                compression='snappy',
-                index=False
-            )
+            # Close writer
+            writer.close()
             
-            # Verify the temporary file exists and is not empty
+            # Verify the temporary file
             if not temp_parquet_path.exists():
                 raise RuntimeError("Temporary Parquet file was not created")
             
@@ -1369,14 +1411,15 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
             
             # Try to read the temporary file to verify it's valid
             try:
-                pq.ParquetFile(temp_parquet_path)
+                pf = pq.ParquetFile(temp_parquet_path)
+                logger.info(f"Created Parquet file with {pf.num_row_groups} row groups")
             except Exception as e:
                 raise RuntimeError(f"Created Parquet file is invalid: {e}")
             
             # If all checks pass, move the temporary file to the final location
             temp_parquet_path.replace(parquet_path)
             
-            logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
+            logger.info(f"Converted {total_rows:,} rows to Parquet in {time.time() - t0:.2f} seconds")
             
         except Exception as e:
             logger.error(f"Error converting to Parquet: {e}")
