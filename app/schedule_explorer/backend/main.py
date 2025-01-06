@@ -1973,7 +1973,7 @@ async def get_stops_in_bbox(
                                     text_color=text_color,
                                     first_stop=stop_names[0],
                                     last_stop=stop_names[-1],
-                                    stops=stop_names,
+                                    stops=set(stop_names),
                                     headsign=route.stops[-1].stop.name,
                                     terminus_stop_id=route.stops[-1].stop.id,
                                     parent_station_id=getattr(stop, "parent_station", None),
