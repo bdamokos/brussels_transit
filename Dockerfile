@@ -10,6 +10,8 @@ COPY . .
 RUN apt-get update && apt-get install -y \
     curl \
     nano \
+    libmsgpack-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && chown -R nobody:nogroup /app \
@@ -17,4 +19,8 @@ RUN apt-get update && apt-get install -y \
 
 USER nobody
 
+# Compile GTFS precache tool
+RUN cd /app/schedule_explorer/backend && make
+
 CMD ["python", "start.py"]
+
