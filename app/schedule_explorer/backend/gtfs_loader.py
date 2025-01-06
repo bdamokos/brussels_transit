@@ -1331,8 +1331,8 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         chunk_size = min(100000, max(10000, available_memory // (200 * 2)))  # 200 bytes per row, ensure buffer
         logger.info(f"Using chunk size of {chunk_size} rows for Parquet conversion")
         
-        # Read CSV in chunks and write to Parquet
-        first_chunk = True
+        # Read CSV in chunks and collect them
+        chunks = []
         for chunk_num, chunk in enumerate(pd.read_csv(
             txt_path,
             chunksize=chunk_size,
@@ -1344,17 +1344,18 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
                 "stop_sequence": int,
             }
         )):
-            if first_chunk:
-                # Write first chunk with schema
-                chunk.to_parquet(parquet_path, compression='snappy', index=False)
-                first_chunk = False
-            else:
-                # Append subsequent chunks
-                chunk.to_parquet(parquet_path, compression='snappy', index=False, append=True)
-            
-            logger.info(f"Processed chunk {chunk_num + 1} ({len(chunk)} rows)")
+            chunks.append(chunk)
+            logger.info(f"Read chunk {chunk_num + 1} ({len(chunk)} rows)")
             # Sleep briefly to allow system to breathe
             time.sleep(0.1)
+        
+        # Concatenate all chunks
+        logger.info("Concatenating chunks...")
+        df = pd.concat(chunks, ignore_index=True)
+        
+        # Write to Parquet
+        logger.info("Writing to Parquet...")
+        df.to_parquet(parquet_path, compression='snappy', index=False)
         
         logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
     
