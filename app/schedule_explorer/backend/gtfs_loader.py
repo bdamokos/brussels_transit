@@ -1328,107 +1328,53 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         
         # Create a temporary file path
         temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
+        temp_msgpack_path = parquet_path.with_suffix('.msgpack.tmp')
         
         try:
-            # First pass: count total rows and validate data
-            logger.info("First pass: counting rows and validating data...")
-            total_rows = 0
-            header = None
-            with open(txt_path, 'r') as f:
-                for line_num, line in enumerate(f):
-                    if line_num == 0:
-                        header = line.strip().split(',')
-                        # Validate required columns
-                        required_columns = ['trip_id', 'stop_id', 'arrival_time', 'departure_time', 'stop_sequence']
-                        missing_columns = [col for col in required_columns if col not in header]
-                        if missing_columns:
-                            raise ValueError(f"Missing required columns: {missing_columns}")
-                        continue
-                    total_rows += 1
-                    if total_rows % 10000 == 0:
-                        logger.info(f"Counted {total_rows:,} rows...")
-                        time.sleep(0.1)  # Sleep every 10k rows
+            # Get the directory containing this script
+            script_dir = Path(__file__).parent.absolute()
             
-            logger.info(f"Found {total_rows:,} rows to process")
+            # Path to the C executable
+            gtfs_precache = script_dir / "gtfs_precache"
             
-            # Define schema
-            schema = pa.schema([
-                ('trip_id', pa.string()),
-                ('stop_id', pa.string()),
-                ('arrival_time', pa.string()),
-                ('departure_time', pa.string()),
-                ('stop_sequence', pa.int32())
-            ])
+            # Check if the executable exists
+            if not gtfs_precache.exists():
+                logger.error(f"C executable not found at {gtfs_precache}")
+                raise RuntimeError("gtfs_precache executable not found")
             
-            # Second pass: convert to Parquet
-            logger.info("Second pass: converting to Parquet...")
-            writer = pq.ParquetWriter(temp_parquet_path, schema, compression='snappy')
+            # Run the C program to convert to msgpack
+            logger.info("Running C program to convert to msgpack...")
+            import subprocess
+            result = subprocess.run(
+                [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)],
+                capture_output=True,
+                text=True
+            )
             
-            batch_size = 500  # Smaller batch size
-            current_batch = []
-            processed_rows = 0
-            last_progress = 0
+            if result.returncode != 0:
+                logger.error(f"C program failed: {result.stderr}")
+                raise RuntimeError("C program failed to convert data")
             
-            with open(txt_path, 'r') as f:
-                for line_num, line in enumerate(f):
-                    if line_num == 0:  # Skip header
-                        continue
-                        
-                    try:
-                        # Parse line
-                        values = line.strip().split(',')
-                        row = {
-                            'trip_id': str(values[header.index('trip_id')]),
-                            'stop_id': str(values[header.index('stop_id')]),
-                            'arrival_time': values[header.index('arrival_time')],
-                            'departure_time': values[header.index('departure_time')],
-                            'stop_sequence': int(values[header.index('stop_sequence')])
-                        }
-                        current_batch.append(row)
-                        
-                        # Write batch when it reaches the batch size
-                        if len(current_batch) >= batch_size:
-                            # Convert batch to Arrow table
-                            arrays = {
-                                field.name: [row[field.name] for row in current_batch]
-                                for field in schema
-                            }
-                            batch_table = pa.Table.from_pydict(arrays, schema=schema)
-                            
-                            # Write batch
-                            writer.write_table(batch_table)
-                            
-                            # Update progress
-                            processed_rows += len(current_batch)
-                            progress = (processed_rows * 100) // total_rows
-                            if progress > last_progress:
-                                logger.info(f"Progress: {progress}% ({processed_rows:,}/{total_rows:,} rows)")
-                                last_progress = progress
-                            
-                            # Clear batch and memory
-                            current_batch = []
-                            del batch_table
-                            del arrays
-                            
-                            # Sleep to prevent overload
-                            time.sleep(0.05)
-                            
-                    except Exception as e:
-                        logger.error(f"Error processing line {line_num + 1}: {e}")
-                        raise
+            # Load the msgpack data
+            logger.info("Loading msgpack data...")
+            with open(temp_msgpack_path, 'rb') as f:
+                data = msgpack.unpackb(f.read(), raw=False)
             
-            # Write any remaining rows
-            if current_batch:
-                arrays = {
-                    field.name: [row[field.name] for row in current_batch]
-                    for field in schema
-                }
-                batch_table = pa.Table.from_pydict(arrays, schema=schema)
-                writer.write_table(batch_table)
-                processed_rows += len(current_batch)
+            # Convert to Parquet
+            logger.info("Converting to Parquet...")
             
-            # Close writer
-            writer.close()
+            # Create DataFrame from the stop times
+            df = pd.DataFrame(data['stop_times'])
+            
+            # Convert stop_sequence to int32
+            df['stop_sequence'] = df['stop_sequence'].astype('int32')
+            
+            # Write to Parquet with snappy compression
+            df.to_parquet(
+                temp_parquet_path,
+                compression='snappy',
+                index=False
+            )
             
             # Verify the temporary file
             if not temp_parquet_path.exists():
@@ -1441,9 +1387,9 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
             try:
                 pf = pq.ParquetFile(temp_parquet_path)
                 logger.info(f"Created Parquet file with {pf.num_row_groups} row groups")
-                if pf.metadata.num_rows != total_rows:
+                if pf.metadata.num_rows != len(data['stop_times']):
                     logger.warning(
-                        f"Row count mismatch: expected {total_rows}, got {pf.metadata.num_rows}"
+                        f"Row count mismatch: expected {len(data['stop_times'])}, got {pf.metadata.num_rows}"
                     )
             except Exception as e:
                 raise RuntimeError(f"Created Parquet file is invalid: {e}")
@@ -1452,23 +1398,25 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
             temp_parquet_path.replace(parquet_path)
             
             logger.info(
-                f"Converted {processed_rows:,} rows to Parquet in {time.time() - t0:.2f} seconds"
+                f"Converted {len(data['stop_times']):,} rows to Parquet in {time.time() - t0:.2f} seconds"
             )
             
         except Exception as e:
             logger.error(f"Error converting to Parquet: {e}")
-            # Clean up temporary file if it exists
-            if temp_parquet_path.exists():
-                temp_parquet_path.unlink()
+            # Clean up temporary files if they exist
+            for temp_file in [temp_parquet_path, temp_msgpack_path]:
+                if temp_file.exists():
+                    temp_file.unlink()
             raise
         
         finally:
-            # Make sure temporary file is cleaned up
-            if temp_parquet_path.exists():
-                try:
-                    temp_parquet_path.unlink()
-                except:
-                    pass
+            # Make sure temporary files are cleaned up
+            for temp_file in [temp_parquet_path, temp_msgpack_path]:
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except:
+                        pass
     
     # Verify the final Parquet file
     if not parquet_path.exists():
