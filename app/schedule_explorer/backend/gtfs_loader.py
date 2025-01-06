@@ -1326,9 +1326,16 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         logger.info("Converting stop_times.txt to Parquet format...")
         t0 = time.time()
         
-        # Read CSV in chunks and convert to Parquet
-        df = pd.read_csv(
+        # Calculate chunk size based on available memory
+        available_memory = psutil.virtual_memory().available
+        chunk_size = min(100000, max(10000, available_memory // (200 * 2)))  # 200 bytes per row, ensure buffer
+        logger.info(f"Using chunk size of {chunk_size} rows for Parquet conversion")
+        
+        # Read CSV in chunks and write to Parquet
+        first_chunk = True
+        for chunk_num, chunk in enumerate(pd.read_csv(
             txt_path,
+            chunksize=chunk_size,
             dtype={
                 "trip_id": str,
                 "stop_id": str,
@@ -1336,10 +1343,18 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
                 "departure_time": str,
                 "stop_sequence": int,
             }
-        )
-        
-        # Write to Parquet with compression
-        df.to_parquet(parquet_path, compression='snappy', index=False)
+        )):
+            if first_chunk:
+                # Write first chunk with schema
+                chunk.to_parquet(parquet_path, compression='snappy', index=False)
+                first_chunk = False
+            else:
+                # Append subsequent chunks
+                chunk.to_parquet(parquet_path, compression='snappy', index=False, append=True)
+            
+            logger.info(f"Processed chunk {chunk_num + 1} ({len(chunk)} rows)")
+            # Sleep briefly to allow system to breathe
+            time.sleep(0.1)
         
         logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
     
