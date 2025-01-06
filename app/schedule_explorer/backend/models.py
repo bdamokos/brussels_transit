@@ -80,27 +80,30 @@ class Stop(BaseModel):
 
 
 class RouteInfo(BaseModel):
+    """Route information for a stop."""
+
     route_id: str
     route_name: str
-    short_name: Optional[str]
-    color: Optional[str]
-    text_color: Optional[str]
+    short_name: Optional[str] = None
+    color: Optional[str] = None
+    text_color: Optional[str] = None
     first_stop: str  # Name of first stop
     last_stop: str  # Name of last stop
-    stops: Optional[List[str]] = None  # List of stop names in order
-    headsign: Optional[str]
-    service_days: Optional[List[str]] = None  # Will be loaded via separate endpoint
+    stops: List[str]  # List of stop names in order
+    headsign: str
+    terminus_stop_id: str
     parent_station_id: Optional[str] = None
-    terminus_stop_id: Optional[str] = None
+    service_days: Optional[List[str]] = None  # Will be loaded via separate endpoint
     service_days_explicit: Optional[List[str]] = None  # Days from calendar.txt
-    calendar_dates_additions: Optional[List[datetime]] = None  # Days added via exceptions
-    calendar_dates_removals: Optional[List[datetime]] = None  # Days removed via exceptions
-    valid_calendar_days: Optional[List[datetime]] = None  # All valid service days
-    service_calendar: Optional[str] = None  # Human readable service calendar
+    calendar_dates_additions: Optional[List[str]] = None  # Days added via exceptions
+    calendar_dates_removals: Optional[List[str]] = None  # Days removed via exceptions
+    valid_calendar_days: Optional[List[str]] = None  # All valid service days
+    service_calendar: Optional[Dict[str, bool]] = None  # Human readable service calendar
 
     @field_validator("service_days")
     @classmethod
     def sort_service_days(cls, v):
+        """Sort service days in the correct order (Monday to Sunday)."""
         if v is None:
             return None
         day_order = [
@@ -129,8 +132,8 @@ class Route(BaseModel):
     route_id: str
     route_name: str
     trip_id: str
-    service_days: List[str]
-    duration_minutes: int
+    service_days: Optional[List[str]] = None
+    duration_minutes: Optional[int] = None
     stops: List[Stop]
     shape: Optional[Shape] = None
     line_number: Optional[str] = None
@@ -138,10 +141,14 @@ class Route(BaseModel):
     text_color: Optional[str] = None
     headsigns: Optional[Dict[str, str]] = None  # direction_id -> headsign
     service_ids: Optional[List[str]] = None  # List of service IDs for debugging
+    headsign: Optional[str] = None
+    terminus_stop_id: Optional[str] = None
 
     @field_validator("service_days")
     @classmethod
     def sort_service_days(cls, v):
+        if v is None:
+            return None
         day_order = [
             "Monday",
             "Tuesday",
