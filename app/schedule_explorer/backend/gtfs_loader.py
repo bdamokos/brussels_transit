@@ -1331,54 +1331,76 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         chunk_size = min(10000, max(1000, available_memory // (200 * 10)))  # Reduced chunk size for lower memory usage
         logger.info(f"Using chunk size of {chunk_size} rows for Parquet conversion")
         
-        # Schema for the Parquet file
-        schema = pa.schema([
-            ('trip_id', pa.string()),
-            ('stop_id', pa.string()),
-            ('arrival_time', pa.string()),
-            ('departure_time', pa.string()),
-            ('stop_sequence', pa.int32())
-        ])
+        # First read the CSV to get total number of rows
+        total_rows = sum(1 for _ in open(txt_path))
+        logger.info(f"Total rows in stop_times.txt: {total_rows:,}")
         
-        # Create ParquetWriter with row group size
-        writer = pq.ParquetWriter(
-            parquet_path,
-            schema,
-            compression='snappy',
-            write_statistics=True
-        )
+        # Create a temporary file path
+        temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
         
-        # Process CSV in chunks
-        total_rows = 0
-        current_chunk_rows = []
-        
-        for chunk_num, chunk in enumerate(pd.read_csv(
-            txt_path,
-            chunksize=chunk_size,
-            dtype={
-                "trip_id": str,
-                "stop_id": str,
-                "arrival_time": str,
-                "departure_time": str,
-                "stop_sequence": int,
-            }
-        )):
-            # Convert pandas DataFrame chunk to Arrow Table
-            table = pa.Table.from_pandas(chunk, schema=schema)
+        try:
+            # Read all data into a DataFrame first
+            logger.info("Reading stop_times.txt...")
+            df = pd.read_csv(
+                txt_path,
+                dtype={
+                    "trip_id": str,
+                    "stop_id": str,
+                    "arrival_time": str,
+                    "departure_time": str,
+                    "stop_sequence": int,
+                }
+            )
             
-            # Write chunk
-            writer.write_table(table)
+            # Write to temporary Parquet file
+            logger.info("Writing to Parquet format...")
+            df.to_parquet(
+                temp_parquet_path,
+                compression='snappy',
+                index=False
+            )
             
-            total_rows += len(chunk)
-            logger.info(f"Processed chunk {chunk_num + 1} ({len(chunk)} rows, total: {total_rows:,} rows)")
+            # Verify the temporary file exists and is not empty
+            if not temp_parquet_path.exists():
+                raise RuntimeError("Temporary Parquet file was not created")
             
-            # Sleep briefly to allow system to breathe
-            time.sleep(0.1)
+            if temp_parquet_path.stat().st_size == 0:
+                raise RuntimeError("Temporary Parquet file is empty")
+            
+            # Try to read the temporary file to verify it's valid
+            try:
+                pq.ParquetFile(temp_parquet_path)
+            except Exception as e:
+                raise RuntimeError(f"Created Parquet file is invalid: {e}")
+            
+            # If all checks pass, move the temporary file to the final location
+            temp_parquet_path.replace(parquet_path)
+            
+            logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
+            
+        except Exception as e:
+            logger.error(f"Error converting to Parquet: {e}")
+            # Clean up temporary file if it exists
+            if temp_parquet_path.exists():
+                temp_parquet_path.unlink()
+            raise
         
-        # Close the writer
-        writer.close()
-        
-        logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
+        finally:
+            # Make sure temporary file is cleaned up
+            if temp_parquet_path.exists():
+                try:
+                    temp_parquet_path.unlink()
+                except:
+                    pass
+    
+    # Verify the final Parquet file
+    if not parquet_path.exists():
+        raise RuntimeError("Parquet file does not exist after conversion")
+    
+    if parquet_path.stat().st_size == 0:
+        # If the file is empty, delete it and raise an error
+        parquet_path.unlink()
+        raise RuntimeError("Parquet file is empty after conversion")
     
     return parquet_path
 
