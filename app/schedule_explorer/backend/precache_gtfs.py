@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Pre-calculate GTFS cache with CPU usage limits.
+This script is designed to run standalone without any dependencies on the transit provider modules.
+"""
+
 import psutil
 import time
 import logging
@@ -7,6 +13,7 @@ from typing import Optional
 import msgpack
 from dataclasses import asdict
 import re
+import os
 from .gtfs_loader import load_feed, bytes_to_mb
 
 logger = logging.getLogger("schedule_explorer.precache_gtfs")
@@ -181,7 +188,8 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     total_time = time.time() - start_time
     logger.info(f"Pre-cache completed in {total_time:.2f} seconds")
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for the script"""
     # Set up logging
     logging.basicConfig(
         level=logging.INFO,
@@ -228,4 +236,7 @@ if __name__ == "__main__":
         precache_gtfs(data_dir, args.max_cpu, args.check_interval)
     except Exception as e:
         logger.error(f"Error during pre-cache: {e}", exc_info=True)
-        exit(1) 
+        exit(1)
+
+if __name__ == "__main__":
+    main() 
