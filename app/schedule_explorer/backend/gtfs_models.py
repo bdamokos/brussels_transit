@@ -160,7 +160,7 @@ class Route:
     route_name: str
     trip_id: str
     stops: List[RouteStop]
-    service_days: List[str]
+    service_days: Optional[List[str]] = None
     shape: Optional[Shape] = None
     short_name: Optional[str] = None
     long_name: Optional[str] = None
@@ -732,7 +732,6 @@ class FlixbusFeed:
                                     route_id=route.route_id,
                                     route_name=route.route_name,
                                     trip_id=route.trip_id,
-                                    service_days=route.service_days,
                                     stops=route.stops,
                                     shape=route.shape,
                                     short_name=route.short_name,
@@ -754,8 +753,14 @@ class FlixbusFeed:
 
         return routes
 
-    def find_trips_between_stations(self, start_id: str, end_id: str) -> List[Route]:
-        """Find all trips/services between two stations, including duplicates for different times."""
+    def find_trips_between_stations(self, start_id: str, end_id: str, calculate_service_days: bool = True) -> List[Route]:
+        """Find all trips/services between two stations, including duplicates for different times.
+        
+        Args:
+            start_id: Starting station ID
+            end_id: Destination station ID
+            calculate_service_days: Whether to calculate service days for each route
+        """
         routes = []
 
         # Group trips by route_id to check all variants
@@ -825,40 +830,42 @@ class FlixbusFeed:
                     for st in relevant_stops
                 ]
 
-                # Get service days for this trip
-                service_days = set()
-                service_id = trip.service_id
-                if service_id in self.calendars:
-                    calendar = self.calendars[service_id]
-                    if calendar.monday:
-                        service_days.add("monday")
-                    if calendar.tuesday:
-                        service_days.add("tuesday")
-                    if calendar.wednesday:
-                        service_days.add("wednesday")
-                    if calendar.thursday:
-                        service_days.add("thursday")
-                    if calendar.friday:
-                        service_days.add("friday")
-                    if calendar.saturday:
-                        service_days.add("saturday")
-                    if calendar.sunday:
-                        service_days.add("sunday")
-                else:
-                    # If no regular calendar, get service days from calendar_dates
-                    for cal_date in self.calendar_dates:
-                        if (
-                            cal_date.service_id == service_id
-                            and cal_date.exception_type == 1
-                        ):
-                            service_days.add(cal_date.date.strftime("%A").lower())
+                # Get service days for this trip only if requested
+                service_days = []
+                if calculate_service_days:
+                    service_days = set()
+                    service_id = trip.service_id
+                    if service_id in self.calendars:
+                        calendar = self.calendars[service_id]
+                        if calendar.monday:
+                            service_days.add("monday")
+                        if calendar.tuesday:
+                            service_days.add("tuesday")
+                        if calendar.wednesday:
+                            service_days.add("wednesday")
+                        if calendar.thursday:
+                            service_days.add("thursday")
+                        if calendar.friday:
+                            service_days.add("friday")
+                        if calendar.saturday:
+                            service_days.add("saturday")
+                        if calendar.sunday:
+                            service_days.add("sunday")
+                    else:
+                        # If no regular calendar, get service days from calendar_dates
+                        for cal_date in self.calendar_dates:
+                            if (
+                                cal_date.service_id == service_id
+                                and cal_date.exception_type == 1
+                            ):
+                                service_days.add(cal_date.date.strftime("%A").lower())
 
                 # Create a new route object with this trip's specific times
                 route = Route(
                     route_id=base_route.route_id,
                     route_name=base_route.route_name,
                     trip_id=trip.id,
-                    service_days=sorted(list(service_days)),
+                    service_days=sorted(list(service_days)) if calculate_service_days else None,
                     stops=route_stops,
                     shape=base_route.shape,
                     short_name=base_route.short_name,
@@ -875,8 +882,9 @@ class FlixbusFeed:
                     trips=[trip],  # Add the trip to the trips list
                     _feed=self,  # Set feed reference to self
                 )
-                # Calculate service days after initialization
-                route.calculate_service_info()
+                # Calculate service days after initialization only if requested
+                if calculate_service_days:
+                    route.calculate_service_info()
                 routes.append(route)
 
         return routes
