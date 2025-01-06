@@ -14,7 +14,7 @@ import msgpack
 from dataclasses import asdict
 import re
 import os
-from .gtfs_loader import load_feed, bytes_to_mb
+from .gtfs_loader import load_feed, bytes_to_mb, CACHE_VERSION, calculate_gtfs_hash
 
 logger = logging.getLogger("schedule_explorer.precache_gtfs")
 
@@ -112,6 +112,10 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     
     if not data_path.exists():
         raise ValueError(f"Data directory does not exist: {data_path}")
+
+    # Calculate the cache hash
+    current_hash = f"{CACHE_VERSION}_{calculate_gtfs_hash(data_path)}"
+    logger.info(f"Cache version: {CACHE_VERSION}, hash: {current_hash}")
     
     # Load the feed with CPU checks
     logger.info("Loading GTFS feed...")
@@ -194,11 +198,13 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     logger.info(f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s")
     check_cpu_usage()
     
-    # Save to cache file
+    # Save to cache file and hash file
     cache_file = data_path / ".gtfs_cache"
-    logger.info(f"Saving to cache file: {cache_file}")
+    hash_file = data_path / ".gtfs_cache_hash"
+    logger.info(f"Saving to cache file: {cache_file} with hash: {current_hash}")
     with open(cache_file, "wb") as f:
         f.write(packed_data)
+    hash_file.write_text(current_hash)
     
     total_time = time.time() - start_time
     logger.info(f"Pre-cache completed in {total_time:.2f} seconds")

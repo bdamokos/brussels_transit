@@ -1340,17 +1340,18 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
             ('stop_sequence', pa.int32())
         ])
         
-        # Create ParquetWriter
+        # Create ParquetWriter with row group size
         writer = pq.ParquetWriter(
             parquet_path,
             schema,
             compression='snappy',
-            write_statistics=True,
-            row_group_size=chunk_size  # Align row groups with chunk size
+            write_statistics=True
         )
         
         # Process CSV in chunks
         total_rows = 0
+        current_chunk_rows = []
+        
         for chunk_num, chunk in enumerate(pd.read_csv(
             txt_path,
             chunksize=chunk_size,
