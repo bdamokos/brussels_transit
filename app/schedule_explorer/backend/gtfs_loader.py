@@ -1095,7 +1095,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "3.0.0.0"
+CACHE_VERSION = "3.1.0.0"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
