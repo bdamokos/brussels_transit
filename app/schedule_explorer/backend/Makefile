@@ -11,11 +11,11 @@ CFLAGS = -Wall -O3
 ifeq ($(UNAME_S),Darwin)
     # macOS (Homebrew paths)
     CFLAGS += -I/opt/homebrew/include
-    LDFLAGS = -L/opt/homebrew/lib -lmsgpack
+    LDFLAGS = -L/opt/homebrew/lib -lmsgpackc
 else
     # Linux
     CFLAGS += -I/usr/include
-    LDFLAGS = -lmsgpack
+    LDFLAGS = -lmsgpackc
 endif
 
 all: gtfs_precache

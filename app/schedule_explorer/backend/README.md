@@ -29,6 +29,11 @@ sudo apt-get update
 sudo apt-get install libmsgpack-dev build-essential cmake
 ```
 
+If you get a linking error with `-lmsgpack`, try installing the C library specifically:
+```bash
+sudo apt-get install libmsgpackc-dev
+```
+
 ### On macOS:
 ```bash
 brew install msgpack cmake
