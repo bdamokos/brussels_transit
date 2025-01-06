@@ -6,26 +6,77 @@ from pathlib import Path
 from typing import Optional
 import msgpack
 from dataclasses import asdict
+import re
 from .gtfs_loader import load_feed, bytes_to_mb
 
 logger = logging.getLogger("schedule_explorer.precache_gtfs")
+
+# Regular expression to match provider-id format (e.g., "abc-1234")
+PROVIDER_ID_PATTERN = re.compile(r"^[a-zA-Z]+-\d+$")
+
+def get_gtfs_dir(provider_id: str, downloads_dir: str = "downloads") -> Optional[Path]:
+    """
+    Get the GTFS directory for a specific provider.
+    
+    Args:
+        provider_id: The provider ID (e.g., 'mdb-1859')
+        downloads_dir: Base directory for downloads (default: 'downloads')
+        
+    Returns:
+        Path to the GTFS directory or None if not found
+    """
+    if not PROVIDER_ID_PATTERN.match(provider_id):
+        return None
+        
+    # Convert downloads_dir to Path
+    downloads_path = Path(downloads_dir)
+    
+    # Look for a directory matching the pattern: {downloads_dir}/{provider_id}_*/{provider_id}-*/
+    try:
+        # First find the provider directory (e.g., mdb-1859_Societe_nationale...)
+        provider_dirs = list(downloads_path.glob(f"{provider_id}_*"))
+        if not provider_dirs:
+            return None
+            
+        # Sort by modification time to get the most recent one
+        provider_dir = sorted(provider_dirs, key=lambda x: x.stat().st_mtime, reverse=True)[0]
+        
+        # Then find the GTFS directory inside it (e.g., mdb-1859-202501020029)
+        gtfs_dirs = list(provider_dir.glob(f"{provider_id}-*"))
+        if not gtfs_dirs:
+            return None
+            
+        # Sort by modification time to get the most recent one
+        return sorted(gtfs_dirs, key=lambda x: x.stat().st_mtime, reverse=True)[0]
+        
+    except Exception as e:
+        logger.error(f"Error finding GTFS directory for {provider_id}: {e}")
+        return None
 
 def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_interval: float = 1.0) -> None:
     """
     Pre-calculate GTFS cache with CPU usage limits.
     
     Args:
-        data_dir: Path to the GTFS data directory
+        data_dir: Path to the GTFS data directory or a provider ID (e.g., 'mdb-1859')
         max_cpu_percent: Maximum CPU usage percentage (0-100)
         check_interval: How often to check CPU usage (seconds)
     """
-    logger.info(f"Starting GTFS pre-cache for directory: {data_dir}")
+    logger.info(f"Starting GTFS pre-cache for directory/provider: {data_dir}")
     logger.info(f"CPU limit: {max_cpu_percent}%")
     
     start_time = time.time()
     
-    # Convert data_dir to Path if it's a string
-    data_path = Path(data_dir)
+    # Check if data_dir is a provider ID
+    if isinstance(data_dir, str) and PROVIDER_ID_PATTERN.match(data_dir):
+        provider_dir = get_gtfs_dir(data_dir)
+        if provider_dir is None:
+            raise ValueError(f"Could not find GTFS directory for provider {data_dir}")
+        data_path = provider_dir
+        logger.info(f"Using GTFS directory for provider {data_dir}: {data_path}")
+    else:
+        # Convert data_dir to Path if it's a string
+        data_path = Path(data_dir)
     
     if not data_path.exists():
         raise ValueError(f"Data directory does not exist: {data_path}")
@@ -139,7 +190,10 @@ if __name__ == "__main__":
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Pre-calculate GTFS cache with CPU limits")
-    parser.add_argument("data_dir", help="Path to GTFS data directory")
+    parser.add_argument(
+        "data_dir", 
+        help="Path to GTFS data directory or provider ID (e.g., 'mdb-1859')"
+    )
     parser.add_argument(
         "--max-cpu",
         type=float,
@@ -152,11 +206,26 @@ if __name__ == "__main__":
         default=1.0,
         help="How often to check CPU usage in seconds (default: 1.0)"
     )
+    parser.add_argument(
+        "--downloads-dir",
+        type=str,
+        default="downloads",
+        help="Base directory for downloads when using provider ID (default: 'downloads')"
+    )
     
     args = parser.parse_args()
     
     try:
-        precache_gtfs(args.data_dir, args.max_cpu, args.check_interval)
+        # If it's a provider ID, use the downloads directory from args
+        if PROVIDER_ID_PATTERN.match(args.data_dir):
+            data_dir = get_gtfs_dir(args.data_dir, args.downloads_dir)
+            if data_dir is None:
+                logger.error(f"Could not find GTFS directory for provider {args.data_dir}")
+                exit(1)
+        else:
+            data_dir = args.data_dir
+            
+        precache_gtfs(data_dir, args.max_cpu, args.check_interval)
     except Exception as e:
         logger.error(f"Error during pre-cache: {e}", exc_info=True)
         exit(1) 
