@@ -17,8 +17,14 @@ const API_BASE_URL = window.API_BASE_URL;
 
 // Function to fetch station details by stop_id
 async function fetchStationById(stopId) {
+    const currentProvider = document.getElementById('providerSelect').value;
+    if (!currentProvider) {
+        console.error('No provider selected');
+        return null;
+    }
+
     try {
-        const response = await fetch(`${API_BASE_URL}/stations/search?stop_id=${stopId}`);
+        const response = await fetch(`${API_BASE_URL}/stations/search?stop_id=${stopId}&provider_id=${currentProvider}`);
         if (!response.ok) {
             throw new Error(`Failed to fetch station with ID ${stopId}`);
         }
@@ -379,6 +385,12 @@ dateInput.valueAsDate = new Date();
 
 // Update the searchStations function to handle multiple filter stations
 async function searchStations(query, filterByStations = null, isOrigin = true) {
+    const currentProvider = document.getElementById('providerSelect').value;
+    if (!currentProvider) {
+        console.error('No provider selected');
+        return [];
+    }
+
     try {
         let allStations = new Set();
 
@@ -389,7 +401,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
                 filterByStations.map(s => s.id) : [filterByStations.id];
 
             for (const stationId of stationIds) {
-                const url = `${API_BASE_URL}/stations/${endpoint}/${stationId}`;
+                const url = `${API_BASE_URL}/stations/${endpoint}/${stationId}?provider_id=${currentProvider}`;
                 const response = await fetch(url);
 
                 if (response.status === 503) {
@@ -419,7 +431,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
 
         } else if (query && query.length >= 2) {
             // Regular station search with query
-            const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&language=${currentLanguage}`;
+            const url = `${API_BASE_URL}/stations/search?query=${encodeURIComponent(query)}&language=${currentLanguage}&provider_id=${currentProvider}`;
             const response = await fetch(url);
 
             if (response.status === 503) {
@@ -434,7 +446,7 @@ async function searchStations(query, filterByStations = null, isOrigin = true) {
             return await response.json();
         } else {
             // For empty queries, get all stations and return a subset
-            const url = `${API_BASE_URL}/stations/search?query=ab`;  // Get a broad set of stations
+            const url = `${API_BASE_URL}/stations/search?query=ab&provider_id=${currentProvider}`;  // Get a broad set of stations
             const response = await fetch(url);
 
             if (response.status === 503) {
@@ -713,28 +725,34 @@ async function searchRoutes() {
         return;
     }
 
-    // Always use the value from the dateInput field
-    const date = document.getElementById('date').value;
-    if (!date) {
-        console.error('Date is not set');
+    const currentProvider = document.getElementById('providerSelect').value;
+    if (!currentProvider) {
+        console.error('No provider selected');
         return;
     }
 
     try {
-        const mergeSameNameStations = document.getElementById('mergeSameNameStations').checked;
-
         // Get all station IDs for the search
         let fromStationIds = [selectedFromStation.id];
         let toStationIds = [selectedToStation.id];
 
-        // Make a single API call with all station IDs and language parameter
+        // Build URL parameters
+        const params = new URLSearchParams({
+            from_station: fromStationIds.join(','),
+            to_station: toStationIds.join(','),
+            language: currentLanguage,
+            provider_id: currentProvider
+        });
+
+        // Only add date if it's set
+        const date = document.getElementById('date').value;
+        if (date) {
+            params.append('date', date);
+        }
+
+        // Make a single API call with all parameters
         const response = await fetch(
-            `${API_BASE_URL}/routes?` + new URLSearchParams({
-                from_station: fromStationIds.join(','),
-                to_station: toStationIds.join(','),
-                date: date,
-                language: currentLanguage
-            })
+            `${API_BASE_URL}/routes?${params.toString()}`
         );
 
         if (!response.ok) {
@@ -1034,6 +1052,12 @@ function displayRoutes(routes) {
 
 // Date change event handler
 dateInput.addEventListener('change', searchRoutes);
+
+// Add clear date button handler
+document.getElementById('clearDate').addEventListener('click', () => {
+    dateInput.value = '';
+    searchRoutes();
+});
 
 // Move all styles to the top of the file, after the global variables
 const styles = `
