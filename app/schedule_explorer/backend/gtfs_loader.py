@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Callable
 import pandas as pd
 from pathlib import Path
 import os
@@ -1313,18 +1313,21 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
 
 
 def load_feed(
-    data_dir: str | Path = None, target_stops: Set[str] = None
+    data_dir: str | Path = None, 
+    target_stops: Set[str] = None,
+    cpu_check_fn: Optional[Callable] = None
 ) -> FlixbusFeed:
     """
     Load GTFS feed from the specified directory.
     If target_stops is provided, only loads routes that contain those stops.
-
+    
     Args:
         data_dir: Path to the GTFS data directory. Can be either a string or Path object.
         target_stops: Optional set of stop IDs to filter routes by.
-
+        cpu_check_fn: Optional function to check CPU usage and throttle if needed
+        
     Returns:
-        FlixbusFeed object containing the loaded GTFS data.
+        GTFSFeed object containing the loaded GTFS data.
 
     Raises:
         ValueError: If data_dir is None or does not exist.
@@ -1607,6 +1610,9 @@ def load_feed(
                     "stop_sequence": row.stop_sequence,
                 }
             )
+            if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
+                cpu_check_fn()
+
     logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
 
     # Try to load calendar.txt first, fall back to calendar_dates.txt
@@ -1645,9 +1651,9 @@ def load_feed(
                 start_date=datetime.strptime(str(row["start_date"]), "%Y%m%d"),
                 end_date=datetime.strptime(str(row["end_date"]), "%Y%m%d"),
             )
-            # logger.info(
-            #     f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
-            # )
+            if cpu_check_fn and len(calendars) % 1000 == 0:
+                cpu_check_fn()
+
         del calendar_df
         logger.info(
             f"Loaded calendar.txt with {len(calendars)} services in {time.time() - t0:.2f} seconds"
@@ -1673,9 +1679,9 @@ def load_feed(
                     exception_type=exception_type,
                 )
             )
-            # logger.info(
-            #     f"Service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-            # )
+            if cpu_check_fn and len(calendar_dates) % 1000 == 0:
+                cpu_check_fn()
+
         del calendar_df
         logger.info(
             f"Loaded calendar_dates.txt with {len(calendar_dates)} exceptions in {time.time() - t0:.2f} seconds"
@@ -1703,9 +1709,9 @@ def load_feed(
                         exception_type=exception_type,
                     )
                 )
-                # logger.info(
-                #     f"Exception for service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-                # )
+                if cpu_check_fn and len(calendar_dates) % 1000 == 0:
+                    cpu_check_fn()
+
             del calendar_dates_df
             logger.info(
                 f"Loaded calendar_dates.txt for exceptions with {len(calendar_dates)} entries in {time.time() - t0:.2f} seconds"
