@@ -19,18 +19,20 @@ configure_file(
 
 # Find msgpack
 if(WIN32)
-    # On Windows, expect msgpack to be installed in a standard location
-    # or specified via CMAKE_PREFIX_PATH
+    # On Windows, expect msgpack to be installed via vcpkg
     find_package(msgpack CONFIG REQUIRED)
-    set(MSGPACK_LIBRARIES msgpackc)
+    set(MSGPACK_LIBRARIES msgpackc-cxx)
 else()
     # On Unix-like systems, try pkg-config first
     find_package(PkgConfig)
     if(PKG_CONFIG_FOUND)
-        pkg_check_modules(MSGPACK REQUIRED msgpack)
+        pkg_check_modules(MSGPACK REQUIRED msgpackc)
+        if(NOT MSGPACK_FOUND)
+            pkg_check_modules(MSGPACK REQUIRED msgpack)
+        endif()
     else()
         # Fallback to find_library
-        find_library(MSGPACK_LIBRARIES NAMES msgpack msgpackc)
+        find_library(MSGPACK_LIBRARIES NAMES msgpackc msgpack)
         if(NOT MSGPACK_LIBRARIES)
             message(FATAL_ERROR "msgpack library not found")
         endif()
@@ -41,7 +43,10 @@ endif()
 add_executable(gtfs_precache gtfs_precache.c)
 
 # Add include directories
-target_include_directories(gtfs_precache PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(gtfs_precache PRIVATE 
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${MSGPACK_INCLUDE_DIRS}
+)
 
 # Link libraries
 target_link_libraries(gtfs_precache PRIVATE ${MSGPACK_LIBRARIES})
@@ -49,6 +54,9 @@ target_link_libraries(gtfs_precache PRIVATE ${MSGPACK_LIBRARIES})
 # Platform-specific settings
 if(WIN32)
     target_link_libraries(gtfs_precache PRIVATE psapi)
+    # Set runtime library to MD/MDd
+    set_property(TARGET gtfs_precache PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
 # Installation
