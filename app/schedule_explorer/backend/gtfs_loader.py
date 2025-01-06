@@ -1328,11 +1328,29 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
         
         # Calculate chunk size based on available memory
         available_memory = psutil.virtual_memory().available
-        chunk_size = min(100000, max(10000, available_memory // (200 * 2)))  # 200 bytes per row, ensure buffer
+        chunk_size = min(10000, max(1000, available_memory // (200 * 10)))  # Reduced chunk size for lower memory usage
         logger.info(f"Using chunk size of {chunk_size} rows for Parquet conversion")
         
-        # Read CSV in chunks and collect them
-        chunks = []
+        # Schema for the Parquet file
+        schema = pa.schema([
+            ('trip_id', pa.string()),
+            ('stop_id', pa.string()),
+            ('arrival_time', pa.string()),
+            ('departure_time', pa.string()),
+            ('stop_sequence', pa.int32())
+        ])
+        
+        # Create ParquetWriter
+        writer = pq.ParquetWriter(
+            parquet_path,
+            schema,
+            compression='snappy',
+            write_statistics=True,
+            row_group_size=chunk_size  # Align row groups with chunk size
+        )
+        
+        # Process CSV in chunks
+        total_rows = 0
         for chunk_num, chunk in enumerate(pd.read_csv(
             txt_path,
             chunksize=chunk_size,
@@ -1344,18 +1362,20 @@ def ensure_parquet_stop_times(data_path: Path) -> Path:
                 "stop_sequence": int,
             }
         )):
-            chunks.append(chunk)
-            logger.info(f"Read chunk {chunk_num + 1} ({len(chunk)} rows)")
+            # Convert pandas DataFrame chunk to Arrow Table
+            table = pa.Table.from_pandas(chunk, schema=schema)
+            
+            # Write chunk
+            writer.write_table(table)
+            
+            total_rows += len(chunk)
+            logger.info(f"Processed chunk {chunk_num + 1} ({len(chunk)} rows, total: {total_rows:,} rows)")
+            
             # Sleep briefly to allow system to breathe
             time.sleep(0.1)
         
-        # Concatenate all chunks
-        logger.info("Concatenating chunks...")
-        df = pd.concat(chunks, ignore_index=True)
-        
-        # Write to Parquet
-        logger.info("Writing to Parquet...")
-        df.to_parquet(parquet_path, compression='snappy', index=False)
+        # Close the writer
+        writer.close()
         
         logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
     
