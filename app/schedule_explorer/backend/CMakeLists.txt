@@ -20,8 +20,8 @@ configure_file(
 # Find msgpack
 if(WIN32)
     # On Windows, expect msgpack to be installed via vcpkg
-    find_package(msgpack CONFIG REQUIRED)
-    set(MSGPACK_LIBRARIES msgpack)
+    find_package(msgpack-c CONFIG REQUIRED)
+    set(MSGPACK_LIBRARIES msgpack-c)
 else()
     # On Unix-like systems, try pkg-config first
     find_package(PkgConfig)

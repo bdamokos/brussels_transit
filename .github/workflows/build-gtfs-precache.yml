@@ -49,12 +49,13 @@ jobs:
 
     - name: Install vcpkg (Windows)
       if: matrix.os == 'windows-latest'
+      shell: cmd
       run: |
         git clone https://github.com/Microsoft/vcpkg.git
         cd vcpkg
-        ./bootstrap-vcpkg.bat
-        ./vcpkg integrate install
-        ./vcpkg install msgpack:x64-windows
+        bootstrap-vcpkg.bat
+        vcpkg integrate install
+        vcpkg install msgpack-c:x64-windows
 
     - name: Build with Make (Unix)
       if: matrix.os != 'windows-latest'
