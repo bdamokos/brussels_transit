@@ -10,6 +10,8 @@ import msgpack
 import psutil
 import time
 from .memory_util import check_memory_for_file
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -1312,6 +1314,78 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         raise
 
 
+def ensure_parquet_stop_times(data_path: Path) -> Path:
+    """
+    Ensure stop_times.txt is converted to Parquet format.
+    Returns the path to the Parquet file.
+    """
+    parquet_path = data_path / "stop_times.txt.parquet"
+    txt_path = data_path / "stop_times.txt"
+    
+    if not parquet_path.exists() or parquet_path.stat().st_mtime < txt_path.stat().st_mtime:
+        logger.info("Converting stop_times.txt to Parquet format...")
+        t0 = time.time()
+        
+        # Read CSV in chunks and convert to Parquet
+        df = pd.read_csv(
+            txt_path,
+            dtype={
+                "trip_id": str,
+                "stop_id": str,
+                "arrival_time": str,
+                "departure_time": str,
+                "stop_sequence": int,
+            }
+        )
+        
+        # Write to Parquet with compression
+        df.to_parquet(parquet_path, compression='snappy', index=False)
+        
+        logger.info(f"Converted stop_times.txt to Parquet in {time.time() - t0:.2f} seconds")
+    
+    return parquet_path
+
+
+def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]:
+    """Load stop times from Parquet file in a memory-efficient way"""
+    parquet_path = ensure_parquet_stop_times(data_path)
+    
+    logger.info("Loading stop times from Parquet...")
+    t0 = time.time()
+    
+    stop_times_dict = {}
+    
+    # Read Parquet file in chunks
+    parquet_file = pq.ParquetFile(parquet_path)
+    num_row_groups = parquet_file.num_row_groups
+    
+    for i in range(num_row_groups):
+        # Read one row group at a time
+        df = parquet_file.read_row_group(i).to_pandas()
+        
+        for _, row in df.iterrows():
+            if row.trip_id not in stop_times_dict:
+                stop_times_dict[row.trip_id] = []
+            stop_times_dict[row.trip_id].append({
+                "stop_id": str(row.stop_id),
+                "arrival_time": row.arrival_time,
+                "departure_time": row.departure_time,
+                "stop_sequence": row.stop_sequence,
+            })
+            
+            if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
+                cpu_check_fn()
+    
+    # Sort stop times by sequence for each trip
+    for trip_id in stop_times_dict:
+        stop_times_dict[trip_id].sort(key=lambda x: x["stop_sequence"])
+        if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
+            cpu_check_fn()
+    
+    logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
+    return stop_times_dict
+
+
 def load_feed(
     data_dir: str | Path = None, 
     target_stops: Set[str] = None,
@@ -1570,50 +1644,8 @@ def load_feed(
         low_memory=use_low_memory,
     )
 
-    # Load stop times in chunks to handle large files
-    t0 = time.time()
-    logger.info("Loading stop times...")
-    chunk_size = 100000
-    stop_times_dict = {}
-
-    use_low_memory = check_memory_for_file(data_path / "stop_times.txt")
-
-    for chunk in pd.read_csv(
-        data_path / "stop_times.txt",
-        chunksize=chunk_size,
-        dtype={
-            "trip_id": str,
-            "stop_id": str,
-            "arrival_time": str,
-            "departure_time": str,
-            "stop_sequence": int,
-            # Optional fields
-            "stop_headsign": str,
-            "pickup_type": "Int64",  # Nullable integer enum (0-3)
-            "drop_off_type": "Int64",  # Nullable integer enum (0-3)
-            "continuous_pickup": "Int64",  # Nullable integer enum (0-3)
-            "continuous_drop_off": "Int64",  # Nullable integer enum (0-3)
-            "shape_dist_traveled": float,  # Non-negative float
-            "timepoint": "Int64",  # Nullable integer enum (0-1)
-            "stop_time_desc": str,
-        },
-        low_memory=use_low_memory,
-    ):
-        for _, row in chunk.iterrows():
-            if row.trip_id not in stop_times_dict:
-                stop_times_dict[row.trip_id] = []
-            stop_times_dict[row.trip_id].append(
-                {
-                    "stop_id": str(row.stop_id),
-                    "arrival_time": row.arrival_time,
-                    "departure_time": row.departure_time,
-                    "stop_sequence": row.stop_sequence,
-                }
-            )
-            if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
-                cpu_check_fn()
-
-    logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
+    # Load stop times
+    stop_times_dict = load_stop_times(data_path, cpu_check_fn)
 
     # Try to load calendar.txt first, fall back to calendar_dates.txt
     t0 = time.time()
