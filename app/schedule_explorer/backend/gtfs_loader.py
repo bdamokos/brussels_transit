@@ -10,8 +10,6 @@ import msgpack
 import psutil
 import time
 from .memory_util import check_memory_for_file
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -1095,7 +1093,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "3.1.0.0"
+CACHE_VERSION = "4.0.0.0"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -1314,334 +1312,125 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         raise
 
 
-def ensure_parquet_stop_times_python(data_path: Path) -> Path:
-    """
-    Pure Python implementation of stop_times.txt to Parquet conversion.
-    This is used as a fallback when the C implementation is not available.
-    """
-    parquet_path = data_path / "stop_times.txt.parquet"
-    txt_path = data_path / "stop_times.txt"
-    
-    if not parquet_path.exists() or parquet_path.stat().st_mtime < txt_path.stat().st_mtime:
-        logger.info("Converting stop_times.txt to Parquet format (Python implementation)...")
-        t0 = time.time()
-        
-        # Create a temporary file path
-        temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
-        
-        try:
-            # First pass: count total rows and validate data
-            logger.info("First pass: counting rows and validating data...")
-            total_rows = 0
-            header = None
-            with open(txt_path, 'r') as f:
-                for line_num, line in enumerate(f):
-                    if line_num == 0:
-                        header = line.strip().split(',')
-                        # Validate required columns
-                        required_columns = ['trip_id', 'stop_id', 'arrival_time', 'departure_time', 'stop_sequence']
-                        missing_columns = [col for col in required_columns if col not in header]
-                        if missing_columns:
-                            raise ValueError(f"Missing required columns: {missing_columns}")
-                        continue
-                    total_rows += 1
-                    if total_rows % 10000 == 0:
-                        logger.info(f"Counted {total_rows:,} rows...")
-                        time.sleep(0.1)  # Sleep every 10k rows
-            
-            logger.info(f"Found {total_rows:,} rows to process")
-            
-            # Define schema
-            schema = pa.schema([
-                ('trip_id', pa.string()),
-                ('stop_id', pa.string()),
-                ('arrival_time', pa.string()),
-                ('departure_time', pa.string()),
-                ('stop_sequence', pa.int32())
-            ])
-            
-            # Second pass: convert to Parquet
-            logger.info("Second pass: converting to Parquet...")
-            writer = pq.ParquetWriter(temp_parquet_path, schema, compression='snappy')
-            
-            batch_size = 500  # Small batch size to minimize memory usage
-            current_batch = []
-            processed_rows = 0
-            last_progress = 0
-            
-            with open(txt_path, 'r') as f:
-                for line_num, line in enumerate(f):
-                    if line_num == 0:  # Skip header
-                        continue
-                        
-                    try:
-                        # Parse line
-                        values = line.strip().split(',')
-                        row = {
-                            'trip_id': str(values[header.index('trip_id')]),
-                            'stop_id': str(values[header.index('stop_id')]),
-                            'arrival_time': values[header.index('arrival_time')],
-                            'departure_time': values[header.index('departure_time')],
-                            'stop_sequence': int(values[header.index('stop_sequence')])
-                        }
-                        current_batch.append(row)
-                        
-                        # Write batch when it reaches the batch size
-                        if len(current_batch) >= batch_size:
-                            # Convert batch to Arrow table
-                            arrays = {
-                                field.name: [row[field.name] for row in current_batch]
-                                for field in schema
-                            }
-                            batch_table = pa.Table.from_pydict(arrays, schema=schema)
-                            
-                            # Write batch
-                            writer.write_table(batch_table)
-                            
-                            # Update progress
-                            processed_rows += len(current_batch)
-                            progress = (processed_rows * 100) // total_rows
-                            if progress > last_progress:
-                                logger.info(f"Progress: {progress}% ({processed_rows:,}/{total_rows:,} rows)")
-                                last_progress = progress
-                            
-                            # Clear batch and memory
-                            current_batch = []
-                            del batch_table
-                            del arrays
-                            
-                            # Sleep to prevent overload
-                            time.sleep(0.05)
-                            
-                    except Exception as e:
-                        logger.error(f"Error processing line {line_num + 1}: {e}")
-                        raise
-            
-            # Write any remaining rows
-            if current_batch:
-                arrays = {
-                    field.name: [row[field.name] for row in current_batch]
-                    for field in schema
-                }
-                batch_table = pa.Table.from_pydict(arrays, schema=schema)
-                writer.write_table(batch_table)
-                processed_rows += len(current_batch)
-            
-            # Close writer
-            writer.close()
-            
-            # Verify the temporary file
-            if not temp_parquet_path.exists():
-                raise RuntimeError("Temporary Parquet file was not created")
-            
-            if temp_parquet_path.stat().st_size == 0:
-                raise RuntimeError("Temporary Parquet file is empty")
-            
-            # Try to read the temporary file to verify it's valid
-            try:
-                pf = pq.ParquetFile(temp_parquet_path)
-                logger.info(f"Created Parquet file with {pf.num_row_groups} row groups")
-                if pf.metadata.num_rows != total_rows:
-                    logger.warning(
-                        f"Row count mismatch: expected {total_rows}, got {pf.metadata.num_rows}"
-                    )
-            except Exception as e:
-                raise RuntimeError(f"Created Parquet file is invalid: {e}")
-            
-            # If all checks pass, move the temporary file to the final location
-            temp_parquet_path.replace(parquet_path)
-            
-            logger.info(
-                f"Converted {processed_rows:,} rows to Parquet in {time.time() - t0:.2f} seconds"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error converting to Parquet: {e}")
-            # Clean up temporary file if it exists
-            if temp_parquet_path.exists():
-                temp_parquet_path.unlink()
-            raise
-        
-        finally:
-            # Make sure temporary file is cleaned up
-            if temp_parquet_path.exists():
-                try:
-                    temp_parquet_path.unlink()
-                except:
-                    pass
-    
-    # Verify the final Parquet file
-    if not parquet_path.exists():
-        raise RuntimeError("Parquet file does not exist after conversion")
-    
-    if parquet_path.stat().st_size == 0:
-        # If the file is empty, delete it and raise an error
-        parquet_path.unlink()
-        raise RuntimeError("Parquet file is empty after conversion")
-    
-    return parquet_path
-
-def ensure_parquet_stop_times(data_path: Path) -> Path:
-    """
-    Ensure stop_times.txt is converted to Parquet format.
-    Returns the path to the Parquet file.
-    
-    This function tries to use the C implementation first, and falls back to
-    the Python implementation if the C tool is not available.
-    """
-    parquet_path = data_path / "stop_times.txt.parquet"
-    txt_path = data_path / "stop_times.txt"
-    
-    if not parquet_path.exists() or parquet_path.stat().st_mtime < txt_path.stat().st_mtime:
-        # Get the directory containing this script
-        script_dir = Path(__file__).parent.absolute()
-        
-        # Path to the C executable
-        gtfs_precache = script_dir / "gtfs_precache"
-        
-        # Try to use C implementation first
-        if gtfs_precache.exists():
-            logger.info("Using C implementation for GTFS precache...")
-            temp_parquet_path = parquet_path.with_suffix('.parquet.tmp')
-            temp_msgpack_path = parquet_path.with_suffix('.msgpack.tmp')
-            
-            try:
-                # Run the C program to convert to msgpack
-                logger.info("Running C program to convert to msgpack...")
-                import subprocess
-                result = subprocess.run(
-                    [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)],
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode != 0:
-                    logger.error(f"C program failed: {result.stderr}")
-                    logger.info("Falling back to Python implementation...")
-                    return ensure_parquet_stop_times_python(data_path)
-                
-                # Load the msgpack data
-                logger.info("Loading msgpack data...")
-                with open(temp_msgpack_path, 'rb') as f:
-                    data = msgpack.unpackb(f.read(), raw=False)
-                
-                # Convert to Parquet
-                logger.info("Converting to Parquet...")
-                
-                # Create DataFrame from the stop times
-                df = pd.DataFrame(data['stop_times'])
-                
-                # Convert stop_sequence to int32
-                df['stop_sequence'] = df['stop_sequence'].astype('int32')
-                
-                # Write to Parquet with snappy compression
-                df.to_parquet(
-                    temp_parquet_path,
-                    compression='snappy',
-                    index=False
-                )
-                
-                # Verify and move the file
-                if not temp_parquet_path.exists() or temp_parquet_path.stat().st_size == 0:
-                    logger.error("C implementation failed to create valid Parquet file")
-                    logger.info("Falling back to Python implementation...")
-                    return ensure_parquet_stop_times_python(data_path)
-                
-                temp_parquet_path.replace(parquet_path)
-                logger.info("Successfully converted using C implementation")
-                
-            except Exception as e:
-                logger.error(f"Error using C implementation: {e}")
-                logger.info("Falling back to Python implementation...")
-                return ensure_parquet_stop_times_python(data_path)
-            
-            finally:
-                # Clean up temporary files
-                for temp_file in [temp_parquet_path, temp_msgpack_path]:
-                    if temp_file.exists():
-                        try:
-                            temp_file.unlink()
-                        except:
-                            pass
-        else:
-            logger.info("C implementation not found, using Python implementation...")
-            return ensure_parquet_stop_times_python(data_path)
-    
-    return parquet_path
-
-
 def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]:
-    """Load stop times from Parquet file in a memory-efficient way"""
-    parquet_path = ensure_parquet_stop_times(data_path)
+    """
+    Load stop times from stop_times.txt using the C implementation.
+    Returns a dictionary mapping trip_id to a list of stop times.
+    """
+    txt_path = data_path / "stop_times.txt"
+    if not txt_path.exists():
+        logger.error(f"stop_times.txt not found in {data_path}")
+        raise FileNotFoundError(f"stop_times.txt not found in {data_path}")
+
+    # Get the directory containing this script
+    script_dir = Path(__file__).parent.absolute()
+    logger.debug(f"Script directory: {script_dir}")
     
-    logger.info("Loading stop times from Parquet...")
-    t0 = time.time()
+    # Path to the C executable
+    gtfs_precache = script_dir / "gtfs_precache"
+    logger.debug(f"Looking for gtfs_precache at: {gtfs_precache}")
+    logger.debug(f"gtfs_precache exists: {gtfs_precache.exists()}")
     
-    stop_times_dict = {}
-    total_rows = 0
+    if not gtfs_precache.exists():
+        logger.error(f"gtfs_precache executable not found at {gtfs_precache}")
+        raise RuntimeError("gtfs_precache executable not found")
     
-    # Read Parquet file in chunks
-    parquet_file = pq.ParquetFile(parquet_path)
-    num_row_groups = parquet_file.num_row_groups
-    logger.info(f"Processing {num_row_groups} row groups...")
+    # Create a temporary file for the msgpack output
+    temp_msgpack_path = txt_path.with_suffix('.msgpack.tmp')
+    logger.debug(f"Temporary msgpack path: {temp_msgpack_path}")
     
-    # Process each row group
-    for i in range(num_row_groups):
-        # Read one row group at a time
-        row_group = parquet_file.read_row_group(i)
+    try:
+        # Clean up any existing tmp file
+        if temp_msgpack_path.exists():
+            try:
+                temp_msgpack_path.unlink()
+                logger.debug("Cleaned up existing temporary file")
+            except Exception as e:
+                logger.warning(f"Failed to clean up existing temporary file: {e}")
         
-        # Convert to dictionary for more efficient memory usage
-        trip_ids = row_group.column('trip_id').to_pylist()
-        stop_ids = row_group.column('stop_id').to_pylist()
-        arrival_times = row_group.column('arrival_time').to_pylist()
-        departure_times = row_group.column('departure_time').to_pylist()
-        stop_sequences = row_group.column('stop_sequence').to_pylist()
+        # Run the C program to convert to msgpack
+        logger.info("Running C program to convert stop_times.txt...")
+        import subprocess
+        cmd = [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)]
+        logger.debug(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True
+        )
         
-        # Process in smaller batches
-        batch_size = 1000
-        for j in range(0, len(trip_ids), batch_size):
-            batch_end = min(j + batch_size, len(trip_ids))
+        if result.returncode != 0:
+            logger.error(f"C program failed with return code {result.returncode}")
+            if result.stdout:
+                logger.error(f"stdout: {result.stdout}")
+            if result.stderr:
+                logger.error(f"stderr: {result.stderr}")
+            raise RuntimeError("Failed to convert stop_times.txt")
+        
+        # Load the msgpack data
+        logger.info("Loading msgpack data...")
+        if not temp_msgpack_path.exists():
+            logger.error("Temporary msgpack file was not created")
+            raise RuntimeError("Temporary msgpack file was not created")
             
-            # Process each row in the batch
-            for k in range(j, batch_end):
-                trip_id = trip_ids[k]
-                if trip_id not in stop_times_dict:
-                    stop_times_dict[trip_id] = []
-                stop_times_dict[trip_id].append({
-                    "stop_id": str(stop_ids[k]),
-                    "arrival_time": arrival_times[k],
-                    "departure_time": departure_times[k],
-                    "stop_sequence": stop_sequences[k],
-                })
-                
-            total_rows += (batch_end - j)
-            if total_rows % 10000 == 0:
-                logger.info(f"Processed {total_rows:,} rows...")
+        file_size = temp_msgpack_path.stat().st_size
+        logger.debug(f"Temporary msgpack file size: {file_size} bytes")
+        if file_size == 0:
+            logger.error("Temporary msgpack file is empty")
+            raise RuntimeError("Temporary msgpack file is empty")
             
-            # Check CPU usage and sleep if needed
-            if cpu_check_fn:
-                cpu_check_fn()
+        with open(temp_msgpack_path, 'rb') as f:
+            data = msgpack.unpackb(f.read(), raw=False)
+        
+        # Verify data structure
+        logger.debug(f"Msgpack data type: {type(data)}")
+        if not isinstance(data, dict):
+            logger.error(f"Invalid msgpack data format: not a dictionary (got {type(data)})")
+            raise RuntimeError("Invalid msgpack data format")
             
-            # Brief sleep to prevent overload
-            time.sleep(0.01)
+        if 'stop_times' not in data:
+            logger.error(f"Invalid msgpack data format: missing 'stop_times' key (keys: {list(data.keys())})")
+            raise RuntimeError("Invalid msgpack data format")
         
-        # Log progress after each row group
-        logger.info(f"Completed row group {i + 1}/{num_row_groups} ({total_rows:,} total rows)")
+        stop_times = data['stop_times']
+        logger.debug(f"Stop times type: {type(stop_times)}")
+        if not isinstance(stop_times, list):
+            logger.error(f"Invalid stop_times format: not a list (got {type(stop_times)})")
+            raise RuntimeError("Invalid stop_times format")
         
-        # Free memory explicitly
-        del trip_ids, stop_ids, arrival_times, departure_times, stop_sequences
-        if cpu_check_fn:
-            cpu_check_fn()
+        logger.debug(f"Number of stop times: {len(stop_times)}")
+        if not stop_times:
+            logger.error("No stop times found in msgpack data")
+            raise RuntimeError("No stop times found in msgpack data")
+            
+        # Group stop times by trip_id
+        result = {}
+        for stop_time in stop_times:
+            trip_id = stop_time['trip_id']
+            if trip_id not in result:
+                result[trip_id] = []
+            result[trip_id].append(stop_time)
+        
+        # Sort each trip's stop times by stop_sequence
+        for trip_id in result:
+            result[trip_id].sort(key=lambda x: x['stop_sequence'])
+        
+        logger.info(f"Successfully loaded {len(stop_times)} stop times for {len(result)} trips")
+        return result
     
-    # Sort stop times by sequence for each trip
-    logger.info("Sorting stop times...")
-    for trip_id in stop_times_dict:
-        stop_times_dict[trip_id].sort(key=lambda x: x["stop_sequence"])
-        if cpu_check_fn and len(stop_times_dict) % 1000 == 0:
-            cpu_check_fn()
+    except Exception as e:
+        logger.error(f"Error in load_stop_times: {e}", exc_info=True)
+        raise
     
-    logger.info(f"Loaded {total_rows:,} stop times in {time.time() - t0:.2f} seconds")
-    return stop_times_dict
+    finally:
+        # Clean up temporary file
+        if temp_msgpack_path.exists():
+            try:
+                temp_msgpack_path.unlink()
+                logger.debug("Cleaned up temporary file")
+            except Exception as e:
+                logger.error(f"Failed to clean up temporary file: {e}")
+                pass
 
 
 def load_feed(
