@@ -10,6 +10,7 @@ import msgpack
 import psutil
 import time
 from .memory_util import check_memory_for_file
+import subprocess
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -1350,21 +1351,51 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
         
         # Run the C program to convert to msgpack
         logger.info("Running C program to convert stop_times.txt...")
-        import subprocess
         cmd = [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)]
         logger.debug(f"Running command: {' '.join(cmd)}")
-        result = subprocess.run(
+        
+        # First check the version
+        version_cmd = [str(gtfs_precache), "--version"]
+        try:
+            version_result = subprocess.run(
+                version_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            logger.info(f"gtfs_precache version: {version_result.stdout.strip()}")
+        except subprocess.TimeoutExpired:
+            logger.error("Version check timed out after 5 seconds")
+        except Exception as e:
+            logger.error(f"Version check failed: {e}")
+        
+        # Now run the actual conversion
+        # Use Popen to get real-time output
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
-            text=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
         )
         
-        if result.returncode != 0:
-            logger.error(f"C program failed with return code {result.returncode}")
-            if result.stdout:
-                logger.error(f"stdout: {result.stdout}")
-            if result.stderr:
-                logger.error(f"stderr: {result.stderr}")
+        # Read output in real-time
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                logger.info(f"gtfs_precache output: {output.strip()}")
+                
+        # Get the return code and any remaining output
+        return_code = process.wait()
+        stderr = process.stderr.read()
+        
+        if return_code != 0:
+            logger.error(f"C program failed with return code {return_code}")
+            if stderr:
+                logger.error(f"stderr: {stderr}")
             raise RuntimeError("Failed to convert stop_times.txt")
         
         # Load the msgpack data
