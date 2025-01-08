@@ -605,12 +605,6 @@ int process_stop_times(const char* input_file, const char* output_file) {
                 fflush(stdout);
                 last_progress = current_time;
             }
-
-            // Periodically force a garbage collection
-            if (processed % (BATCH_SIZE * 10) == 0) {
-                msgpack_sbuffer_clear(buffer);
-                msgpack_sbuffer_init(buffer);
-            }
         }
     }
 
