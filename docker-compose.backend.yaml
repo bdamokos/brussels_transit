@@ -13,8 +13,8 @@ services:
     env_file:
       - .env 
     volumes:
-      - ./downloads:/app/downloads
-      - ./cache:/app/cache
+      - ${PWD}/downloads:/app/downloads
+      - ${PWD}/cache:/app/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
