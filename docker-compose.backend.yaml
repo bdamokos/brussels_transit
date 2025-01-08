@@ -13,8 +13,11 @@ services:
     env_file:
       - .env
     volumes:
-      - ./downloads:/app/downloads
-      - ./cache:/app/cache
+      - type: bind
+      - source: ./downloads
+        target: /app/downloads
+      - source: ./cache
+        target: /app/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
