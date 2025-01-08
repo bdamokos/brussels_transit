@@ -23,8 +23,6 @@ USER nobody
 # Compile GTFS precache tool
 RUN cd app/schedule_explorer/backend && make
 
-# Declare volumes for persistent storage
-VOLUME ["/app/downloads", "/app/cache"]
 
 CMD ["python", "start.py"]
 
