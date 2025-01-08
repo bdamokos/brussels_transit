@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
+    && mkdir -p cache downloads \
     && chmod -R 777 /app \
     && chown -R nobody:nogroup /app
 
