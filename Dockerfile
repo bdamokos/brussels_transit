@@ -12,11 +12,13 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && mkdir -p downloads cache \
+    && mkdir -p downloads cache logs \
     && chmod -R 777 /app \
     && chown -R nobody:nogroup /app \
     && mkdir -p /app/cache/stib /app/cache/delijn /app/logs \
-    && chmod -R 777 /app/cache /app/logs
+    && chmod -R 777 /app/cache /app/logs \
+    && touch /app/logs/legacy_app.log /app/logs/schedule_explorer.log \
+    && chmod 666 /app/logs/legacy_app.log /app/logs/schedule_explorer.log
 
 COPY . .
 
