@@ -5,8 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
-
 RUN apt-get update && apt-get install -y \
     curl \
     nano \
@@ -20,10 +18,14 @@ RUN apt-get update && apt-get install -y \
     && mkdir -p /app/cache/stib /app/cache/delijn \
     && chmod -R 777 /app/cache
 
-USER nobody
+COPY . .
 
-# Compile GTFS precache tool
-RUN cd app/schedule_explorer/backend && make
+# Compile GTFS precache tool with debug symbols and memory alignment
+RUN cd app/schedule_explorer/backend && \
+    CFLAGS="-Wall -O2 -g -fno-strict-aliasing" make clean && \
+    CFLAGS="-Wall -O2 -g -fno-strict-aliasing" make
+
+USER nobody
 
 CMD ["python", "start.py"]
 
