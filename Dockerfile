@@ -10,7 +10,7 @@ COPY . .
 RUN apt-get update && apt-get install -y \
     curl \
     nano \
-    libmsgpackc-dev \
+    libmsgpack-dev \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
