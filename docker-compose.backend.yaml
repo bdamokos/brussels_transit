@@ -13,8 +13,8 @@ services:
     env_file:
       - .env 
     volumes:
-      - ${PWD}/downloads:/app/downloads
-      - ${PWD}/cache:/app/cache
+      - stib_downloads:/app/downloads
+      - stib_cache:/app/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
@@ -22,3 +22,7 @@ services:
       timeout: 120s
       retries: 5
       start_period: 120s
+
+volumes:
+  stib_downloads:
+  stib_cache:
