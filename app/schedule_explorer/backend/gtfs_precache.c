@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/resource.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <msgpack.h>
 #include <sys/stat.h>
 #include "gtfs_precache_version.h"
@@ -21,7 +24,8 @@
 #endif
 
 #define MAX_LINE_LENGTH 1024
-#define BATCH_SIZE 500
+#define BATCH_SIZE 10000  // Process 10k rows at a time
+#define PROGRESS_INTERVAL 1000  // Show progress every 1k rows
 #define DEFAULT_CPU_LIMIT 50  // Default CPU limit in percentage
 
 // Structure to hold a stop time entry
@@ -42,6 +46,74 @@ typedef struct {
     double rows_per_second;
     long memory_usage;
 } Progress;
+
+// Function declarations
+int process_line(char* line, msgpack_packer* pk);
+int process_stop_times(const char* input_file, const char* output_file);
+int check_rebuild(const char* executable_path);
+
+// Parse a CSV line into fields
+int parse_csv_line(char* line, char** fields, int max_fields) {
+    int field = 0;
+    char* token = strtok(line, ",");
+    while (token && field < max_fields) {
+        // Remove quotes if present
+        if (token[0] == '"') {
+            token++;
+            size_t len = strlen(token);
+            if (len > 0 && token[len-1] == '"') {
+                token[len-1] = '\0';
+            }
+        }
+        fields[field++] = token;
+        token = strtok(NULL, ",");
+    }
+    return field;
+}
+
+// Process a single line of the CSV file
+int process_line(char* line, msgpack_packer* pk) {
+    char* fields[10];  // More than enough for our needs
+    int num_fields = parse_csv_line(line, fields, 10);
+    
+    if (num_fields < 5) {  // We need at least 5 fields
+        return 0;
+    }
+    
+    // Pack stop time as a dictionary
+    msgpack_pack_map(pk, 5);
+    
+    // Pack trip_id
+    msgpack_pack_str(pk, 7);
+    msgpack_pack_str_body(pk, "trip_id", 7);
+    msgpack_pack_str(pk, strlen(fields[0]));
+    msgpack_pack_str_body(pk, fields[0], strlen(fields[0]));
+    
+    // Pack stop_id
+    msgpack_pack_str(pk, 7);
+    msgpack_pack_str_body(pk, "stop_id", 7);
+    msgpack_pack_str(pk, strlen(fields[3]));
+    msgpack_pack_str_body(pk, fields[3], strlen(fields[3]));
+    
+    // Pack arrival_time
+    msgpack_pack_str(pk, 12);
+    msgpack_pack_str_body(pk, "arrival_time", 12);
+    msgpack_pack_str(pk, strlen(fields[1]));
+    msgpack_pack_str_body(pk, fields[1], strlen(fields[1]));
+    
+    // Pack departure_time
+    msgpack_pack_str(pk, 14);
+    msgpack_pack_str_body(pk, "departure_time", 14);
+    msgpack_pack_str(pk, strlen(fields[2]));
+    msgpack_pack_str_body(pk, fields[2], strlen(fields[2]));
+    
+    // Pack stop_sequence
+    msgpack_pack_str(pk, 13);
+    msgpack_pack_str_body(pk, "stop_sequence", 13);
+    msgpack_pack_int32(pk, atoi(fields[4]));
+    
+    return 1;
+}
 
 // Cross-platform function to get current timestamp in seconds
 double get_timestamp() {
@@ -393,7 +465,7 @@ int read_header_version(char* version, size_t size) {
 }
 
 // Function to check if we need to rebuild
-int check_rebuild(int argc, char* argv[]) {
+int check_rebuild(const char* executable_path) {
     char header_version[32] = {0};
     if (read_header_version(header_version, sizeof(header_version)) != 0) {
         fprintf(stderr, "Warning: Could not read version from header\n");
@@ -408,21 +480,13 @@ int check_rebuild(int argc, char* argv[]) {
         printf("Rebuilding...\n");
         fflush(stdout);
 
-        // Get our own path
-        char exe_path[PATH_MAX];
-        if (get_executable_path(exe_path, sizeof(exe_path)) != 0) {
-            fprintf(stderr, "Error: Could not get executable path\n");
-            fflush(stderr);
-            return -1;
-        }
-
         // Build command
 #ifdef _WIN32
         char cmd[512];
-        snprintf(cmd, sizeof(cmd), "cmake --build . && copy /Y gtfs_precache.exe \"%s\"", exe_path);
+        snprintf(cmd, sizeof(cmd), "cmake --build . && copy /Y gtfs_precache.exe \"%s\"", executable_path);
 #else
         char cmd[512];
-        snprintf(cmd, sizeof(cmd), "make && cp -f gtfs_precache \"%s\"", exe_path);
+        snprintf(cmd, sizeof(cmd), "make && cp -f gtfs_precache \"%s\"", executable_path);
 #endif
 
         // Execute build command
@@ -436,8 +500,9 @@ int check_rebuild(int argc, char* argv[]) {
         printf("Rebuild successful, restarting...\n\n");
         fflush(stdout);
 
-        // Re-execute ourselves with the same arguments
-        execv(exe_path, argv);
+        // Re-execute ourselves
+        char* argv[] = {(char*)executable_path, NULL};
+        execv(executable_path, argv);
         
         // If we get here, execv failed
         fprintf(stderr, "Error: Failed to restart after rebuild\n");
@@ -448,205 +513,177 @@ int check_rebuild(int argc, char* argv[]) {
     return 0;  // No rebuild needed
 }
 
-int main(int argc, char* argv[]) {
-    // Check for rebuild first
-    if (check_rebuild(argc, argv) != 0) {
+int process_stop_times(const char* input_file, const char* output_file) {
+    FILE* fp = fopen(input_file, "r");
+    if (!fp) {
+        fprintf(stderr, "Error: Could not open input file %s\n", input_file);
+        fflush(stderr);
         return 1;
     }
 
-    int cpu_limit = DEFAULT_CPU_LIMIT;
-    char* input_file = NULL;
-    char* output_file = NULL;
-    
-    // Parse command line arguments
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--cpu-limit") == 0 && i + 1 < argc) {
-            cpu_limit = atoi(argv[i + 1]);
-            i++;
-        } else if (strcmp(argv[i], "--version") == 0) {
-            printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
-            fflush(stdout);
-            return 0;
-        } else if (!input_file) {
-            input_file = argv[i];
-        } else if (!output_file) {
-            output_file = argv[i];
-        }
-    }
-    
-    if (!input_file || !output_file) {
-        fprintf(stderr, "GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
-        fprintf(stderr, "Usage: %s [--cpu-limit PERCENT] [--version] <input_file> <output_file>\n", argv[0]);
-        fflush(stderr);
-        return 1;
-    }
-    
-    printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
-    printf("Starting with CPU limit: %d%%\n", cpu_limit);
-    printf("Input file: %s\n", input_file);
-    printf("Output file: %s\n", output_file);
+    // First count total lines
+    printf("Counting total lines...\n");
     fflush(stdout);
-    
-    // Initialize progress tracking
-    Progress progress = {0};
-    progress.start_time = get_timestamp();
-    progress.last_progress = progress.start_time;
-    
-    // Open input file
-    FILE* fp = fopen(input_file, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open input file: %s\n", input_file);
+    size_t total_lines = 0;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        total_lines++;
+    }
+    total_lines--; // Subtract header line
+    printf("Total lines to process: %zu\n", total_lines);
+    fflush(stdout);
+
+    // Reset file pointer
+    rewind(fp);
+
+    // Skip header line
+    if (!fgets(line, sizeof(line), fp)) {
+        fprintf(stderr, "Error: Could not read header line\n");
         fflush(stderr);
+        fclose(fp);
         return 1;
     }
-    
+
     // Initialize msgpack buffer
     msgpack_sbuffer* buffer = msgpack_sbuffer_new();
-    if (!buffer) {
-        fprintf(stderr, "Could not allocate msgpack buffer\n");
-        fflush(stderr);
-        fclose(fp);
-        return 1;
-    }
-    
     msgpack_packer* pk = msgpack_packer_new(buffer, msgpack_sbuffer_write);
-    if (!pk) {
-        fprintf(stderr, "Could not allocate msgpack packer\n");
-        fflush(stderr);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
-        return 1;
-    }
-    
-    // Read header and get column indices
-    char line[MAX_LINE_LENGTH];
-    int column_indices[5];
-    if (!fgets(line, sizeof(line), fp)) {
-        fprintf(stderr, "Could not read header\n");
-        fflush(stderr);
-        msgpack_packer_free(pk);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
-        return 1;
-    }
-    if (get_column_indices(line, column_indices) != 0) {
-        fprintf(stderr, "Invalid header format\n");
-        fflush(stderr);
-        msgpack_packer_free(pk);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
-        return 1;
-    }
-    
-    // Count total rows
-    progress.total_rows = 0;
+
+    // Start root map
+    msgpack_pack_map(pk, 1);
+    msgpack_pack_str(pk, 10);
+    msgpack_pack_str_body(pk, "stop_times", 10);
+
+    // We don't know the array size yet, but we'll write it at the end
+    size_t array_size_offset = buffer->size;
+    msgpack_pack_array(pk, 0);  // Placeholder, will be updated
+
+    size_t processed = 0;
+    size_t array_size = 0;
+    time_t start_time = time(NULL);
+    time_t last_progress = start_time;
+
+    // Process in batches
+    char** batch = malloc(BATCH_SIZE * sizeof(char*));
+    size_t batch_size = 0;
+
     while (fgets(line, sizeof(line), fp)) {
-        progress.total_rows++;
-    }
-    printf("Total rows to process: %ld\n", progress.total_rows);
-    fflush(stdout);
-    rewind(fp);
-    fgets(line, sizeof(line), fp);  // Skip header again
-    
-    // Start packing data
-    msgpack_pack_map(pk, 1);  // Root map with 1 key
-    msgpack_pack_str(pk, 10);  // Key length for "stop_times"
-    msgpack_pack_str_body(pk, "stop_times", 10);  // Don't include null terminator
-    msgpack_pack_array(pk, progress.total_rows);  // Array of stop times
-    
-    // Process rows
-    while (fgets(line, sizeof(line), fp)) {
-        // Limit CPU usage
-        limit_cpu(cpu_limit);
-        
-        // Parse line
-        StopTime stop_time;
-        if (parse_line(line, &stop_time, column_indices) != 0) {
-            fprintf(stderr, "Error parsing line: %s\n", line);
-            fflush(stderr);
-            continue;
+        // Add line to current batch
+        batch[batch_size] = strdup(line);
+        batch_size++;
+
+        // Process batch if it's full or if we're at the end
+        if (batch_size == BATCH_SIZE || feof(fp)) {
+            // Process each line in the batch
+            for (size_t i = 0; i < batch_size; i++) {
+                char* line = batch[i];
+                // Process the line (your existing line processing code)
+                if (process_line(line, pk)) {
+                    array_size++;
+                }
+                free(line);  // Free the line after processing
+            }
+
+            // Reset batch
+            batch_size = 0;
+
+            // Update progress
+            processed += batch_size;
+            time_t current_time = time(NULL);
+            if (current_time - last_progress >= 1) {
+                double progress = (double)processed / total_lines * 100.0;
+                double elapsed = difftime(current_time, start_time);
+                double speed = processed / (elapsed > 0 ? elapsed : 1);
+                double eta = (total_lines - processed) / (speed > 0 ? speed : 1);
+                
+                // Get current memory usage
+                struct rusage r_usage;
+                getrusage(RUSAGE_SELF, &r_usage);
+                double memory_mb = r_usage.ru_maxrss / 1024.0;
+
+                printf("Progress: %.1f%% (%zu/%zu) | Speed: %.0f rows/s | Memory: %.1f MB | ETA: %.0fs\n",
+                       progress, processed, total_lines, speed, memory_mb, eta);
+                fflush(stdout);
+                last_progress = current_time;
+            }
+
+            // Periodically force a garbage collection
+            if (processed % (BATCH_SIZE * 10) == 0) {
+                msgpack_sbuffer_clear(buffer);
+                msgpack_sbuffer_init(buffer);
+            }
         }
-        
-        // Pack stop time as a dictionary
-        msgpack_pack_map(pk, 5);
-        
-        // Pack trip_id
-        msgpack_pack_str(pk, 7);
-        msgpack_pack_str_body(pk, "trip_id", 7);
-        msgpack_pack_str(pk, strlen(stop_time.trip_id));
-        msgpack_pack_str_body(pk, stop_time.trip_id, strlen(stop_time.trip_id));
-        
-        // Pack stop_id
-        msgpack_pack_str(pk, 7);
-        msgpack_pack_str_body(pk, "stop_id", 7);
-        msgpack_pack_str(pk, strlen(stop_time.stop_id));
-        msgpack_pack_str_body(pk, stop_time.stop_id, strlen(stop_time.stop_id));
-        
-        // Pack arrival_time
-        msgpack_pack_str(pk, 12);
-        msgpack_pack_str_body(pk, "arrival_time", 12);
-        msgpack_pack_str(pk, strlen(stop_time.arrival_time));
-        msgpack_pack_str_body(pk, stop_time.arrival_time, strlen(stop_time.arrival_time));
-        
-        // Pack departure_time
-        msgpack_pack_str(pk, 14);
-        msgpack_pack_str_body(pk, "departure_time", 14);
-        msgpack_pack_str(pk, strlen(stop_time.departure_time));
-        msgpack_pack_str_body(pk, stop_time.departure_time, strlen(stop_time.departure_time));
-        
-        // Pack stop_sequence
-        msgpack_pack_str(pk, 13);
-        msgpack_pack_str_body(pk, "stop_sequence", 13);
-        msgpack_pack_int32(pk, stop_time.stop_sequence);  // Use int32 to match Python's expectation
-        
-        progress.processed_rows++;
-        update_progress(&progress);
     }
+
+    // Free batch array
+    free(batch);
+
+    // Update array size at the stored offset
+    msgpack_sbuffer* final_buffer = msgpack_sbuffer_new();
+    msgpack_packer* final_pk = msgpack_packer_new(final_buffer, msgpack_sbuffer_write);
     
-    // Write buffer to output file
-    FILE* out_fp = fopen(output_file, "wb");
-    if (!out_fp) {
-        fprintf(stderr, "Could not open output file: %s\n", output_file);
+    // Copy everything up to the array size
+    msgpack_sbuffer_write(final_buffer, buffer->data, array_size_offset);
+    
+    // Write the actual array size
+    msgpack_pack_array(final_pk, array_size);
+    
+    // Copy the rest of the data
+    msgpack_sbuffer_write(final_buffer, 
+                         buffer->data + array_size_offset + 5, // Skip the old array header
+                         buffer->size - array_size_offset - 5);
+
+    // Write to output file
+    FILE* out = fopen(output_file, "wb");
+    if (!out) {
+        fprintf(stderr, "Error: Could not open output file %s\n", output_file);
         fflush(stderr);
-        msgpack_packer_free(pk);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
         return 1;
     }
-    
-    // Print debug info about the msgpack data
-    printf("\nMsgpack buffer size: %zu bytes\n", buffer->size);
-    printf("Processed rows: %ld\n", progress.processed_rows);
-    printf("Average bytes per row: %.1f\n", (float)buffer->size / progress.processed_rows);
-    fflush(stdout);
-    
-    size_t written = fwrite(buffer->data, buffer->size, 1, out_fp);
-    if (written != 1) {
-        fprintf(stderr, "Error writing output file\n");
-        fflush(stderr);
-        fclose(out_fp);
-        msgpack_packer_free(pk);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
-        return 1;
-    }
-    
-    // Print debug info about the output file
-    struct stat st;
-    if (stat(output_file, &st) == 0) {
-        char size_str[32];
-        format_size(st.st_size, size_str);
-        printf("Output file size: %s\n", size_str);
-        fflush(stdout);
-    }
-    
-    // Clean up
-    fclose(out_fp);
+
+    fwrite(final_buffer->data, final_buffer->size, 1, out);
+    fclose(out);
+
+    // Cleanup
     msgpack_sbuffer_free(buffer);
     msgpack_packer_free(pk);
+    msgpack_sbuffer_free(final_buffer);
+    msgpack_packer_free(final_pk);
     fclose(fp);
-    
-    printf("\nCompleted processing %ld rows\n", progress.processed_rows);
+
+    printf("Processing complete. Processed %zu rows.\n", processed);
     fflush(stdout);
     return 0;
+}
+
+// Function declarations
+int process_line(char* line, msgpack_packer* pk);
+int process_stop_times(const char* input_file, const char* output_file);
+int check_rebuild(const char* executable_path);
+
+int main(int argc, char* argv[]) {
+    // Print version if requested
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
+        fflush(stdout);
+        return 0;
+    }
+
+    // Check for self-update
+    if (check_rebuild(argv[0]) != 0) {
+        fprintf(stderr, "Failed to check for updates\n");
+        fflush(stderr);
+        return 1;
+    }
+
+    // Check arguments
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <input_file> <output_file>\n", argv[0]);
+        fflush(stderr);
+        return 1;
+    }
+
+    printf("GTFS Precache Tool v%s starting...\n", GTFS_PRECACHE_VERSION_STRING);
+    fflush(stdout);
+
+    return process_stop_times(argv[1], argv[2]);
 } 
