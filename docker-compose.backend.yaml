@@ -12,6 +12,9 @@ services:
       - FLASK_DEBUG=1
     env_file:
       - .env 
+    volumes:
+      - ./downloads:/app/downloads
+      - ./cache:/app/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
