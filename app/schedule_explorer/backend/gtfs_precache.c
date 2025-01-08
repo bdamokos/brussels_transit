@@ -553,12 +553,10 @@ int process_stop_times(const char* input_file, const char* output_file) {
     msgpack_pack_str(pk, 10);
     msgpack_pack_str_body(pk, "stop_times", 10);
 
-    // We don't know the array size yet, but we'll write it at the end
-    size_t array_size_offset = buffer->size;
-    msgpack_pack_array(pk, 0);  // Placeholder, will be updated
+    // Start array with known size (total_lines - 1)
+    msgpack_pack_array(pk, total_lines - 1);
 
     size_t processed = 0;
-    size_t array_size = 0;
     time_t start_time = time(NULL);
     time_t last_progress = start_time;
 
@@ -576,10 +574,8 @@ int process_stop_times(const char* input_file, const char* output_file) {
             // Process each line in the batch
             for (size_t i = 0; i < batch_size; i++) {
                 char* line = batch[i];
-                // Process the line (your existing line processing code)
-                if (process_line(line, pk)) {
-                    array_size++;
-                }
+                // Process the line
+                process_line(line, pk);
                 free(line);  // Free the line after processing
             }
 
@@ -611,21 +607,6 @@ int process_stop_times(const char* input_file, const char* output_file) {
     // Free batch array
     free(batch);
 
-    // Update array size at the stored offset
-    msgpack_sbuffer* final_buffer = msgpack_sbuffer_new();
-    msgpack_packer* final_pk = msgpack_packer_new(final_buffer, msgpack_sbuffer_write);
-    
-    // Copy everything up to the array size
-    msgpack_sbuffer_write(final_buffer, buffer->data, array_size_offset);
-    
-    // Write the actual array size
-    msgpack_pack_array(final_pk, array_size);
-    
-    // Copy the rest of the data
-    msgpack_sbuffer_write(final_buffer, 
-                         buffer->data + array_size_offset + 5, // Skip the old array header
-                         buffer->size - array_size_offset - 5);
-
     // Write to output file
     FILE* out = fopen(output_file, "wb");
     if (!out) {
@@ -634,14 +615,12 @@ int process_stop_times(const char* input_file, const char* output_file) {
         return 1;
     }
 
-    fwrite(final_buffer->data, final_buffer->size, 1, out);
+    fwrite(buffer->data, buffer->size, 1, out);
     fclose(out);
 
     // Cleanup
     msgpack_sbuffer_free(buffer);
     msgpack_packer_free(pk);
-    msgpack_sbuffer_free(final_buffer);
-    msgpack_packer_free(final_pk);
     fclose(fp);
 
     printf("Processing complete. Processed %zu rows.\n", processed);
