@@ -12,11 +12,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && mkdir -p downloads cache \
+    && mkdir -p downloads cache logs \
     && chmod -R 777 /app \
     && chown -R nobody:nogroup /app \
     && mkdir -p /app/cache/stib /app/cache/delijn \
-    && chmod -R 777 /app/cache
+    && chmod -R 777 /app/cache \
+    && chmod -R 777 /app/logs
 
 COPY . .
 
