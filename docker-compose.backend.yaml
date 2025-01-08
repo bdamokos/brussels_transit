@@ -5,8 +5,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "0.0.0.0:5001:5001"
-      - "0.0.0.0:8000:8000"
-      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:8005:8000"
+      - "0.0.0.0:8085:8080"
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
