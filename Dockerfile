@@ -17,12 +17,16 @@ RUN apt-get update && apt-get install -y \
     && chown -R nobody:nogroup /app \
     && mkdir -p /app/cache/stib /app/cache/delijn \
     && chmod -R 777 /app/cache \
-    && chmod -R 777 /app/logs
+    && chmod -R 777 /app/logs \
+    && touch /app/logs/legacy_app.log \
+    && chmod 666 /app/logs/legacy_app.log
 
 COPY . .
 
 # Compile GTFS precache tool
-RUN cd app/schedule_explorer/backend && make
+RUN cd app/schedule_explorer/backend && make \
+    && chown -R nobody:nogroup /app \
+    && chmod -R 777 /app/logs
 
 USER nobody
 
