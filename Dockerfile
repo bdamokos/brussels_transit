@@ -16,13 +16,14 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && mkdir -p downloads cache \
     && chmod -R 777 /app \
-    && chown -R nobody:nogroup /app
+    && chown -R nobody:nogroup /app \
+    && mkdir -p /app/cache/stib /app/cache/delijn \
+    && chmod -R 777 /app/cache
 
 USER nobody
 
 # Compile GTFS precache tool
 RUN cd app/schedule_explorer/backend && make
-
 
 CMD ["python", "start.py"]
 
