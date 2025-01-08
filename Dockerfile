@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
     && mkdir -p downloads cache \
     && chmod -R 777 /app \
     && chown -R nobody:nogroup /app \
-    && mkdir -p /app/cache/stib /app/cache/delijn \
-    && chmod -R 777 /app/cache
+    && mkdir -p /app/cache/stib /app/cache/delijn /app/logs \
+    && chmod -R 777 /app/cache /app/logs
 
 COPY . .
 
