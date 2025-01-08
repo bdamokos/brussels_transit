@@ -14,9 +14,10 @@ services:
       - .env
     volumes:
       - type: bind
-      - source: ./downloads
+        source: ./downloads
         target: /app/downloads
-      - source: ./cache
+      - type: bind
+        source: ./cache
         target: /app/cache
     restart: unless-stopped
     healthcheck:
