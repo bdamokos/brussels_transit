@@ -65,6 +65,14 @@ int parse_csv_line(char* line, char** fields, int max_fields) {
                 token[len-1] = '\0';
             }
         }
+        // Remove newline if present
+        size_t len = strlen(token);
+        if (len > 0 && (token[len-1] == '\n' || token[len-1] == '\r')) {
+            token[len-1] = '\0';
+            if (len > 1 && token[len-2] == '\r') {
+                token[len-2] = '\0';
+            }
+        }
         fields[field++] = token;
         token = strtok(NULL, ",");
     }
@@ -77,42 +85,77 @@ int process_line(char* line, msgpack_packer* pk) {
     int num_fields = parse_csv_line(line, fields, 10);
     
     if (num_fields < 5) {  // We need at least 5 fields
-        return 0;
+        fprintf(stderr, "Error: Not enough fields in line: %s\n", line);
+        fflush(stderr);
+        return -1;
+    }
+    
+    // Convert stop_sequence to integer first to validate it
+    char* endptr;
+    long seq = strtol(fields[4], &endptr, 10);
+    if (*endptr != '\0' || seq < 0 || seq > INT_MAX) {
+        fprintf(stderr, "Invalid stop_sequence: %s\n", fields[4]);
+        fflush(stderr);
+        return -1;
     }
     
     // Pack stop time as a dictionary
-    msgpack_pack_map(pk, 5);
+    if (msgpack_pack_map(pk, 5) != 0) {
+        fprintf(stderr, "Error: Could not pack map header\n");
+        fflush(stderr);
+        return -1;
+    }
     
     // Pack trip_id
-    msgpack_pack_str(pk, 7);
-    msgpack_pack_str_body(pk, "trip_id", 7);
-    msgpack_pack_str(pk, strlen(fields[0]));
-    msgpack_pack_str_body(pk, fields[0], strlen(fields[0]));
-    
-    // Pack stop_id
-    msgpack_pack_str(pk, 7);
-    msgpack_pack_str_body(pk, "stop_id", 7);
-    msgpack_pack_str(pk, strlen(fields[3]));
-    msgpack_pack_str_body(pk, fields[3], strlen(fields[3]));
+    if (msgpack_pack_str(pk, 7) != 0 ||
+        msgpack_pack_str_body(pk, "trip_id", 7) != 0 ||
+        msgpack_pack_str(pk, strlen(fields[0])) != 0 ||
+        msgpack_pack_str_body(pk, fields[0], strlen(fields[0])) != 0) {
+        fprintf(stderr, "Error: Could not pack trip_id\n");
+        fflush(stderr);
+        return -1;
+    }
     
     // Pack arrival_time
-    msgpack_pack_str(pk, 12);
-    msgpack_pack_str_body(pk, "arrival_time", 12);
-    msgpack_pack_str(pk, strlen(fields[1]));
-    msgpack_pack_str_body(pk, fields[1], strlen(fields[1]));
+    if (msgpack_pack_str(pk, 12) != 0 ||
+        msgpack_pack_str_body(pk, "arrival_time", 12) != 0 ||
+        msgpack_pack_str(pk, strlen(fields[1])) != 0 ||
+        msgpack_pack_str_body(pk, fields[1], strlen(fields[1])) != 0) {
+        fprintf(stderr, "Error: Could not pack arrival_time\n");
+        fflush(stderr);
+        return -1;
+    }
     
     // Pack departure_time
-    msgpack_pack_str(pk, 14);
-    msgpack_pack_str_body(pk, "departure_time", 14);
-    msgpack_pack_str(pk, strlen(fields[2]));
-    msgpack_pack_str_body(pk, fields[2], strlen(fields[2]));
+    if (msgpack_pack_str(pk, 14) != 0 ||
+        msgpack_pack_str_body(pk, "departure_time", 14) != 0 ||
+        msgpack_pack_str(pk, strlen(fields[2])) != 0 ||
+        msgpack_pack_str_body(pk, fields[2], strlen(fields[2])) != 0) {
+        fprintf(stderr, "Error: Could not pack departure_time\n");
+        fflush(stderr);
+        return -1;
+    }
+    
+    // Pack stop_id
+    if (msgpack_pack_str(pk, 7) != 0 ||
+        msgpack_pack_str_body(pk, "stop_id", 7) != 0 ||
+        msgpack_pack_str(pk, strlen(fields[3])) != 0 ||
+        msgpack_pack_str_body(pk, fields[3], strlen(fields[3])) != 0) {
+        fprintf(stderr, "Error: Could not pack stop_id\n");
+        fflush(stderr);
+        return -1;
+    }
     
     // Pack stop_sequence
-    msgpack_pack_str(pk, 13);
-    msgpack_pack_str_body(pk, "stop_sequence", 13);
-    msgpack_pack_int32(pk, atoi(fields[4]));
+    if (msgpack_pack_str(pk, 13) != 0 ||
+        msgpack_pack_str_body(pk, "stop_sequence", 13) != 0 ||
+        msgpack_pack_int32(pk, (int32_t)seq) != 0) {
+        fprintf(stderr, "Error: Could not pack stop_sequence\n");
+        fflush(stderr);
+        return -1;
+    }
     
-    return 1;
+    return 0;
 }
 
 // Cross-platform function to get current timestamp in seconds
@@ -546,86 +589,132 @@ int process_stop_times(const char* input_file, const char* output_file) {
 
     // Initialize msgpack buffer
     msgpack_sbuffer* buffer = msgpack_sbuffer_new();
+    if (!buffer) {
+        fprintf(stderr, "Error: Could not create msgpack buffer\n");
+        fflush(stderr);
+        fclose(fp);
+        return 1;
+    }
+    printf("Created msgpack buffer\n");
+    fflush(stdout);
+
     msgpack_packer* pk = msgpack_packer_new(buffer, msgpack_sbuffer_write);
+    if (!pk) {
+        fprintf(stderr, "Error: Could not create msgpack packer\n");
+        fflush(stderr);
+        msgpack_sbuffer_free(buffer);
+        fclose(fp);
+        return 1;
+    }
+    printf("Created msgpack packer\n");
+    fflush(stdout);
 
     // Start root map
-    msgpack_pack_map(pk, 1);
-    msgpack_pack_str(pk, 10);
-    msgpack_pack_str_body(pk, "stop_times", 10);
+    if (msgpack_pack_map(pk, 1) != 0) {
+        fprintf(stderr, "Error: Could not pack root map\n");
+        fflush(stderr);
+        goto cleanup;
+    }
+    printf("Packed root map\n");
+    fflush(stdout);
+
+    // Pack "stop_times" key
+    if (msgpack_pack_str(pk, 10) != 0 || 
+        msgpack_pack_str_body(pk, "stop_times", 10) != 0) {
+        fprintf(stderr, "Error: Could not pack stop_times key\n");
+        fflush(stderr);
+        goto cleanup;
+    }
+    printf("Packed stop_times key\n");
+    fflush(stdout);
 
     // Start array with known size (total_lines - 1)
-    msgpack_pack_array(pk, total_lines - 1);
+    if (msgpack_pack_array(pk, total_lines - 1) != 0) {
+        fprintf(stderr, "Error: Could not pack array header\n");
+        fflush(stderr);
+        goto cleanup;
+    }
+    printf("Packed array header with size %zu\n", total_lines - 1);
+    fflush(stdout);
 
     size_t processed = 0;
+    size_t successful = 0;
     time_t start_time = time(NULL);
     time_t last_progress = start_time;
 
-    // Process in batches
-    char** batch = malloc(BATCH_SIZE * sizeof(char*));
-    size_t batch_size = 0;
-
+    // Process each line
     while (fgets(line, sizeof(line), fp)) {
-        // Add line to current batch
-        batch[batch_size] = strdup(line);
-        batch_size++;
+        // Process the line
+        if (process_line(line, pk) == 0) {
+            successful++;
+        }
+        processed++;
 
-        // Process batch if it's full or if we're at the end
-        if (batch_size == BATCH_SIZE || feof(fp)) {
-            // Process each line in the batch
-            for (size_t i = 0; i < batch_size; i++) {
-                char* line = batch[i];
-                // Process the line
-                process_line(line, pk);
-                free(line);  // Free the line after processing
-            }
+        // Update progress
+        time_t current_time = time(NULL);
+        if (current_time - last_progress >= 1) {
+            double progress = (double)processed / total_lines * 100.0;
+            double elapsed = difftime(current_time, start_time);
+            double speed = processed / (elapsed > 0 ? elapsed : 1);
+            double eta = (total_lines - processed) / (speed > 0 ? speed : 1);
+            
+            // Get current memory usage
+            struct rusage r_usage;
+            getrusage(RUSAGE_SELF, &r_usage);
+            double memory_mb = r_usage.ru_maxrss / 1024.0;
 
-            // Reset batch
-            batch_size = 0;
-
-            // Update progress
-            processed += batch_size;
-            time_t current_time = time(NULL);
-            if (current_time - last_progress >= 1) {
-                double progress = (double)processed / total_lines * 100.0;
-                double elapsed = difftime(current_time, start_time);
-                double speed = processed / (elapsed > 0 ? elapsed : 1);
-                double eta = (total_lines - processed) / (speed > 0 ? speed : 1);
-                
-                // Get current memory usage
-                struct rusage r_usage;
-                getrusage(RUSAGE_SELF, &r_usage);
-                double memory_mb = r_usage.ru_maxrss / 1024.0;
-
-                printf("Progress: %.1f%% (%zu/%zu) | Speed: %.0f rows/s | Memory: %.1f MB | ETA: %.0fs\n",
-                       progress, processed, total_lines, speed, memory_mb, eta);
-                fflush(stdout);
-                last_progress = current_time;
-            }
+            printf("Progress: %.1f%% (%zu/%zu) | Success: %zu | Speed: %.0f rows/s | Memory: %.1f MB | ETA: %.0fs | Buffer size: %zu bytes\n",
+                   progress, processed, total_lines, successful, speed, memory_mb, eta, buffer->size);
+            fflush(stdout);
+            last_progress = current_time;
         }
     }
 
-    // Free batch array
-    free(batch);
+    printf("Processing complete. Final buffer size: %zu bytes\n", buffer->size);
+    fflush(stdout);
 
     // Write to output file
     FILE* out = fopen(output_file, "wb");
     if (!out) {
         fprintf(stderr, "Error: Could not open output file %s\n", output_file);
         fflush(stderr);
-        return 1;
+        goto cleanup;
     }
 
-    fwrite(buffer->data, buffer->size, 1, out);
-    fclose(out);
+    // Write the buffer in a single operation
+    size_t written = fwrite(buffer->data, 1, buffer->size, out);
+    if (written != buffer->size) {
+        fprintf(stderr, "Error: Could not write complete buffer. Written %zu of %zu bytes\n", 
+                written, buffer->size);
+        fflush(stderr);
+        fclose(out);
+        goto cleanup;
+    }
 
-    // Cleanup
-    msgpack_sbuffer_free(buffer);
+    printf("Successfully wrote %zu bytes to output file\n", written);
+    fflush(stdout);
+
+    // Close the output file before cleanup
+    if (fclose(out) != 0) {
+        fprintf(stderr, "Error: Could not close output file\n");
+        fflush(stderr);
+        goto cleanup;
+    }
+
+    // Cleanup msgpack resources
     msgpack_packer_free(pk);
+    msgpack_sbuffer_free(buffer);
     fclose(fp);
 
-    printf("Processing complete. Processed %zu rows.\n", processed);
+    printf("Processing complete. Processed %zu rows, %zu successful.\n", processed, successful);
     fflush(stdout);
     return 0;
+
+cleanup:
+    if (pk) msgpack_packer_free(pk);
+    if (buffer) msgpack_sbuffer_free(buffer);
+    if (fp) fclose(fp);
+    return 1;
 }
 
 // Function declarations
