@@ -82,7 +82,7 @@ def run_apps():
                 "--workers",
                 "2",
                 "--timeout-keep-alive",
-                "30",
+                "300",
                 "--lifespan",
                 "on",
             ],
