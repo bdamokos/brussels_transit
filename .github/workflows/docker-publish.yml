@@ -59,6 +59,10 @@ jobs:
         run: |
           cp app/config/local.py.example app/config/local.py
           cp .env.example .env
+          # Create necessary directories
+          mkdir -p downloads cache logs
+          mkdir -p cache/stib cache/delijn
+          chmod -R 777 downloads cache logs
 
       - name: Build and test backend image
         uses: docker/build-push-action@v5

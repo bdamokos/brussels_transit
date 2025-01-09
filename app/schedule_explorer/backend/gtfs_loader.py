@@ -1,16 +1,18 @@
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Callable
 import pandas as pd
 from pathlib import Path
 import os
 import hashlib
 import logging
 import msgpack
-import lzma
 import psutil
 import time
 from .memory_util import check_memory_for_file
+import subprocess
+from threading import Thread
+from queue import Queue, Empty
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -1094,11 +1096,11 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "3.0.0.0"
+CACHE_VERSION = "4.0.0.1"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
-    """Serialize GTFS feed data using msgpack and lzma compression."""
+    """Serialize GTFS feed data using msgpack."""
     try:
         logger.info("Starting GTFS feed serialization")
         t00 = time.time()
@@ -1182,44 +1184,26 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
             f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s"
         )
 
-        # Compress with lzma
-        logger.info("Compressing data with lzma")
-        t0 = time.time()
-        compressed_data = lzma.compress(
-            packed_data,
-            format=lzma.FORMAT_XZ,
-            filters=[{"id": lzma.FILTER_LZMA2, "preset": 6}],
-        )
-        logger.info(
-            f"Compressed data size:{bytes_to_mb(len(packed_data))} MB --> {bytes_to_mb(len(compressed_data))} MB in {time.time() - t0:.2f}s"
-        )
         logger.info(
             f"GTFS feed serialization completed successfully in {time.time() - t00:.2f}s"
         )
 
-        return compressed_data
+        return packed_data
     except Exception as e:
         logger.error(f"Error serializing GTFS data: {e}", exc_info=True)
         raise
 
 
 def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
-    """Deserialize GTFS feed data from msgpack and lzma compression."""
+    """Deserialize GTFS feed data from msgpack."""
     try:
         start_time = time.time()
         logger.info("Starting GTFS feed deserialization")
 
-        # Decompress with lzma
-        t0 = time.time()
-        decompressed_data = lzma.decompress(data)
-        logger.info(
-            f"LZMA decompression: {bytes_to_mb(len(data))} MB -> {bytes_to_mb(len(decompressed_data))} MB in {time.time() - t0:.2f}s"
-        )
-
         # Unpack with msgpack
         logger.info("Unpacking data with msgpack")
         t0 = time.time()
-        raw_data = msgpack.unpackb(decompressed_data, raw=False)
+        raw_data = msgpack.unpackb(data, raw=False)
         logger.info(f"Msgpack unpacking took {time.time() - t0:.2f} seconds")
 
         # Convert back to objects
@@ -1331,19 +1315,266 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         raise
 
 
+def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]:
+    """
+    Load stop times from stop_times.txt using the C implementation.
+    Falls back to Python implementation if C implementation fails.
+    Returns a dictionary mapping trip_id to a list of stop times.
+    """
+    txt_path = data_path / "stop_times.txt"
+    if not txt_path.exists():
+        logger.error(f"stop_times.txt not found in {data_path}")
+        raise FileNotFoundError(f"stop_times.txt not found in {data_path}")
+
+    # Get the directory containing this script
+    script_dir = Path(__file__).parent.absolute()
+    logger.debug(f"Script directory: {script_dir}")
+    
+    # Path to the C executable
+    gtfs_precache = script_dir / "gtfs_precache"
+    logger.debug(f"Looking for gtfs_precache at: {gtfs_precache}")
+    logger.debug(f"gtfs_precache exists: {gtfs_precache.exists()}")
+    
+    # Try C implementation first if available
+    if gtfs_precache.exists():
+        try:
+            # Create a temporary file for the msgpack output
+            temp_msgpack_path = txt_path.with_suffix('.msgpack.tmp')
+            logger.debug(f"Temporary msgpack path: {temp_msgpack_path}")
+            
+            try:
+                # Clean up any existing tmp file
+                if temp_msgpack_path.exists():
+                    try:
+                        temp_msgpack_path.unlink()
+                        logger.debug("Cleaned up existing temporary file")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up existing temporary file: {e}")
+                
+                # Run the C program to convert to msgpack
+                logger.info("Running C program to convert stop_times.txt...")
+                import subprocess
+                cmd = [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)]
+                logger.debug(f"Running command: {' '.join(cmd)}")
+                
+                # First check the version
+                version_cmd = [str(gtfs_precache), "--version"]
+                try:
+                    version_result = subprocess.run(
+                        version_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    logger.info(f"gtfs_precache version: {version_result.stdout.strip()}")
+                except subprocess.TimeoutExpired:
+                    logger.error("Version check timed out after 5 seconds")
+                except Exception as e:
+                    logger.error(f"Version check failed: {e}")
+                
+                # Now run the actual conversion
+                # Use Popen with threads to handle output
+                def enqueue_output(out, queue):
+                    for line in iter(out.readline, ''):
+                        queue.put(line)
+                    out.close()
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                    universal_newlines=True
+                )
+                
+                # Create queues and threads for stdout and stderr
+                stdout_q = Queue()
+                stderr_q = Queue()
+                stdout_t = Thread(target=enqueue_output, args=(process.stdout, stdout_q))
+                stderr_t = Thread(target=enqueue_output, args=(process.stderr, stderr_q))
+                stdout_t.daemon = True
+                stderr_t.daemon = True
+                stdout_t.start()
+                stderr_t.start()
+                
+                # Read output from both streams
+                while process.poll() is None:
+                    # Check stdout
+                    try:
+                        while True:  # Read all available stdout lines
+                            line = stdout_q.get_nowait()
+                            logger.info(f"gtfs_precache output: {line.strip()}")
+                    except Empty:
+                        pass
+                        
+                    # Check stderr
+                    try:
+                        while True:  # Read all available stderr lines
+                            line = stderr_q.get_nowait()
+                            logger.warning(f"gtfs_precache stderr: {line.strip()}")
+                    except Empty:
+                        pass
+                        
+                    time.sleep(0.1)  # Short sleep to prevent busy waiting
+                
+                # Get the return code
+                return_code = process.wait()
+                
+                # Read any remaining output
+                try:
+                    while True:
+                        line = stdout_q.get_nowait()
+                        logger.info(f"gtfs_precache output: {line.strip()}")
+                except Empty:
+                    pass
+                    
+                try:
+                    while True:
+                        line = stderr_q.get_nowait()
+                        logger.warning(f"gtfs_precache stderr: {line.strip()}")
+                except Empty:
+                    pass
+                
+                if return_code != 0:
+                    logger.error(f"C program failed with return code {return_code}")
+                    raise RuntimeError("Failed to convert stop_times.txt")
+                
+                # Load the msgpack data
+                logger.info("Loading msgpack data...")
+                if not temp_msgpack_path.exists():
+                    logger.error("Temporary msgpack file was not created")
+                    raise RuntimeError("Temporary msgpack file was not created")
+                    
+                file_size = temp_msgpack_path.stat().st_size
+                logger.debug(f"Temporary msgpack file size: {file_size} bytes")
+                if file_size == 0:
+                    logger.error("Temporary msgpack file is empty")
+                    raise RuntimeError("Temporary msgpack file is empty")
+                    
+                with open(temp_msgpack_path, 'rb') as f:
+                    data = msgpack.unpackb(f.read(), raw=False)
+                
+                # Verify data structure
+                logger.debug(f"Msgpack data type: {type(data)}")
+                if not isinstance(data, dict):
+                    logger.error(f"Invalid msgpack data format: not a dictionary (got {type(data)})")
+                    raise RuntimeError("Invalid msgpack data format")
+                    
+                if 'stop_times' not in data:
+                    logger.error(f"Invalid msgpack data format: missing 'stop_times' key (keys: {list(data.keys())})")
+                    raise RuntimeError("Invalid msgpack data format")
+                
+                stop_times = data['stop_times']
+                logger.debug(f"Stop times type: {type(stop_times)}")
+                if not isinstance(stop_times, list):
+                    logger.error(f"Invalid stop_times format: not a list (got {type(stop_times)})")
+                    raise RuntimeError("Invalid stop_times format")
+                
+                logger.debug(f"Number of stop times: {len(stop_times)}")
+                if not stop_times:
+                    logger.error("No stop times found in msgpack data")
+                    raise RuntimeError("No stop times found in msgpack data")
+                    
+                # Group stop times by trip_id
+                result = {}
+                for stop_time in stop_times:
+                    trip_id = stop_time['trip_id']
+                    if trip_id not in result:
+                        result[trip_id] = []
+                    result[trip_id].append(stop_time)
+                
+                # Sort each trip's stop times by stop_sequence
+                for trip_id in result:
+                    result[trip_id].sort(key=lambda x: x['stop_sequence'])
+                
+                logger.info(f"Successfully loaded {len(stop_times)} stop times for {len(result)} trips using C implementation")
+                return result
+            
+            finally:
+                # Clean up temporary file
+                if temp_msgpack_path.exists():
+                    try:
+                        temp_msgpack_path.unlink()
+                        logger.debug("Cleaned up temporary file")
+                    except Exception as e:
+                        logger.error(f"Failed to clean up temporary file: {e}")
+                        pass
+        except Exception as e:
+            logger.warning(f"C implementation failed, falling back to Python: {e}")
+            # Fall through to Python implementation
+    else:
+        logger.info("C implementation not available, using Python implementation")
+
+    # Python implementation
+    logger.info("Loading stop times using Python implementation...")
+    try:
+        # Calculate optimal chunk size based on available memory
+        available_memory = psutil.virtual_memory().available
+        estimated_row_size = 200  # bytes per row
+        optimal_chunk_size = min(
+            100000,  # max chunk size
+            max(1000, available_memory // (estimated_row_size * 2)),  # ensure buffer
+        )
+        logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
+
+        result = {}
+        total_rows = 0
+        for chunk in pd.read_csv(
+            txt_path,
+            chunksize=optimal_chunk_size,
+            dtype={
+                "trip_id": str,
+                "arrival_time": str,
+                "departure_time": str,
+                "stop_id": str,
+                "stop_sequence": int,
+            },
+        ):
+            for _, row in chunk.iterrows():
+                trip_id = str(row["trip_id"])
+                if trip_id not in result:
+                    result[trip_id] = []
+                result[trip_id].append({
+                    "trip_id": trip_id,
+                    "arrival_time": row["arrival_time"],
+                    "departure_time": row["departure_time"],
+                    "stop_id": str(row["stop_id"]),
+                    "stop_sequence": int(row["stop_sequence"]),
+                })
+                total_rows += 1
+
+                if cpu_check_fn and total_rows % 10000 == 0:
+                    cpu_check_fn()
+
+        # Sort each trip's stop times by stop_sequence
+        for trip_id in result:
+            result[trip_id].sort(key=lambda x: x["stop_sequence"])
+
+        logger.info(f"Successfully loaded {total_rows} stop times for {len(result)} trips using Python implementation")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in Python implementation of load_stop_times: {e}", exc_info=True)
+        raise
+
+
 def load_feed(
-    data_dir: str | Path = None, target_stops: Set[str] = None
+    data_dir: str | Path = None, 
+    target_stops: Set[str] = None,
+    cpu_check_fn: Optional[Callable] = None
 ) -> FlixbusFeed:
     """
     Load GTFS feed from the specified directory.
     If target_stops is provided, only loads routes that contain those stops.
-
+    
     Args:
         data_dir: Path to the GTFS data directory. Can be either a string or Path object.
         target_stops: Optional set of stop IDs to filter routes by.
-
+        cpu_check_fn: Optional function to check CPU usage and throttle if needed
+        
     Returns:
-        FlixbusFeed object containing the loaded GTFS data.
+        GTFSFeed object containing the loaded GTFS data.
 
     Raises:
         ValueError: If data_dir is None or does not exist.
@@ -1586,47 +1817,8 @@ def load_feed(
         low_memory=use_low_memory,
     )
 
-    # Load stop times in chunks to handle large files
-    t0 = time.time()
-    logger.info("Loading stop times...")
-    chunk_size = 100000
-    stop_times_dict = {}
-
-    use_low_memory = check_memory_for_file(data_path / "stop_times.txt")
-
-    for chunk in pd.read_csv(
-        data_path / "stop_times.txt",
-        chunksize=chunk_size,
-        dtype={
-            "trip_id": str,
-            "stop_id": str,
-            "arrival_time": str,
-            "departure_time": str,
-            "stop_sequence": int,
-            # Optional fields
-            "stop_headsign": str,
-            "pickup_type": "Int64",  # Nullable integer enum (0-3)
-            "drop_off_type": "Int64",  # Nullable integer enum (0-3)
-            "continuous_pickup": "Int64",  # Nullable integer enum (0-3)
-            "continuous_drop_off": "Int64",  # Nullable integer enum (0-3)
-            "shape_dist_traveled": float,  # Non-negative float
-            "timepoint": "Int64",  # Nullable integer enum (0-1)
-            "stop_time_desc": str,
-        },
-        low_memory=use_low_memory,
-    ):
-        for _, row in chunk.iterrows():
-            if row.trip_id not in stop_times_dict:
-                stop_times_dict[row.trip_id] = []
-            stop_times_dict[row.trip_id].append(
-                {
-                    "stop_id": str(row.stop_id),
-                    "arrival_time": row.arrival_time,
-                    "departure_time": row.departure_time,
-                    "stop_sequence": row.stop_sequence,
-                }
-            )
-    logger.info(f"Loaded stop times in {time.time() - t0:.2f} seconds")
+    # Load stop times
+    stop_times_dict = load_stop_times(data_path, cpu_check_fn)
 
     # Try to load calendar.txt first, fall back to calendar_dates.txt
     t0 = time.time()
@@ -1664,9 +1856,9 @@ def load_feed(
                 start_date=datetime.strptime(str(row["start_date"]), "%Y%m%d"),
                 end_date=datetime.strptime(str(row["end_date"]), "%Y%m%d"),
             )
-            # logger.info(
-            #     f"Service {service_id}: M={row['monday']} T={row['tuesday']} W={row['wednesday']} T={row['thursday']} F={row['friday']} S={row['saturday']} S={row['sunday']}"
-            # )
+            if cpu_check_fn and len(calendars) % 1000 == 0:
+                cpu_check_fn()
+
         del calendar_df
         logger.info(
             f"Loaded calendar.txt with {len(calendars)} services in {time.time() - t0:.2f} seconds"
@@ -1692,9 +1884,9 @@ def load_feed(
                     exception_type=exception_type,
                 )
             )
-            # logger.info(
-            #     f"Service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-            # )
+            if cpu_check_fn and len(calendar_dates) % 1000 == 0:
+                cpu_check_fn()
+
         del calendar_df
         logger.info(
             f"Loaded calendar_dates.txt with {len(calendar_dates)} exceptions in {time.time() - t0:.2f} seconds"
@@ -1722,9 +1914,9 @@ def load_feed(
                         exception_type=exception_type,
                     )
                 )
-                # logger.info(
-                #     f"Exception for service {service_id}: Date={date.strftime('%Y-%m-%d')} Type={exception_type}"
-                # )
+                if cpu_check_fn and len(calendar_dates) % 1000 == 0:
+                    cpu_check_fn()
+
             del calendar_dates_df
             logger.info(
                 f"Loaded calendar_dates.txt for exceptions with {len(calendar_dates)} entries in {time.time() - t0:.2f} seconds"
