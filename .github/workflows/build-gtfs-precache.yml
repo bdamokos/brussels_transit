@@ -26,8 +26,7 @@ jobs:
             install: sudo apt-get update && sudo apt-get install -y libmsgpack-dev
           - os: macos-latest
             install: brew install msgpack
-          - os: windows-latest
-            install: echo "Using vcpkg for Windows dependencies"
+
 
     steps:
     - uses: actions/checkout@v3
@@ -36,40 +35,16 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: ${{ matrix.install }}
 
-    - name: Cache vcpkg (Windows)
-      if: matrix.os == 'windows-latest'
-      uses: actions/cache@v3
-      with:
-        path: |
-          ${{ github.workspace }}/vcpkg
-          !${{ github.workspace }}/vcpkg/buildtrees
-          !${{ github.workspace }}/vcpkg/packages
-          !${{ github.workspace }}/vcpkg/downloads
-        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
 
-    - name: Install vcpkg (Windows)
-      if: matrix.os == 'windows-latest'
-      shell: cmd
-      run: |
-        git clone https://github.com/Microsoft/vcpkg.git
-        cd vcpkg
-        bootstrap-vcpkg.bat
-        vcpkg integrate install
-        vcpkg install msgpack-c:x64-windows
+
+
 
     - name: Build with Make (Unix)
       if: matrix.os != 'windows-latest'
       working-directory: app/schedule_explorer/backend
       run: make
 
-    - name: Build with CMake (Windows)
-      if: matrix.os == 'windows-latest'
-      working-directory: app/schedule_explorer/backend
-      run: |
-        mkdir build
-        cd build
-        cmake -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake -A x64 ..
-        cmake --build . --config Release
+
 
     - name: Test version output (Unix)
       if: matrix.os != 'windows-latest'
