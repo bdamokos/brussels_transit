@@ -13,7 +13,7 @@ import pytz
 from utils import RateLimiter, get_client, select_language, matches_destination
 from dataclasses import dataclass
 from collections import defaultdict
-from transit_providers.be.stib.get_stop_names import get_stop_names
+from .get_stop_names import get_stop_names
 from transit_providers.config import get_provider_config
 from .gtfs import download_gtfs_data
 from transit_providers.nearest_stop import (
@@ -805,11 +805,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
 
                     # Initialize stop data if needed
                     if response_stop_id not in formatted_data["stops_data"]:
-                        # Get stop name from monitored stops if available, otherwise use stop ID
+                        # Get stop name from monitored stops if available, otherwise look it up
                         stop_name = (
                             monitored_stops[current_stop_id]["name"]
                             if current_stop_id in monitored_stops
-                            else response_stop_id
+                            else get_stop_names([response_stop_id])[response_stop_id]["name"]
                         )
 
                         # Get coordinates for this stop (use original ID for coordinates lookup)
