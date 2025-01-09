@@ -55,27 +55,64 @@ int check_rebuild(const char* executable_path);
 // Parse a CSV line into fields
 int parse_csv_line(char* line, char** fields, int max_fields) {
     int field = 0;
-    char* token = strtok(line, ",");
-    while (token && field < max_fields) {
-        // Remove quotes if present
-        if (token[0] == '"') {
-            token++;
-            size_t len = strlen(token);
-            if (len > 0 && token[len-1] == '"') {
-                token[len-1] = '\0';
+    char* start = line;
+    char* end;
+    int in_quotes = 0;
+    
+    while (*start && field < max_fields) {
+        // Skip leading whitespace
+        while (*start == ' ' || *start == '\t') start++;
+        
+        // Handle quoted fields
+        if (*start == '"') {
+            in_quotes = 1;
+            start++;  // Skip opening quote
+            end = start;
+            
+            // Find closing quote
+            while (*end) {
+                if (*end == '"') {
+                    if (*(end + 1) == '"') {  // Double quote inside field
+                        end += 2;
+                    } else {  // End of quoted field
+                        break;
+                    }
+                } else {
+                    end++;
+                }
+            }
+            
+            // Store field
+            fields[field++] = start;
+            
+            if (*end == '"') {
+                *end = '\0';  // Terminate field at closing quote
+                start = end + 1;  // Move past closing quote
+            } else {
+                start = end;  // No closing quote found
+            }
+            
+            // Skip to next delimiter or end
+            while (*start && *start != ',') start++;
+            if (*start == ',') start++;
+            
+        } else {
+            // Unquoted field
+            fields[field++] = start;
+            
+            // Find next delimiter or end
+            end = start;
+            while (*end && *end != ',' && *end != '\n' && *end != '\r') end++;
+            
+            if (*end) {
+                *end = '\0';  // Terminate field
+                start = end + 1;  // Move to next field
+            } else {
+                start = end;  // End of line
             }
         }
-        // Remove newline if present
-        size_t len = strlen(token);
-        if (len > 0 && (token[len-1] == '\n' || token[len-1] == '\r')) {
-            token[len-1] = '\0';
-            if (len > 1 && token[len-2] == '\r') {
-                token[len-2] = '\0';
-            }
-        }
-        fields[field++] = token;
-        token = strtok(NULL, ",");
     }
+    
     return field;
 }
 
@@ -587,7 +624,7 @@ int process_stop_times(const char* input_file, const char* output_file) {
         return 1;
     }
 
-    // Initialize msgpack buffer with a larger initial size
+    // Initialize msgpack buffer
     msgpack_sbuffer* buffer = msgpack_sbuffer_new();
     if (!buffer) {
         fprintf(stderr, "Error: Could not create msgpack buffer\n");
@@ -629,12 +666,12 @@ int process_stop_times(const char* input_file, const char* output_file) {
     fflush(stdout);
 
     // Start array with known size (total_lines - 1)
-    if (msgpack_pack_array(pk, total_lines - 1) != 0) {
+    if (msgpack_pack_array(pk, total_lines) != 0) {
         fprintf(stderr, "Error: Could not pack array header\n");
         fflush(stderr);
         goto cleanup;
     }
-    printf("Packed array header with size %zu\n", total_lines - 1);
+    printf("Packed array header with size %zu\n", total_lines);
     fflush(stdout);
 
     size_t processed = 0;
@@ -681,54 +718,26 @@ int process_stop_times(const char* input_file, const char* output_file) {
         goto cleanup;
     }
 
-    // Write the buffer in chunks to avoid memory issues
-    const size_t chunk_size = 1024 * 1024;  // 1MB chunks
-    size_t remaining = buffer->size;
-    size_t offset = 0;
-    size_t total_written = 0;
-
-    while (remaining > 0) {
-        size_t to_write = remaining < chunk_size ? remaining : chunk_size;
-        size_t written = fwrite(buffer->data + offset, 1, to_write, out);
-        if (written != to_write) {
-            fprintf(stderr, "Error: Could not write complete chunk. Written %zu of %zu bytes\n", 
-                    written, to_write);
-            fflush(stderr);
-            fclose(out);
-            goto cleanup;
-        }
-        total_written += written;
-        offset += written;
-        remaining -= written;
-    }
-
-    // Ensure all data is written
-    fflush(out);
-
-    // Verify the total bytes written
-    if (total_written != buffer->size) {
-        fprintf(stderr, "Error: Total bytes written (%zu) does not match buffer size (%zu)\n",
-                total_written, buffer->size);
+    // Write the entire buffer at once
+    size_t written = fwrite(buffer->data, 1, buffer->size, out);
+    if (written != buffer->size) {
+        fprintf(stderr, "Error: Could not write complete buffer. Written %zu of %zu bytes\n", 
+                written, buffer->size);
         fflush(stderr);
         fclose(out);
         goto cleanup;
     }
 
-    printf("Successfully wrote %zu bytes to output file\n", total_written);
-    fflush(stdout);
-
-    // Close the output file before cleanup
-    if (fclose(out) != 0) {
-        fprintf(stderr, "Error: Could not close output file\n");
-        fflush(stderr);
-        goto cleanup;
-    }
+    // Ensure all data is written and close the file
+    fflush(out);
+    fclose(out);
 
     // Cleanup msgpack resources
     msgpack_packer_free(pk);
     msgpack_sbuffer_free(buffer);
     fclose(fp);
 
+    printf("Successfully wrote %zu bytes to output file\n", written);
     printf("Processing complete. Processed %zu rows, %zu successful.\n", processed, successful);
     fflush(stdout);
     return 0;

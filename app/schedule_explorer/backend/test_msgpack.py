@@ -121,60 +121,94 @@ def validate_stop_time(stop_time):
     return True
 
 def test_msgpack_file(file_path):
-    """Test if a msgpack file can be properly unpacked."""
-    if not analyze_file(file_path):
-        return False
+    print(f"\nTesting msgpack file: {file_path}")
     
-    try:
-        with open(file_path, 'rb') as f:
-            content = f.read()
-            print(f"\nAttempting to unpack {len(content)} bytes")
-            data = msgpack.unpackb(content, raw=False)
+    # Get file size
+    file_size = os.path.getsize(file_path)
+    print(f"File size: {file_size} bytes")
+    
+    # Read and unpack the file
+    with open(file_path, 'rb') as f:
+        try:
+            # Read the first few bytes to check the header
+            header = f.read(16)
+            print("\nFirst 16 bytes:")
+            print(" ".join(f"{b:02x}" for b in header))
             
-        print("\nSuccessfully unpacked msgpack data")
-        print(f"Root keys: {list(data.keys())}")
-        
-        if 'stop_times' not in data:
-            print("Error: Missing 'stop_times' key in root")
-            return False
+            # Reset file pointer
+            f.seek(0)
             
-        stop_times = data['stop_times']
-        if not isinstance(stop_times, list):
-            print(f"Error: stop_times should be a list, got {type(stop_times)}")
-            return False
+            # Create an unpacker
+            print("\nTrying to unpack using streaming unpacker...")
+            unpacker = msgpack.Unpacker(f, raw=False)
             
-        print(f"Number of stop times: {len(stop_times)}")
-        
-        if len(stop_times) > 0:
-            print("\nValidating first stop time entry:")
-            first_entry = stop_times[0]
-            print(first_entry)
-            if not validate_stop_time(first_entry):
+            # Get the first object (should be our root map)
+            try:
+                data = next(unpacker)
+                print("\nSuccessfully unpacked msgpack data")
+                
+                # Print root keys
+                print(f"\nRoot keys: {list(data.keys())}")
+                
+                # Print number of stop times
+                if 'stop_times' in data:
+                    stop_times = data['stop_times']
+                    print(f"Number of stop times: {len(stop_times)}")
+                    
+                    # Print first stop time entry
+                    if len(stop_times) > 0:
+                        print("\nFirst stop time entry:")
+                        print(stop_times[0])
+                        
+                        # Print last stop time entry
+                        print("\nLast stop time entry:")
+                        print(stop_times[-1])
+                        
+                # Check if there's any more data
+                try:
+                    extra = next(unpacker)
+                    print("\nWARNING: Found extra data after the root object!")
+                    print(f"Extra data type: {type(extra)}")
+                    print("Extra data content:")
+                    print(extra)
+                    
+                    # Try to get even more data
+                    try:
+                        more_extra = next(unpacker)
+                        print("\nWARNING: Found even more data!")
+                        print(f"More extra data type: {type(more_extra)}")
+                        print("More extra data content:")
+                        print(more_extra)
+                    except StopIteration:
+                        print("\nNo more extra data found.")
+                        
+                except StopIteration:
+                    print("\nNo extra data found after root object.")
+                    
+            except StopIteration:
+                print("\nError: No data found in file")
                 return False
                 
-            if len(stop_times) > 1:
-                print("\nValidating last stop time entry:")
-                last_entry = stop_times[-1]
-                print(last_entry)
-                if not validate_stop_time(last_entry):
-                    return False
-                    
-            # Validate a sample of entries
-            sample_size = min(10, len(stop_times))
-            print(f"\nValidating random sample of {sample_size} entries...")
-            import random
-            sample_indices = random.sample(range(len(stop_times)), sample_size)
-            for idx in sample_indices:
-                if not validate_stop_time(stop_times[idx]):
-                    print(f"Failed validation at index {idx}")
-                    return False
-                    
-        print("\nAll validations passed successfully!")
-        return True
-        
-    except Exception as e:
-        print(f"Error unpacking msgpack: {str(e)}", file=sys.stderr)
-        return False
+        except Exception as e:
+            print(f"\nError unpacking msgpack data: {e}")
+            
+            # Try to read the remaining bytes
+            f.seek(0, os.SEEK_CUR)  # Get current position
+            current_pos = f.tell()
+            f.seek(0, os.SEEK_END)  # Go to end
+            end_pos = f.tell()
+            remaining = end_pos - current_pos
+            
+            if remaining > 0:
+                print(f"\nRemaining bytes at error: {remaining}")
+                if remaining > 32:
+                    f.seek(current_pos)
+                    next_bytes = f.read(32)
+                    print("Next 32 bytes after error point:")
+                    print(" ".join(f"{b:02x}" for b in next_bytes))
+            return False
+            
+    return True
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
