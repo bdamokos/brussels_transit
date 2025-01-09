@@ -1316,6 +1316,7 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
 def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]:
     """
     Load stop times from stop_times.txt using the C implementation.
+    Falls back to Python implementation if C implementation fails.
     Returns a dictionary mapping trip_id to a list of stop times.
     """
     txt_path = data_path / "stop_times.txt"
@@ -1332,136 +1333,189 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
     logger.debug(f"Looking for gtfs_precache at: {gtfs_precache}")
     logger.debug(f"gtfs_precache exists: {gtfs_precache.exists()}")
     
-    if not gtfs_precache.exists():
-        logger.error(f"gtfs_precache executable not found at {gtfs_precache}")
-        raise RuntimeError("gtfs_precache executable not found")
-    
-    # Create a temporary file for the msgpack output
-    temp_msgpack_path = txt_path.with_suffix('.msgpack.tmp')
-    logger.debug(f"Temporary msgpack path: {temp_msgpack_path}")
-    
-    try:
-        # Clean up any existing tmp file
-        if temp_msgpack_path.exists():
-            try:
-                temp_msgpack_path.unlink()
-                logger.debug("Cleaned up existing temporary file")
-            except Exception as e:
-                logger.warning(f"Failed to clean up existing temporary file: {e}")
-        
-        # Run the C program to convert to msgpack
-        logger.info("Running C program to convert stop_times.txt...")
-        cmd = [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)]
-        logger.debug(f"Running command: {' '.join(cmd)}")
-        
-        # First check the version
-        version_cmd = [str(gtfs_precache), "--version"]
+    # Try C implementation first if available
+    if gtfs_precache.exists():
         try:
-            version_result = subprocess.run(
-                version_cmd,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            logger.info(f"gtfs_precache version: {version_result.stdout.strip()}")
-        except subprocess.TimeoutExpired:
-            logger.error("Version check timed out after 5 seconds")
-        except Exception as e:
-            logger.error(f"Version check failed: {e}")
-        
-        # Now run the actual conversion
-        # Use Popen to get real-time output
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True
-        )
-        
-        # Read output in real-time
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                logger.info(f"gtfs_precache output: {output.strip()}")
+            # Create a temporary file for the msgpack output
+            temp_msgpack_path = txt_path.with_suffix('.msgpack.tmp')
+            logger.debug(f"Temporary msgpack path: {temp_msgpack_path}")
+            
+            try:
+                # Clean up any existing tmp file
+                if temp_msgpack_path.exists():
+                    try:
+                        temp_msgpack_path.unlink()
+                        logger.debug("Cleaned up existing temporary file")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up existing temporary file: {e}")
                 
-        # Get the return code and any remaining output
-        return_code = process.wait()
-        stderr = process.stderr.read()
-        
-        if return_code != 0:
-            logger.error(f"C program failed with return code {return_code}")
-            if stderr:
-                logger.error(f"stderr: {stderr}")
-            raise RuntimeError("Failed to convert stop_times.txt")
-        
-        # Load the msgpack data
-        logger.info("Loading msgpack data...")
-        if not temp_msgpack_path.exists():
-            logger.error("Temporary msgpack file was not created")
-            raise RuntimeError("Temporary msgpack file was not created")
+                # Run the C program to convert to msgpack
+                logger.info("Running C program to convert stop_times.txt...")
+                import subprocess
+                cmd = [str(gtfs_precache), str(txt_path), str(temp_msgpack_path)]
+                logger.debug(f"Running command: {' '.join(cmd)}")
+                
+                # First check the version
+                version_cmd = [str(gtfs_precache), "--version"]
+                try:
+                    version_result = subprocess.run(
+                        version_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    logger.info(f"gtfs_precache version: {version_result.stdout.strip()}")
+                except subprocess.TimeoutExpired:
+                    logger.error("Version check timed out after 5 seconds")
+                except Exception as e:
+                    logger.error(f"Version check failed: {e}")
+                
+                # Now run the actual conversion
+                # Use Popen to get real-time output
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                    universal_newlines=True
+                )
+                
+                # Read output in real-time
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        logger.info(f"gtfs_precache output: {output.strip()}")
+                        
+                # Get the return code and any remaining output
+                return_code = process.wait()
+                stderr = process.stderr.read()
+                
+                if return_code != 0:
+                    logger.error(f"C program failed with return code {return_code}")
+                    if stderr:
+                        logger.error(f"stderr: {stderr}")
+                    raise RuntimeError("Failed to convert stop_times.txt")
+                
+                # Load the msgpack data
+                logger.info("Loading msgpack data...")
+                if not temp_msgpack_path.exists():
+                    logger.error("Temporary msgpack file was not created")
+                    raise RuntimeError("Temporary msgpack file was not created")
+                    
+                file_size = temp_msgpack_path.stat().st_size
+                logger.debug(f"Temporary msgpack file size: {file_size} bytes")
+                if file_size == 0:
+                    logger.error("Temporary msgpack file is empty")
+                    raise RuntimeError("Temporary msgpack file is empty")
+                    
+                with open(temp_msgpack_path, 'rb') as f:
+                    data = msgpack.unpackb(f.read(), raw=False)
+                
+                # Verify data structure
+                logger.debug(f"Msgpack data type: {type(data)}")
+                if not isinstance(data, dict):
+                    logger.error(f"Invalid msgpack data format: not a dictionary (got {type(data)})")
+                    raise RuntimeError("Invalid msgpack data format")
+                    
+                if 'stop_times' not in data:
+                    logger.error(f"Invalid msgpack data format: missing 'stop_times' key (keys: {list(data.keys())})")
+                    raise RuntimeError("Invalid msgpack data format")
+                
+                stop_times = data['stop_times']
+                logger.debug(f"Stop times type: {type(stop_times)}")
+                if not isinstance(stop_times, list):
+                    logger.error(f"Invalid stop_times format: not a list (got {type(stop_times)})")
+                    raise RuntimeError("Invalid stop_times format")
+                
+                logger.debug(f"Number of stop times: {len(stop_times)}")
+                if not stop_times:
+                    logger.error("No stop times found in msgpack data")
+                    raise RuntimeError("No stop times found in msgpack data")
+                    
+                # Group stop times by trip_id
+                result = {}
+                for stop_time in stop_times:
+                    trip_id = stop_time['trip_id']
+                    if trip_id not in result:
+                        result[trip_id] = []
+                    result[trip_id].append(stop_time)
+                
+                # Sort each trip's stop times by stop_sequence
+                for trip_id in result:
+                    result[trip_id].sort(key=lambda x: x['stop_sequence'])
+                
+                logger.info(f"Successfully loaded {len(stop_times)} stop times for {len(result)} trips using C implementation")
+                return result
             
-        file_size = temp_msgpack_path.stat().st_size
-        logger.debug(f"Temporary msgpack file size: {file_size} bytes")
-        if file_size == 0:
-            logger.error("Temporary msgpack file is empty")
-            raise RuntimeError("Temporary msgpack file is empty")
-            
-        with open(temp_msgpack_path, 'rb') as f:
-            data = msgpack.unpackb(f.read(), raw=False)
-        
-        # Verify data structure
-        logger.debug(f"Msgpack data type: {type(data)}")
-        if not isinstance(data, dict):
-            logger.error(f"Invalid msgpack data format: not a dictionary (got {type(data)})")
-            raise RuntimeError("Invalid msgpack data format")
-            
-        if 'stop_times' not in data:
-            logger.error(f"Invalid msgpack data format: missing 'stop_times' key (keys: {list(data.keys())})")
-            raise RuntimeError("Invalid msgpack data format")
-        
-        stop_times = data['stop_times']
-        logger.debug(f"Stop times type: {type(stop_times)}")
-        if not isinstance(stop_times, list):
-            logger.error(f"Invalid stop_times format: not a list (got {type(stop_times)})")
-            raise RuntimeError("Invalid stop_times format")
-        
-        logger.debug(f"Number of stop times: {len(stop_times)}")
-        if not stop_times:
-            logger.error("No stop times found in msgpack data")
-            raise RuntimeError("No stop times found in msgpack data")
-            
-        # Group stop times by trip_id
+            finally:
+                # Clean up temporary file
+                if temp_msgpack_path.exists():
+                    try:
+                        temp_msgpack_path.unlink()
+                        logger.debug("Cleaned up temporary file")
+                    except Exception as e:
+                        logger.error(f"Failed to clean up temporary file: {e}")
+                        pass
+        except Exception as e:
+            logger.warning(f"C implementation failed, falling back to Python: {e}")
+            # Fall through to Python implementation
+    else:
+        logger.info("C implementation not available, using Python implementation")
+
+    # Python implementation
+    logger.info("Loading stop times using Python implementation...")
+    try:
+        # Calculate optimal chunk size based on available memory
+        available_memory = psutil.virtual_memory().available
+        estimated_row_size = 200  # bytes per row
+        optimal_chunk_size = min(
+            100000,  # max chunk size
+            max(1000, available_memory // (estimated_row_size * 2)),  # ensure buffer
+        )
+        logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
+
         result = {}
-        for stop_time in stop_times:
-            trip_id = stop_time['trip_id']
-            if trip_id not in result:
-                result[trip_id] = []
-            result[trip_id].append(stop_time)
-        
+        total_rows = 0
+        for chunk in pd.read_csv(
+            txt_path,
+            chunksize=optimal_chunk_size,
+            dtype={
+                "trip_id": str,
+                "arrival_time": str,
+                "departure_time": str,
+                "stop_id": str,
+                "stop_sequence": int,
+            },
+        ):
+            for _, row in chunk.iterrows():
+                trip_id = str(row["trip_id"])
+                if trip_id not in result:
+                    result[trip_id] = []
+                result[trip_id].append({
+                    "trip_id": trip_id,
+                    "arrival_time": row["arrival_time"],
+                    "departure_time": row["departure_time"],
+                    "stop_id": str(row["stop_id"]),
+                    "stop_sequence": int(row["stop_sequence"]),
+                })
+                total_rows += 1
+
+                if cpu_check_fn and total_rows % 10000 == 0:
+                    cpu_check_fn()
+
         # Sort each trip's stop times by stop_sequence
         for trip_id in result:
-            result[trip_id].sort(key=lambda x: x['stop_sequence'])
-        
-        logger.info(f"Successfully loaded {len(stop_times)} stop times for {len(result)} trips")
+            result[trip_id].sort(key=lambda x: x["stop_sequence"])
+
+        logger.info(f"Successfully loaded {total_rows} stop times for {len(result)} trips using Python implementation")
         return result
-    
+
     except Exception as e:
-        logger.error(f"Error in load_stop_times: {e}", exc_info=True)
+        logger.error(f"Error in Python implementation of load_stop_times: {e}", exc_info=True)
         raise
-    
-    finally:
-        # Clean up temporary file
-        if temp_msgpack_path.exists():
-            try:
-                temp_msgpack_path.unlink()
-                logger.debug("Cleaned up temporary file")
-            except Exception as e:
-                logger.error(f"Failed to clean up temporary file: {e}")
-                pass
 
 
 def load_feed(
