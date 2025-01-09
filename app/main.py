@@ -6,6 +6,7 @@ from flask import (
     send_from_directory,
     abort,
     Response,
+    redirect,
 )
 import html
 import json
@@ -723,62 +724,22 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
     try:
         # First check if this is a provider with a dash (e.g., mdb-1234)
         if "-" in provider:
-            try:
-                # Use fixed host and port for schedule explorer
-                schedule_explorer_url = (
-                    f"http://{SCHEDULE_EXPLORER_HOST}:{SCHEDULE_EXPLORER_PORT}"
-                )
-
-                # Build the subpath
-                subpath = endpoint
-                if param1:
-                    subpath = f"{subpath}/{param1}"
-                if param2:
-                    subpath = f"{subpath}/{param2}"
-
-                # Forward the request to the schedule explorer service
-                url = f"{schedule_explorer_url}/api/{provider}/{subpath}"
-
-                # Forward query parameters
-                params = request.args.to_dict()
-
-                # Forward the request with the same method and headers
-                resp = requests.request(
-                    method=request.method,
-                    url=url,
-                    headers={
-                        key: value for (key, value) in request.headers if key != "Host"
-                    },
-                    data=request.get_data(),
-                    cookies=request.cookies,
-                    params=params,
-                    allow_redirects=False,
-                )
-
-                # Create the response and forward it
-                excluded_headers = [
-                    "content-encoding",
-                    "content-length",
-                    "transfer-encoding",
-                    "connection",
-                ]
-                headers = [
-                    (name, value)
-                    for (name, value) in resp.raw.headers.items()
-                    if name.lower() not in excluded_headers
-                ]
-
-                response = Response(resp.content, resp.status_code, headers)
-                return response
-
-            except requests.RequestException as e:
-                logger.error(f"Error proxying request to schedule explorer: {e}")
-                return (
-                    jsonify(
-                        {"error": "Failed to connect to schedule explorer service"}
-                    ),
-                    502,
-                )
+            # Build the redirect URL
+            schedule_explorer_url = f"http://{SCHEDULE_EXPLORER_HOST}:{SCHEDULE_EXPLORER_PORT}"
+            subpath = endpoint
+            if param1:
+                subpath = f"{subpath}/{param1}"
+            if param2:
+                subpath = f"{subpath}/{param2}"
+            url = f"{schedule_explorer_url}/api/{provider}/{subpath}"
+            
+            # Add query parameters
+            params = request.args.to_dict()
+            if params:
+                url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+            
+            # Redirect to the schedule explorer
+            return redirect(url)
 
         # If not a proxied provider, check if it's a legacy provider
         if provider not in PROVIDERS:
