@@ -587,7 +587,7 @@ int process_stop_times(const char* input_file, const char* output_file) {
         return 1;
     }
 
-    // Initialize msgpack buffer
+    // Initialize msgpack buffer with a larger initial size
     msgpack_sbuffer* buffer = msgpack_sbuffer_new();
     if (!buffer) {
         fprintf(stderr, "Error: Could not create msgpack buffer\n");
@@ -681,17 +681,40 @@ int process_stop_times(const char* input_file, const char* output_file) {
         goto cleanup;
     }
 
-    // Write the buffer in a single operation
-    size_t written = fwrite(buffer->data, 1, buffer->size, out);
-    if (written != buffer->size) {
-        fprintf(stderr, "Error: Could not write complete buffer. Written %zu of %zu bytes\n", 
-                written, buffer->size);
+    // Write the buffer in chunks to avoid memory issues
+    const size_t chunk_size = 1024 * 1024;  // 1MB chunks
+    size_t remaining = buffer->size;
+    size_t offset = 0;
+    size_t total_written = 0;
+
+    while (remaining > 0) {
+        size_t to_write = remaining < chunk_size ? remaining : chunk_size;
+        size_t written = fwrite(buffer->data + offset, 1, to_write, out);
+        if (written != to_write) {
+            fprintf(stderr, "Error: Could not write complete chunk. Written %zu of %zu bytes\n", 
+                    written, to_write);
+            fflush(stderr);
+            fclose(out);
+            goto cleanup;
+        }
+        total_written += written;
+        offset += written;
+        remaining -= written;
+    }
+
+    // Ensure all data is written
+    fflush(out);
+
+    // Verify the total bytes written
+    if (total_written != buffer->size) {
+        fprintf(stderr, "Error: Total bytes written (%zu) does not match buffer size (%zu)\n",
+                total_written, buffer->size);
         fflush(stderr);
         fclose(out);
         goto cleanup;
     }
 
-    printf("Successfully wrote %zu bytes to output file\n", written);
+    printf("Successfully wrote %zu bytes to output file\n", total_written);
     fflush(stdout);
 
     // Close the output file before cleanup
