@@ -100,7 +100,8 @@ app/config/backups/*
 .gitignore
 app/._.DS_Store
 app/config/._local.py
-
+app/schedule_explorer/backend/gtfs_precache
+env_backups/
 *.msgpack.tmp
 app/schedule_explorer/backend/gtfs_precache
 build/
