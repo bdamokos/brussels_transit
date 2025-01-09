@@ -1,5 +1,9 @@
 name: Build GTFS Precache Tool
 
+# Add explicit permissions following the principle of least privilege
+permissions:
+  contents: read  # Only need read access to checkout code and build
+
 on:
   push:
     paths:

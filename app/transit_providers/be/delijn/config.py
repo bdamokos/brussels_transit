@@ -9,7 +9,11 @@ from transit_providers.config import get_config, register_provider_config
 logger = logging.getLogger("transit_providers.be.delijn")
 
 # Get project root from environment variable (set by start.py)
-PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+try:
+    PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+except KeyError:
+    logger.warning("PROJECT_ROOT environment variable not set, using current directory")
+    PROJECT_ROOT = Path.cwd()
 
 # Register default configuration
 DEFAULT_CONFIG = {

@@ -11,6 +11,8 @@ import psutil
 import time
 from .memory_util import check_memory_for_file
 import subprocess
+from threading import Thread
+from queue import Queue, Empty
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -1371,7 +1373,12 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
                     logger.error(f"Version check failed: {e}")
                 
                 # Now run the actual conversion
-                # Use Popen to get real-time output
+                # Use Popen with threads to handle output
+                def enqueue_output(out, queue):
+                    for line in iter(out.readline, ''):
+                        queue.put(line)
+                    out.close()
+                
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -1381,22 +1388,56 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
                     universal_newlines=True
                 )
                 
-                # Read output in real-time
-                while True:
-                    output = process.stdout.readline()
-                    if output == '' and process.poll() is not None:
-                        break
-                    if output:
-                        logger.info(f"gtfs_precache output: {output.strip()}")
+                # Create queues and threads for stdout and stderr
+                stdout_q = Queue()
+                stderr_q = Queue()
+                stdout_t = Thread(target=enqueue_output, args=(process.stdout, stdout_q))
+                stderr_t = Thread(target=enqueue_output, args=(process.stderr, stderr_q))
+                stdout_t.daemon = True
+                stderr_t.daemon = True
+                stdout_t.start()
+                stderr_t.start()
+                
+                # Read output from both streams
+                while process.poll() is None:
+                    # Check stdout
+                    try:
+                        while True:  # Read all available stdout lines
+                            line = stdout_q.get_nowait()
+                            logger.info(f"gtfs_precache output: {line.strip()}")
+                    except Empty:
+                        pass
                         
-                # Get the return code and any remaining output
+                    # Check stderr
+                    try:
+                        while True:  # Read all available stderr lines
+                            line = stderr_q.get_nowait()
+                            logger.warning(f"gtfs_precache stderr: {line.strip()}")
+                    except Empty:
+                        pass
+                        
+                    time.sleep(0.1)  # Short sleep to prevent busy waiting
+                
+                # Get the return code
                 return_code = process.wait()
-                stderr = process.stderr.read()
+                
+                # Read any remaining output
+                try:
+                    while True:
+                        line = stdout_q.get_nowait()
+                        logger.info(f"gtfs_precache output: {line.strip()}")
+                except Empty:
+                    pass
+                    
+                try:
+                    while True:
+                        line = stderr_q.get_nowait()
+                        logger.warning(f"gtfs_precache stderr: {line.strip()}")
+                except Empty:
+                    pass
                 
                 if return_code != 0:
                     logger.error(f"C program failed with return code {return_code}")
-                    if stderr:
-                        logger.error(f"stderr: {stderr}")
                     raise RuntimeError("Failed to convert stop_times.txt")
                 
                 # Load the msgpack data

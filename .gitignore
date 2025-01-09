@@ -102,3 +102,6 @@ app/._.DS_Store
 app/config/._local.py
 
 *.msgpack.tmp
+app/schedule_explorer/backend/gtfs_precache
+build/
+*.msgpack

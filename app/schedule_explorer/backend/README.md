@@ -81,13 +81,15 @@ The tool is automatically used by the Python GTFS loader when available. If not 
 
 To run manually:
 ```bash
-./gtfs_precache [--cpu-limit PERCENT] <input_file> <output_file>
+./gtfs_precache <input_file> <output_file>
 ```
 
-Options:
-- `--cpu-limit PERCENT`: Limit CPU usage to the specified percentage (default: 50)
+Arguments:
 - `input_file`: Path to stop_times.txt
 - `output_file`: Path for output msgpack file
+
+Additional features:
+- `--version`: Display the tool version
 
 ## Development
 
