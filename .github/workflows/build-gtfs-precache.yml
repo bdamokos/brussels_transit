@@ -1,0 +1,61 @@
+name: Build GTFS Precache Tool
+
+# Add explicit permissions following the principle of least privilege
+permissions:
+  contents: read  # Only need read access to checkout code and build
+
+on:
+  push:
+    paths:
+      - 'app/schedule_explorer/backend/gtfs_precache.c'
+      - 'app/schedule_explorer/backend/gtfs_precache_version.h'
+      - 'app/schedule_explorer/backend/CMakeLists.txt'
+      - 'app/schedule_explorer/backend/Makefile'
+  pull_request:
+    paths:
+      - 'app/schedule_explorer/backend/gtfs_precache.c'
+      - 'app/schedule_explorer/backend/gtfs_precache_version.h'
+      - 'app/schedule_explorer/backend/CMakeLists.txt'
+      - 'app/schedule_explorer/backend/Makefile'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            install: sudo apt-get update && sudo apt-get install -y libmsgpack-dev
+          - os: macos-latest
+            install: brew install msgpack
+
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies (Unix)
+      if: matrix.os != 'windows-latest'
+      run: ${{ matrix.install }}
+
+
+
+
+
+    - name: Build with Make (Unix)
+      if: matrix.os != 'windows-latest'
+      working-directory: app/schedule_explorer/backend
+      run: make
+
+
+
+    - name: Test version output (Unix)
+      if: matrix.os != 'windows-latest'
+      working-directory: app/schedule_explorer/backend
+      run: ./gtfs_precache --version
+
+    - name: Test version output (Windows)
+      if: matrix.os == 'windows-latest'
+      working-directory: app/schedule_explorer/backend/build/Release
+      run: ./gtfs_precache.exe --version 

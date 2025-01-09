@@ -5,13 +5,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "0.0.0.0:5001:5001"
-      - "0.0.0.0:8000:8000"
-      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:8005:8000" 
+      - "0.0.0.0:8085:8080"
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
     env_file:
-      - .env 
+      - .env
+    volumes:
+      - type: bind
+        source: ./downloads
+        target: /app/downloads
+      - type: bind
+        source: ./cache
+        target: /app/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
