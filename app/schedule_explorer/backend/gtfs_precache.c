@@ -763,9 +763,15 @@ int check_rebuild(const char* executable_path);
 int main(int argc, char* argv[]) {
     // Get version
     const char* version = get_version();
-    printf("GTFS Precache Tool v%s\n", version);
     
-    // Parse command line arguments
+    // Check for version flag
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("GTFS Precache Tool v%s\n", version);
+        return 0;  // Success exit code for version
+    }
+    
+    // Print version and check arguments
+    printf("GTFS Precache Tool v%s\n", version);
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <input_file> <output_file> [cpu_limit]\n", argv[0]);
         return 1;
