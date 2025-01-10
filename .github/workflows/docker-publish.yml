@@ -2,44 +2,20 @@ name: Docker Build and Publish
 
 on:
   workflow_dispatch:  # Allows manual triggering
+  push:
+    branches: [ "main" ]  # Build on every push to main
   release:
     types: [released]
   pull_request:
     branches: [ "main" ]
-  schedule:
-    - cron: '0 0 * * 0'  # Every Sunday at midnight UTC
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  check-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: check
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          last_week=$(date -d "7 days ago" +%s)
-          last_commit=$(git log -1 --format=%ct)
-          if [ $last_commit -gt $last_week ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
   docker-test:
     runs-on: ubuntu-latest
-    needs: [check-changes]
-    if: needs.check-changes.outputs.should_run == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -94,7 +70,6 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     needs: [docker-test]
-    if: needs.check-changes.outputs.should_run == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -140,7 +115,7 @@ jobs:
     if: |
       github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'schedule' && needs.check-changes.outputs.should_run == 'true')
+      github.event_name == 'push'
     permissions:
       contents: read
       packages: write
@@ -164,56 +139,24 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Manual trigger tag
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # Weekly latest tag
-            type=raw,value=latest,enable=${{ github.event_name == 'schedule' }}
+            # Development tag for pushes to main and manual triggers
+            type=raw,value=edge,enable=${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
             # Version tags for releases
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
             # Stable tag for published releases
             type=raw,value=stable,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-            # Edge tag for pre-releases
-            type=raw,value=edge,enable=${{ github.event_name == 'release' && github.event.release.prerelease }}
+            # Latest tag follows stable for releases
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
-      # Build and push backend-only image (default)
-      - name: Build and push backend image
+      # Build and push image
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Build and push backend with temporary ngrok
-      - name: Build and push backend with temp ngrok
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.meta.outputs.tags }}-ngrok-temp
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-ngrok-temp
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Build and push backend with static ngrok
-      - name: Build and push backend with static ngrok
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.meta.outputs.tags }}-ngrok-static
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-ngrok-static
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max 

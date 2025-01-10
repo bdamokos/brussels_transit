@@ -33,37 +33,24 @@ This repository provides Docker support for running the Public Transit applicati
 
 ## Image Versioning
 
-Images are published to GitHub Container Registry (ghcr.io) under three different scenarios:
+Images are published to GitHub Container Registry (ghcr.io) under these scenarios:
 
 1. **Stable Releases**: When a new release is published (non-pre-release)
    - Creates versioned tags (e.g., `v1.2.3`, `v1.2`)
-   - Updates the `stable` tag
-   - Available in three variants:
-     - Default: `ghcr.io/bdamokos/brussels-transit:v1.2.3` or `:stable`
-     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-temp` or `:stable-ngrok-temp`
-     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-ngrok-static` or `:stable-ngrok-static`
+   - Updates the `stable` and `latest` tags
+   - Example: `ghcr.io/bdamokos/brussels-transit:stable`
 
-2. **Pre-releases**: When an alpha/beta/rc release is published
-   - Creates versioned tags (e.g., `v1.2.3-rc.1`)
+2. **Development Builds**: On every push to main branch or manual trigger
    - Updates the `edge` tag
-   - Available in three variants:
-     - Default: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1` or `:edge`
-     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1-ngrok-temp` or `:edge-ngrok-temp`
-     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:v1.2.3-rc.1-ngrok-static` or `:edge-ngrok-static`
-
-3. **Weekly Updates**: Every Sunday at midnight UTC (only if there were changes in the last week)
-   - Updates the `latest` tags
-   - Available in three variants:
-     - Default: `ghcr.io/bdamokos/brussels-transit:latest`
-     - Temporary ngrok: `ghcr.io/bdamokos/brussels-transit:latest-ngrok-temp`
-     - Static ngrok: `ghcr.io/bdamokos/brussels-transit:latest-ngrok-static`
+   - Example: `ghcr.io/bdamokos/brussels-transit:edge`
 
 ### Tag Usage Guidelines
 
-- Use `:stable` for production environments
-- Use `:edge` for testing new features
-- Use `:latest` for development environments
+- Use `:stable` or `:latest` for production environments (they are identical)
+- Use `:edge` for testing new features and development
 - Use version tags (e.g., `v1.2.3`) for reproducible deployments
+
+Note: Old versions and untagged images are automatically cleaned up by GitHub Container Registry's retention policy.
 
 ## Configuration (Alpha Stage)
 
@@ -82,7 +69,7 @@ During this alpha stage, configuration is done by editing two files directly in 
    docker run -d -p 5001:5001 -p 8000:8000 -p 8080:8080 ghcr.io/bdamokos/brussels-transit:stable
    ```
 
-Replace `stable` with the tag you want to use (e.g., `v1.2.3`, `v1.2.3-rc.1`, `latest`, `latest-ngrok-temp`, `latest-ngrok-static`).
+Replace `stable` with the tag you want to use (e.g., `v1.2.3`, `edge`, `latest`).
 
 ### Then for both methods:
 2. Get the container ID:
