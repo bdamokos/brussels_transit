@@ -8,6 +8,42 @@
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     
+    <!-- Inject API URL from environment -->
+    <script>
+        window.API_BASE_URL = "{{ api_url }}";
+        // Debug information
+        console.log('Environment configuration loaded:');
+        console.log('API URL:', window.API_BASE_URL);
+        
+        // Add a debug element to the page
+        document.addEventListener('DOMContentLoaded', () => {
+            const debugInfo = document.createElement('div');
+            debugInfo.style.display = 'none';  // Hidden by default
+            debugInfo.innerHTML = `
+                <div class="card mt-4">
+                    <div class="card-header">
+                        Debug Information
+                        <button class="btn btn-sm btn-outline-secondary float-end" onclick="this.parentElement.parentElement.remove()">Close</button>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>API URL:</strong> ${window.API_BASE_URL}</p>
+                        <p><strong>Current Time:</strong> ${new Date().toISOString()}</p>
+                    </div>
+                </div>
+            `;
+            
+            // Add keyboard shortcut (Ctrl+D) to toggle debug info
+            document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'd') {
+                    e.preventDefault();
+                    debugInfo.style.display = debugInfo.style.display === 'none' ? 'block' : 'none';
+                }
+            });
+            
+            document.querySelector('.container').appendChild(debugInfo);
+        });
+    </script>
+    
     <style>
         .provider-card {
             margin-bottom: 15px;

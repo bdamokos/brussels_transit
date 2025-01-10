@@ -13,11 +13,15 @@ function debounce(func, wait) {
 // API configuration
 // Use the API URL injected from the environment
 const API_BASE_URL = window.API_BASE_URL;
+console.log('Schedule Explorer Frontend starting...');
+console.log('API Base URL:', API_BASE_URL);
 
 // Add error handling for fetch requests
 async function fetchWithRetry(url, options = {}, retries = 3) {
+    console.log(`Fetching URL: ${url}`);
     for (let i = 0; i < retries; i++) {
         try {
+            console.log(`Attempt ${i + 1}/${retries} for ${url}`);
             const response = await fetch(url, {
                 ...options,
                 // Add headers to handle Cloudflare
@@ -30,17 +34,22 @@ async function fetchWithRetry(url, options = {}, retries = 3) {
             // Handle redirects
             if (response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308) {
                 const newUrl = response.headers.get('Location');
+                console.log(`Redirect detected: ${url} -> ${newUrl}`);
                 return await fetchWithRetry(newUrl, options, retries - 1);
             }
             
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
+            console.log(`Successful response from ${url}`);
             return response;
         } catch (error) {
+            console.error(`Error fetching ${url}:`, error);
             if (i === retries - 1) throw error;
             // Wait before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+            const delay = Math.pow(2, i) * 1000;
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
 }
@@ -200,9 +209,20 @@ function getUrlParams() {
 
 // Provider handling
 async function loadProviders() {
+    console.log('Loading providers...');
     try {
+        console.log('Fetching providers from:', `${API_BASE_URL}/providers_info`);
         const response = await fetch(`${API_BASE_URL}/providers_info`);
+        console.log('Providers response status:', response.status);
+        
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Error response body:', text);
+            throw new Error(`Failed to load providers: ${response.status} ${text}`);
+        }
+        
         const providers = await response.json();
+        console.log('Loaded providers:', providers);
 
         const select = document.getElementById('providerSelect');
         select.innerHTML = '<option value="" selected disabled>Select a provider</option>';
@@ -226,24 +246,23 @@ async function loadProviders() {
         });
 
         select.innerHTML += options.join('');
+        console.log('Provider select populated with options');
 
         const languageSelect = document.getElementById('languageSelect');
         languageSelect.innerHTML = '<option value="" selected disabled>Select provider first</option>';
         languageSelect.disabled = true;
 
-        select.addEventListener('change', async (event) => {
-            currentProvider = event.target.value;
-            await setProvider(currentProvider);
-        });
-
         // Check for URL parameters and set the provider if specified
         const urlParams = getUrlParams();
+        console.log('URL parameters:', urlParams);
         if (urlParams.provider) {
+            console.log('Setting provider from URL:', urlParams.provider);
             select.value = urlParams.provider;
             await setProvider(urlParams.provider);
         }
     } catch (error) {
         console.error('Error loading providers:', error);
+        updateBackendStatus('error', `Failed to load providers: ${error.message}`);
     }
 }
 
