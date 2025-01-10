@@ -706,7 +706,13 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             # Check if we can make a request
             if not rate_limiter.can_make_request():
                 logger.error("Rate limit exceeded, cannot fetch waiting times")
-                return {"stops_data": {}, "error": "Rate limit exceeded"}
+                return {
+                    "stops_data": {},
+                    "error": "Rate limit exceeded",
+                    "rate_limit_exceeded": True,
+                    "reset_time": rate_limiter.reset_time.isoformat() if rate_limiter.reset_time else None,
+                    "remaining": rate_limiter.remaining
+                }
 
             # Get monitored stops from merged config
             provider_config = get_provider_config("stib")

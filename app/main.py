@@ -786,6 +786,14 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
                 result = await func(stop_id)
             else:
                 result = await func()
+
+            # Check for rate limit exceeded
+            if result.get("rate_limit_exceeded"):
+                return jsonify({
+                    "error": "Rate limit exceeded",
+                    "reset_time": result.get("reset_time"),
+                    "remaining": result.get("remaining")
+                }), 429
         elif endpoint == "stops":
             # For POST requests with stop IDs
             if request.method == "POST":
