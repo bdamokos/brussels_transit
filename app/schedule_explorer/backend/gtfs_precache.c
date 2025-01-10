@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <msgpack.h>
 #include <sys/stat.h>
+#include <libgen.h>
 #include "gtfs_precache_version.h"
 
 #ifdef _WIN32
@@ -510,53 +511,58 @@ int get_executable_path(char* path, size_t size) {
 #endif
 }
 
-// Function to read version from header file
-int read_header_version(char* version, size_t size) {
-    FILE* fp = fopen("gtfs_precache_version.h", "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open version header file\n");
-        fflush(stderr);
-        return -1;
+// Get the version string from the header file
+const char* get_version() {
+    static char version[256] = {0};
+    if (version[0] != '\0') {
+        return version;
     }
 
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "GTFS_PRECACHE_VERSION_STRING")) {
-            char* start = strchr(line, '"');
-            if (start) {
-                start++;
-                char* end = strchr(start, '"');
-                if (end) {
-                    size_t len = end - start;
-                    if (len < size) {
-                        strncpy(version, start, len);
-                        version[len] = '\0';
-                        fclose(fp);
-                        return 0;
+    // Get the path to the executable
+    char exe_path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path)-1);
+    if (len != -1) {
+        exe_path[len] = '\0';
+        char* dir = dirname(exe_path);
+        char header_path[PATH_MAX];
+        snprintf(header_path, sizeof(header_path), "%s/gtfs_precache_version.h", dir);
+        
+        FILE* fp = fopen(header_path, "r");
+        if (fp) {
+            char line[256];
+            while (fgets(line, sizeof(line), fp)) {
+                if (strstr(line, "GTFS_PRECACHE_VERSION_STRING")) {
+                    char* start = strchr(line, '"');
+                    if (start) {
+                        start++;
+                        char* end = strchr(start, '"');
+                        if (end) {
+                            size_t ver_len = end - start;
+                            strncpy(version, start, ver_len);
+                            version[ver_len] = '\0';
+                            fclose(fp);
+                            return version;
+                        }
                     }
                 }
             }
+            fclose(fp);
+        } else {
+            fprintf(stderr, "Warning: Could not open version header file: %s\n", header_path);
         }
     }
-    fclose(fp);
-    fprintf(stderr, "Could not find version string in header file\n");
-    fflush(stderr);
-    return -1;
+
+    // Fallback version if we can't read the file
+    strcpy(version, "1.0.0");
+    return version;
 }
 
 // Function to check if we need to rebuild
 int check_rebuild(const char* executable_path) {
-    char header_version[32] = {0};
-    if (read_header_version(header_version, sizeof(header_version)) != 0) {
-        fprintf(stderr, "Warning: Could not read version from header\n");
-        fflush(stderr);
-        return 0;  // Continue without rebuild if we can't read the header
-    }
-
-    // Compare versions
-    if (strcmp(header_version, GTFS_PRECACHE_VERSION_STRING) != 0) {
+    const char* current_version = get_version();
+    if (strcmp(current_version, GTFS_PRECACHE_VERSION_STRING) != 0) {
         printf("Version mismatch: binary=%s, header=%s\n", 
-               GTFS_PRECACHE_VERSION_STRING, header_version);
+               GTFS_PRECACHE_VERSION_STRING, current_version);
         printf("Rebuilding...\n");
         fflush(stdout);
 
@@ -755,29 +761,29 @@ int process_stop_times(const char* input_file, const char* output_file);
 int check_rebuild(const char* executable_path);
 
 int main(int argc, char* argv[]) {
-    // Print version if requested
-    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
-        printf("GTFS Precache Tool v%s\n", GTFS_PRECACHE_VERSION_STRING);
-        fflush(stdout);
-        return 0;
-    }
-
-    // Check for self-update
-    if (check_rebuild(argv[0]) != 0) {
-        fprintf(stderr, "Failed to check for updates\n");
-        fflush(stderr);
+    // Get version
+    const char* version = get_version();
+    printf("GTFS Precache Tool v%s\n", version);
+    
+    // Parse command line arguments
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <input_file> <output_file> [cpu_limit]\n", argv[0]);
         return 1;
     }
-
-    // Check arguments
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input_file> <output_file>\n", argv[0]);
-        fflush(stderr);
-        return 1;
+    
+    const char* input_file = argv[1];
+    const char* output_file = argv[2];
+    int cpu_limit = DEFAULT_CPU_LIMIT;
+    
+    if (argc > 3) {
+        cpu_limit = atoi(argv[3]);
+        if (cpu_limit < 1 || cpu_limit > 100) {
+            fprintf(stderr, "CPU limit must be between 1 and 100\n");
+            return 1;
+        }
     }
-
-    printf("GTFS Precache Tool v%s starting...\n", GTFS_PRECACHE_VERSION_STRING);
-    fflush(stdout);
-
-    return process_stop_times(argv[1], argv[2]);
+    
+    printf("Processing %s -> %s (CPU limit: %d%%)\n", input_file, output_file, cpu_limit);
+    
+    return process_stop_times(input_file, output_file);
 } 
