@@ -73,7 +73,10 @@ GTFS_CACHE_DURATION = provider_config.get("GTFS_CACHE_DURATION")
 
 # Add this near the top with other cache variables
 waiting_times_cache = {}
-WAITING_TIMES_CACHE_DURATION = timedelta(seconds=30)
+WAITING_TIMES_CACHE_DURATION = timedelta(seconds=20)
+
+# Add this near the top with other global variables
+_waiting_times_locks = {}
 
 # Add these near the top with other cache variables
 ROUTES_CACHE_FILE = CACHE_DIR / "routes.json"
@@ -664,310 +667,325 @@ def normalize_stop_id(stop_id: str) -> str:
 
 
 async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, Any]:
-    """Get real-time waiting times for STIB stops
-
-    Args:
-        stop_id: Optional stop ID or list of stop IDs to filter results.
-                Example of a valid stop_id: 8122 (ROODEBEEK)
-                Example of a list: ["8122", "8032"] (ROODEBEEK and PARC)
-                Stop IDs with suffixes (e.g., "5710F") will be normalized
-                by removing the suffix before querying the API.
-                If not provided, returns data for all monitored stops.
-
-    Returns:
-        Dictionary containing waiting times data in the format:
-        {
-            "stops_data": {
-                "stop_id": {
-                    "name": "Stop Name",
-                    "coordinates": {"lat": 50.8, "lon": 4.3},
-                    "lines": {
-                        "line_number": {
-                            "destination": [{
-                                "destination": "DESTINATION",
-                                "formatted_time": "14:30",
-                                "message": "",
-                                "minutes": 5
-                            }]
-                        }
-                    }
-                }
-            }
-        }"""
-
+    """Get real-time waiting times for STIB stops"""
     try:
-        # Get monitored stops from merged config
-        provider_config = get_provider_config("stib")
-        monitored_stops = {
-            normalize_stop_id(str(stop["id"])): stop
-            for stop in provider_config.get("STIB_STOPS", [])
-        }
-        logger.debug(f"Found {len(monitored_stops)} monitored stops in config")
+        # Get current event loop for lock management
+        loop = asyncio.get_running_loop()
+        if loop not in _waiting_times_locks:
+            _waiting_times_locks[loop] = asyncio.Lock()
+        lock = _waiting_times_locks[loop]
 
-        # Build API query
-        params = {
-            "apikey": API_KEY,
-            "limit": 100,
-            "select": "pointid,lineid,passingtimes",
-        }
+        # Check if we have a recent result
+        now = datetime.now(timezone.utc)
+        cache_key = str(stop_id) if stop_id else "all"
+        
+        async with lock:
+            if cache_key in waiting_times_cache:
+                cache_entry = waiting_times_cache[cache_key]
+                if now - cache_entry["timestamp"] < WAITING_TIMES_CACHE_DURATION:
+                    # Recalculate minutes based on current time
+                    cached_data = cache_entry["data"]
+                    for stop_data in cached_data["stops_data"].values():
+                        for line_data in stop_data.get("lines", {}).values():
+                            for destination_data in line_data.values():
+                                for time_entry in destination_data:
+                                    if "message" not in time_entry:
+                                        # Parse the expected arrival time
+                                        arrival_dt = datetime.fromisoformat(
+                                            time_entry["_raw_arrival_time"].replace("Z", "+00:00")
+                                        )
+                                        # Calculate new minutes
+                                        minutes = max(
+                                            0, int((arrival_dt - now).total_seconds() / 60)
+                                        )
+                                        time_entry["minutes"] = minutes
+                    
+                    logger.debug(f"Using cached waiting times for {cache_key}")
+                    return cached_data
 
-        # Handle stop_id parameter
-        requested_stops = set()
-        original_to_normalized = {}  # Keep track of original stop IDs
-        if stop_id:
-            if isinstance(stop_id, str):
-                # Handle comma-separated string
-                stop_ids = [s.strip() for s in stop_id.split(",")]
-            elif isinstance(stop_id, list):
-                stop_ids = [str(s) for s in stop_id]
-            else:
-                logger.warning(f"Invalid stop_id parameter type: {type(stop_id)}")
-                stop_ids = []
+            # Check if we can make a request
+            if not rate_limiter.can_make_request():
+                logger.error("Rate limit exceeded, cannot fetch waiting times")
+                return {"stops_data": {}, "error": "Rate limit exceeded"}
 
-            # Normalize stop IDs and keep track of originals
-            for original_id in stop_ids:
-                normalized_id = normalize_stop_id(original_id)
-                requested_stops.add(normalized_id)
-                original_to_normalized[original_id] = normalized_id
+            # Get monitored stops from merged config
+            provider_config = get_provider_config("stib")
+            monitored_stops = {
+                normalize_stop_id(str(stop["id"])): stop
+                for stop in provider_config.get("STIB_STOPS", [])
+            }
+            logger.debug(f"Found {len(monitored_stops)} monitored stops in config")
 
-            logger.debug(
-                f"Requested stops: {requested_stops} (normalized from {stop_id})"
-            )
-
-            # Build query for requested stops
-            stop_filter = " or ".join(
-                f'pointid="{normalized_id}"' for normalized_id in requested_stops
-            )
-            params["where"] = f"({stop_filter})"
-            params["limit"] = (
-                100  # Make sure we get all results for the requested stops
-            )
-        # Otherwise filter for all monitored stops
-        elif monitored_stops:
-            stop_filter = " or ".join(
-                f'pointid="{normalized_id}"' for normalized_id in monitored_stops.keys()
-            )
-            params["where"] = f"({stop_filter})"
-            params["limit"] = 100  # Make sure we get all results for monitored stops
-            logger.debug(f"Using monitored stops: {list(monitored_stops.keys())}")
-
-        async with await get_client() as client:
-            response = await client.get(WAITING_TIMES_API_URL, params=params)
-            rate_limiter.update_from_headers(response.headers)
-
-            if response.status_code != 200:
-                logger.error(
-                    f"Failed to get waiting times: {response.status_code} {response.text}"
-                )
-                return {"stops_data": {}}
-
-            data = response.json()
-            formatted_data = {"stops_data": {}}
-
-            # Process each record
-            for record in data.get("results", []):
-                try:
-                    current_stop_id = str(record.get("pointid"))
-                    if not current_stop_id:
-                        logger.warning("Skipping record with no stop ID")
-                        continue
-
-                    # If specific stops were requested, only process those
-                    if requested_stops and current_stop_id not in requested_stops:
-                        logger.debug(
-                            f"Skipping stop {current_stop_id} - not in requested stops"
-                        )
-                        continue
-                    # Otherwise only process monitored stops
-                    elif not requested_stops and current_stop_id not in monitored_stops:
-                        logger.debug(
-                            f"Skipping stop {current_stop_id} - not in monitored stops"
-                        )
-                        continue
-
-                    line = str(record.get("lineid"))
-                    if not line:
-                        logger.warning(
-                            f"Skipping record for stop {current_stop_id} - no line ID"
-                        )
-                        continue
-
-                    # Find the original stop ID if it exists
-                    original_stop_id = None
-                    if original_to_normalized:
-                        for orig, norm in original_to_normalized.items():
-                            if norm == current_stop_id:
-                                original_stop_id = orig
-                                break
-
-                    # Use the original stop ID in the response if available
-                    response_stop_id = original_stop_id or current_stop_id
-
-                    # Initialize stop data if needed
-                    if response_stop_id not in formatted_data["stops_data"]:
-                        # Get stop name from monitored stops if available, otherwise look it up
-                        stop_name = (
-                            monitored_stops[current_stop_id]["name"]
-                            if current_stop_id in monitored_stops
-                            else get_stop_names([response_stop_id])[response_stop_id]["name"]
-                        )
-
-                        # Get coordinates for this stop (use original ID for coordinates lookup)
-                        coordinates = get_stop_coordinates_with_fallback(
-                            response_stop_id
-                        )
-                        if coordinates:
-                            logger.debug(
-                                f"Found coordinates for stop {response_stop_id}"
-                            )
-                        else:
-                            logger.warning(
-                                f"No coordinates found for stop {response_stop_id}"
-                            )
-
-                        formatted_data["stops_data"][response_stop_id] = {
-                            "name": stop_name,
-                            "coordinates": coordinates or {},
-                            "lines": {},
-                        }
-
-                    # Process passing times
-                    passing_times = record.get("passingtimes")
-                    if not passing_times:
-                        logger.warning(
-                            f"No passing times for stop {response_stop_id}, line {line}"
-                        )
-                        continue
-
-                    # Handle both string and list formats
-                    if isinstance(passing_times, str):
-                        try:
-                            passing_times = json.loads(passing_times)
-                        except json.JSONDecodeError:
-                            logger.error(
-                                f"Invalid JSON in passing times for stop {response_stop_id}, line {line}"
-                            )
-                            continue
-
-                    if not isinstance(passing_times, list):
-                        logger.warning(
-                            f"Invalid passing times format for stop {response_stop_id}, line {line}"
-                        )
-                        continue
-
-                    for passing_time in passing_times:
-                        try:
-                            # Get destination with all language versions
-                            destination_data = passing_time.get("destination", {})
-                            if not isinstance(destination_data, dict):
-                                destination_data = {"fr": str(destination_data)}
-
-                            # Select display name using language precedence
-                            selected_destination, _metadata = select_language(
-                                content=destination_data,
-                                provider_languages=AVAILABLE_LANGUAGES,
-                            )
-                            destination = selected_destination
-
-                            # For monitored stops, check if this line is monitored
-                            if current_stop_id in monitored_stops:
-                                stop_config = monitored_stops[current_stop_id]
-                                allowed_lines = stop_config.get("lines", {})
-
-                                if line not in allowed_lines:
-                                    logger.debug(
-                                        f"Skipping line {line} for monitored stop {response_stop_id} - not in config"
-                                    )
-                                    continue
-
-                                # Check if this destination is allowed for this line
-                                allowed_destinations = allowed_lines[line]
-                                if allowed_destinations and not any(
-                                    matches_destination(allowed_dest, destination_data)
-                                    for allowed_dest in allowed_destinations
-                                ):
-                                    logger.warning(
-                                        f"Unexpected destination '{destination}' for line {line} at stop {response_stop_id} "
-                                        f"(configured destinations: {allowed_destinations})"
-                                    )
-                                    continue
-
-                            # Initialize line data if needed
-                            if (
-                                line
-                                not in formatted_data["stops_data"][response_stop_id][
-                                    "lines"
-                                ]
-                            ):
-                                formatted_data["stops_data"][response_stop_id]["lines"][
-                                    line
-                                ] = {}
-
-                            if (
-                                destination
-                                not in formatted_data["stops_data"][response_stop_id][
-                                    "lines"
-                                ][line]
-                            ):
-                                formatted_data["stops_data"][response_stop_id]["lines"][
-                                    line
-                                ][destination] = []
-
-                            # Calculate minutes until arrival
-                            expected_time = passing_time.get("expectedArrivalTime")
-                            if not expected_time:
-                                logger.warning(
-                                    f"No arrival time for stop {response_stop_id}, line {line}"
-                                )
-                                continue
-
-                            try:
-                                arrival_dt = datetime.fromisoformat(
-                                    expected_time.replace("Z", "+00:00")
-                                )
-                                now = datetime.now(timezone.utc)
-                                minutes = max(
-                                    0, int((arrival_dt - now).total_seconds() / 60)
-                                )
-
-                                formatted_data["stops_data"][response_stop_id]["lines"][
-                                    line
-                                ][destination].append(
-                                    {
-                                        "destination": destination,
-                                        "destination_data": destination_data,  # Keep all language versions
-                                        "minutes": minutes,
-                                        "message": passing_time.get("message", ""),
-                                        "formatted_time": arrival_dt.strftime("%H:%M"),
-                                        "_metadata": {
-                                            "language": _metadata["language"]
-                                        },
-                                    }
-                                )
-                            except (ValueError, TypeError) as e:
-                                logger.error(
-                                    f"Error parsing time {expected_time} for stop {response_stop_id}, line {line}: {e}"
-                                )
-                                continue
-
-                        except Exception as e:
-                            logger.error(
-                                f"Error processing passing time for stop {response_stop_id}, line {line}: {e}"
-                            )
-                            continue
-
-                except Exception as e:
-                    logger.error(f"Error processing record: {e}")
-                    continue
-
-            # Remove any stops that ended up with no valid data
-            formatted_data["stops_data"] = {
-                stop_id: stop_data
-                for stop_id, stop_data in formatted_data["stops_data"].items()
-                if stop_data.get("lines")
+            # Build API query
+            params = {
+                "apikey": API_KEY,
+                "limit": 100,
+                "select": "pointid,lineid,passingtimes",
             }
 
-            return formatted_data
+            # Handle stop_id parameter
+            requested_stops = set()
+            original_to_normalized = {}  # Keep track of original stop IDs
+            if stop_id:
+                if isinstance(stop_id, str):
+                    # Handle comma-separated string
+                    stop_ids = [s.strip() for s in stop_id.split(",")]
+                elif isinstance(stop_id, list):
+                    stop_ids = [str(s) for s in stop_id]
+                else:
+                    logger.warning(f"Invalid stop_id parameter type: {type(stop_id)}")
+                    stop_ids = []
+
+                # Normalize stop IDs and keep track of originals
+                for original_id in stop_ids:
+                    normalized_id = normalize_stop_id(original_id)
+                    requested_stops.add(normalized_id)
+                    original_to_normalized[original_id] = normalized_id
+
+                logger.debug(
+                    f"Requested stops: {requested_stops} (normalized from {stop_id})"
+                )
+
+                # Build query for requested stops
+                stop_filter = " or ".join(
+                    f'pointid="{normalized_id}"' for normalized_id in requested_stops
+                )
+                params["where"] = f"({stop_filter})"
+                params["limit"] = (
+                    100  # Make sure we get all results for the requested stops
+                )
+            # Otherwise filter for all monitored stops
+            elif monitored_stops:
+                stop_filter = " or ".join(
+                    f'pointid="{normalized_id}"' for normalized_id in monitored_stops.keys()
+                )
+                params["where"] = f"({stop_filter})"
+                params["limit"] = 100  # Make sure we get all results for monitored stops
+                logger.debug(f"Using monitored stops: {list(monitored_stops.keys())}")
+
+            async with await get_client() as client:
+                response = await client.get(WAITING_TIMES_API_URL, params=params)
+                rate_limiter.update_from_headers(response.headers)
+
+                if response.status_code != 200:
+                    logger.error(
+                        f"Failed to get waiting times: {response.status_code} {response.text}"
+                    )
+                    return {"stops_data": {}}
+
+                data = response.json()
+                formatted_data = {"stops_data": {}}
+
+                # Process each record
+                for record in data.get("results", []):
+                    try:
+                        current_stop_id = str(record.get("pointid"))
+                        if not current_stop_id:
+                            logger.warning("Skipping record with no stop ID")
+                            continue
+
+                        # If specific stops were requested, only process those
+                        if requested_stops and current_stop_id not in requested_stops:
+                            logger.debug(
+                                f"Skipping stop {current_stop_id} - not in requested stops"
+                            )
+                            continue
+                        # Otherwise only process monitored stops
+                        elif not requested_stops and current_stop_id not in monitored_stops:
+                            logger.debug(
+                                f"Skipping stop {current_stop_id} - not in monitored stops"
+                            )
+                            continue
+
+                        line = str(record.get("lineid"))
+                        if not line:
+                            logger.warning(
+                                f"Skipping record for stop {current_stop_id} - no line ID"
+                            )
+                            continue
+
+                        # Find the original stop ID if it exists
+                        original_stop_id = None
+                        if original_to_normalized:
+                            for orig, norm in original_to_normalized.items():
+                                if norm == current_stop_id:
+                                    original_stop_id = orig
+                                    break
+
+                        # Use the original stop ID in the response if available
+                        response_stop_id = original_stop_id or current_stop_id
+
+                        # Initialize stop data if needed
+                        if response_stop_id not in formatted_data["stops_data"]:
+                            # Get stop name from monitored stops if available, otherwise look it up
+                            stop_name = (
+                                monitored_stops[current_stop_id]["name"]
+                                if current_stop_id in monitored_stops
+                                else get_stop_names([response_stop_id])[response_stop_id]["name"]
+                            )
+
+                            # Get coordinates for this stop (use original ID for coordinates lookup)
+                            coordinates = get_stop_coordinates_with_fallback(
+                                response_stop_id
+                            )
+                            if coordinates:
+                                logger.debug(
+                                    f"Found coordinates for stop {response_stop_id}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"No coordinates found for stop {response_stop_id}"
+                                )
+
+                            formatted_data["stops_data"][response_stop_id] = {
+                                "name": stop_name,
+                                "coordinates": coordinates or {},
+                                "lines": {},
+                            }
+
+                        # Process passing times
+                        passing_times = record.get("passingtimes")
+                        if not passing_times:
+                            logger.warning(
+                                f"No passing times for stop {response_stop_id}, line {line}"
+                            )
+                            continue
+
+                        # Handle both string and list formats
+                        if isinstance(passing_times, str):
+                            try:
+                                passing_times = json.loads(passing_times)
+                            except json.JSONDecodeError:
+                                logger.error(
+                                    f"Invalid JSON in passing times for stop {response_stop_id}, line {line}"
+                                )
+                                continue
+
+                        if not isinstance(passing_times, list):
+                            logger.warning(
+                                f"Invalid passing times format for stop {response_stop_id}, line {line}"
+                            )
+                            continue
+
+                        for passing_time in passing_times:
+                            try:
+                                # Get destination with all language versions
+                                destination_data = passing_time.get("destination", {})
+                                if not isinstance(destination_data, dict):
+                                    destination_data = {"fr": str(destination_data)}
+
+                                # Select display name using language precedence
+                                selected_destination, _metadata = select_language(
+                                    content=destination_data,
+                                    provider_languages=AVAILABLE_LANGUAGES,
+                                )
+                                destination = selected_destination
+
+                                # For monitored stops, check if this line is monitored
+                                if current_stop_id in monitored_stops:
+                                    stop_config = monitored_stops[current_stop_id]
+                                    allowed_lines = stop_config.get("lines", {})
+
+                                    if line not in allowed_lines:
+                                        logger.debug(
+                                            f"Skipping line {line} for monitored stop {response_stop_id} - not in config"
+                                        )
+                                        continue
+
+                                    # Check if this destination is allowed for this line
+                                    allowed_destinations = allowed_lines[line]
+                                    if allowed_destinations and not any(
+                                        matches_destination(allowed_dest, destination_data)
+                                        for allowed_dest in allowed_destinations
+                                    ):
+                                        logger.warning(
+                                            f"Unexpected destination '{destination}' for line {line} at stop {response_stop_id} "
+                                            f"(configured destinations: {allowed_destinations})"
+                                        )
+                                        continue
+
+                                # Initialize line data if needed
+                                if (
+                                    line
+                                    not in formatted_data["stops_data"][response_stop_id][
+                                        "lines"
+                                    ]
+                                ):
+                                    formatted_data["stops_data"][response_stop_id]["lines"][
+                                        line
+                                    ] = {}
+
+                                if (
+                                    destination
+                                    not in formatted_data["stops_data"][response_stop_id][
+                                        "lines"
+                                    ][line]
+                                ):
+                                    formatted_data["stops_data"][response_stop_id]["lines"][
+                                        line
+                                    ][destination] = []
+
+                                # Calculate minutes until arrival
+                                expected_time = passing_time.get("expectedArrivalTime")
+                                if not expected_time:
+                                    logger.warning(
+                                        f"No arrival time for stop {response_stop_id}, line {line}"
+                                    )
+                                    continue
+
+                                try:
+                                    arrival_dt = datetime.fromisoformat(
+                                        expected_time.replace("Z", "+00:00")
+                                    )
+                                    minutes = max(
+                                        0, int((arrival_dt - now).total_seconds() / 60)
+                                    )
+
+                                    formatted_data["stops_data"][response_stop_id]["lines"][
+                                        line
+                                    ][destination].append(
+                                        {
+                                            "destination": destination,
+                                            "destination_data": destination_data,  # Keep all language versions
+                                            "minutes": minutes,
+                                            "message": passing_time.get("message", ""),
+                                            "formatted_time": arrival_dt.strftime("%H:%M"),
+                                            "_raw_arrival_time": expected_time,  # Store for recalculation
+                                            "_metadata": {
+                                                "language": _metadata["language"]
+                                            },
+                                        }
+                                    )
+                                except (ValueError, TypeError) as e:
+                                    logger.error(
+                                        f"Error parsing time {expected_time} for stop {response_stop_id}, line {line}: {e}"
+                                    )
+                                    continue
+
+                            except Exception as e:
+                                logger.error(
+                                    f"Error processing passing time for stop {response_stop_id}, line {line}: {e}"
+                                )
+                                continue
+
+                    except Exception as e:
+                        logger.error(f"Error processing record: {e}")
+                        continue
+
+                # Remove any stops that ended up with no valid data
+                formatted_data["stops_data"] = {
+                    stop_id: stop_data
+                    for stop_id, stop_data in formatted_data["stops_data"].items()
+                    if stop_data.get("lines")
+                }
+
+                # Cache the result
+                waiting_times_cache[cache_key] = {
+                    "timestamp": now,
+                    "data": formatted_data
+                }
+
+                return formatted_data
 
     except Exception as e:
         logger.error(f"Error getting waiting times: {e}")
