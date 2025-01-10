@@ -10,15 +10,22 @@ services:
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1
+      - PROJECT_ROOT=/app
+      - CACHE_DIR=/app/cache
+      - DOWNLOADS_DIR=/app/downloads
+      - LOGS_DIR=/app/logs
     env_file:
       - .env
     volumes:
       - type: bind
-        source: ./downloads
+        source: ${PWD:-.}/downloads
         target: /app/downloads
       - type: bind
-        source: ./cache
+        source: ${PWD:-.}/cache
         target: /app/cache
+      - type: bind
+        source: ${PWD:-.}/logs
+        target: /app/logs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
