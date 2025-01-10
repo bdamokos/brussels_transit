@@ -48,18 +48,24 @@ GRACE_PERIOD = 5
 # Configure logging
 logger = logging.getLogger("schedule_explorer.backend")
 
-app = FastAPI(title="Schedule Explorer API")
+app = FastAPI(
+    title="Schedule Explorer API",
+    description="API for exploring GTFS schedules",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/health")
+@app.get("/health", tags=["health"])
 async def health():
     """Health check endpoint"""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
@@ -552,7 +558,7 @@ async def download_gtfs(provider_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/providers", response_model=List[str])
+@app.get("/providers", response_model=List[str], tags=["providers"])
 async def get_providers():
     """Get list of available GTFS providers"""
     providers = find_gtfs_directories()
@@ -568,7 +574,7 @@ async def startup_event():
     db = MobilityAPI(data_dir=DOWNLOAD_DIR)
 
 
-@app.post("/provider/{provider_id}")
+@app.post("/provider/{provider_id}", tags=["providers"])
 async def set_provider(provider_id: str):
     """Set the current GTFS provider and load its data"""
     global feed, current_provider, available_providers
@@ -663,7 +669,7 @@ async def search_stations_with_provider(
     )
 
 
-@app.get("/stations/search", response_model=List[StationResponse])
+@app.get("/stations/search", response_model=List[StationResponse], tags=["stations"])
 async def search_stations(
     query: Optional[str] = Query(
         None, min_length=2, description="Search query for station name"
@@ -1249,7 +1255,7 @@ async def get_origins(
         ]
 
 
-@app.get("/providers_info", response_model=List[Provider])
+@app.get("/providers_info", response_model=List[Provider], tags=["providers"])
 async def get_providers_info():
     """Get list of available GTFS providers with full metadata"""
     return find_gtfs_directories()

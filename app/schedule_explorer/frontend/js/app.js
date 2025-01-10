@@ -11,20 +11,47 @@ function debounce(func, wait) {
 }
 
 // API configuration
-// Get the current server's URL and port
-window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+// Use the API URL injected from the environment
 const API_BASE_URL = window.API_BASE_URL;
+
+// Add error handling for fetch requests
+async function fetchWithRetry(url, options = {}, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await fetch(url, {
+                ...options,
+                // Add headers to handle Cloudflare
+                headers: {
+                    ...options.headers,
+                    'Accept': 'application/json',
+                }
+            });
+            
+            // Handle redirects
+            if (response.status === 301 || response.status === 302 || response.status === 307 || response.status === 308) {
+                const newUrl = response.headers.get('Location');
+                return await fetchWithRetry(newUrl, options, retries - 1);
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response;
+        } catch (error) {
+            if (i === retries - 1) throw error;
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+        }
+    }
+}
 
 // Function to fetch station details by stop_id
 async function fetchStationById(stopId) {
     try {
-        const response = await fetch(`${API_BASE_URL}/stations/search?stop_id=${stopId}`);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch station with ID ${stopId}`);
-        }
+        const response = await fetchWithRetry(`${API_BASE_URL}/stations/search?stop_id=${stopId}`);
         const stations = await response.json();
         if (stations.length > 0) {
-            return stations[0]; // Return the first station in the array
+            return stations[0];
         } else {
             throw new Error(`Station with ID ${stopId} not found`);
         }
@@ -33,6 +60,7 @@ async function fetchStationById(stopId) {
         return null;
     }
 }
+
 // Map initialization
 const map = L.map('map').setView([50.8503, 4.3517], 7);  // Centered on Belgium
 
