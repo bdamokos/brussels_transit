@@ -207,9 +207,10 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        // Get the current server's URL and port
-        window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`; 
+        // Use the API URL injected from the environment
         const API_BASE_URL = window.API_BASE_URL;
+        console.log('Data Manager Frontend starting...');
+        console.log('API Base URL:', API_BASE_URL);
 
         // Define deleteAllDatasets in global scope
         async function deleteAllDatasets() {

@@ -8,9 +8,11 @@ let selectedStops = new Map(); // For stops that are selected
 let routeLines = [];
 let selectedLanguage = 'default';
 let providers = []; // Store providers data globally
-// Get the current server's URL and port
-window.API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+
+// Use the API URL injected from the environment
 const API_BASE_URL = window.API_BASE_URL;
+console.log('Stop Explorer Frontend starting...');
+console.log('API Base URL:', API_BASE_URL);
 
 // Track the last loaded bounds
 let lastLoadedBounds = null;
