@@ -1,17 +1,36 @@
 #!/bin/sh
+set -e
 
-# Ensure directories exist with correct permissions
-mkdir -p \
-    "$CACHE_DIR/stib" \
-    "$CACHE_DIR/delijn" \
-    "$DOWNLOADS_DIR" \
-    "$LOGS_DIR"
+# Function to ensure directory exists and has correct permissions
+ensure_dir() {
+    dir="$1"
+    if [ ! -d "$dir" ]; then
+        echo "Creating directory: $dir"
+        mkdir -p "$dir"
+    fi
+    chmod 777 "$dir"
+}
 
-# Set permissions
-chmod -R 777 \
-    "$CACHE_DIR" \
-    "$DOWNLOADS_DIR" \
-    "$LOGS_DIR"
+# Function to ensure log file exists and has correct permissions
+ensure_log() {
+    log="$1"
+    if [ ! -f "$log" ]; then
+        echo "Creating log file: $log"
+        touch "$log"
+    fi
+    chmod 666 "$log"
+}
+
+# Ensure all required directories exist with correct permissions
+ensure_dir "$CACHE_DIR"
+ensure_dir "$CACHE_DIR/stib"
+ensure_dir "$CACHE_DIR/delijn"
+ensure_dir "$DOWNLOADS_DIR"
+ensure_dir "$LOGS_DIR"
+
+# Ensure log files exist with correct permissions
+ensure_log "$LOGS_DIR/legacy_app.log"
+ensure_log "$LOGS_DIR/schedule_explorer.log"
 
 # Start the application
 exec python start.py 
