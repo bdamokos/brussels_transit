@@ -3,7 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
-  - [Unreleased](#unreleased)
+  - [v0.2.1 (2025-01-09)](#v021-2025-01-09)
   - [v0.2.0 (2025-01-03)](#v020-2025-01-03)
   - [v0.1.2 (2024-12-30)](#v012-2024-12-30)
   - [v0.1.1 (2024-12-26)](#v011-2024-12-26)
@@ -13,9 +13,9 @@
 
 # Changelog
 
-## [Unreleased](https://github.com/bdamokos/brussels_transit/tree/HEAD)
+## [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1) (2025-01-09)
 
-[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.0...HEAD)
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.0...v0.2.1)
 
 **Implemented enhancements:**
 
