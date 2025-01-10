@@ -193,39 +193,42 @@ async function loadProviders() {
     const statusText = backendStatus.querySelector('.status-text');
 
     try {
-        backendStatus.className = 'backend-status loading';
-        statusText.textContent = 'Loading providers...';
-
+        // Start loading providers immediately
         const response = await fetch(`${API_BASE_URL}/providers_info`);
         if (!response.ok) throw new Error('Failed to fetch providers');
         
         const providersData = await response.json();
-        console.log('Loaded providers:', providersData);  // Debug log
         providers = providersData; // Store providers globally
         
-        // Clear existing options except the placeholder
-        while (providerSelect.options.length > 1) {
-            providerSelect.remove(1);
-        }
+        // Build options in memory first
+        const fragment = document.createDocumentFragment();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = 'Select a provider';
+        fragment.appendChild(placeholder);
         
-        // Add provider options
-        for (const provider of providers) {
-            console.log('Adding provider to select:', provider);  // Debug log
+        // Group providers by name to detect duplicates
+        const providersByName = {};
+        providers.forEach(p => {
+            if (!providersByName[p.name]) providersByName[p.name] = [];
+            providersByName[p.name].push(p);
+        });
+        
+        // Create options
+        providers.forEach(provider => {
             const option = document.createElement('option');
             option.value = provider.raw_id;
-            
-            // Check if there are multiple providers with the same name
-            const duplicateProviders = providers.filter(p => p.name === provider.name);
-            if (duplicateProviders.length > 1) {
-                option.textContent = `${provider.name} (${provider.raw_id})`;
-            } else {
-                option.textContent = provider.name;
-            }
-            
-            providerSelect.appendChild(option);
-        }
-
-        // Enable provider selection
+            option.textContent = providersByName[provider.name].length > 1 
+                ? `${provider.name} (${provider.raw_id})`
+                : provider.name;
+            fragment.appendChild(option);
+        });
+        
+        // Replace all options at once
+        providerSelect.innerHTML = '';
+        providerSelect.appendChild(fragment);
         providerSelect.disabled = false;
 
         // Show success status briefly
