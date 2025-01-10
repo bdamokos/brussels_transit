@@ -1,5 +1,5 @@
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 # Get logger
@@ -23,7 +23,7 @@ class RateLimiter:
                 self.reset_time = datetime.fromisoformat(reset_time_str)
             except (ValueError, TypeError):
                 # Fallback to current time plus 1 hour if parsing fails
-                self.reset_time = datetime.now() + timedelta(hours=1)
+                self.reset_time = datetime.now(timezone.utc) + timedelta(hours=1)
 
             self.limit = int(headers.get("x-ratelimit-limit", 0))
 
@@ -53,7 +53,7 @@ class RateLimiter:
             logger.warning(f"Error parsing rate limit headers: {e}")
             self.remaining = 0  # Set to 0 on error
             self.limit = 0
-            self.reset_time = datetime.now() + timedelta(
+            self.reset_time = datetime.now(timezone.utc) + timedelta(
                 hours=1
             )  # Set default reset time
 
@@ -64,7 +64,7 @@ class RateLimiter:
 
         if self.remaining <= 0:
             # Check if reset time has passed
-            if datetime.now() > self.reset_time:
+            if datetime.now(timezone.utc) > self.reset_time:
                 self.remaining = None
                 self.reset_time = None
                 return True
