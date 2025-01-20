@@ -19,7 +19,7 @@ httpx==0.28.1
 hypercorn==0.17.3
     # via -r requirements.in
 
-numpy==2.2.1
+numpy==2.2.2
     # via pandas
 pandas==2.2.3
     # via -r requirements.in
