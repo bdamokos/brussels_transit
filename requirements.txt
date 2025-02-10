@@ -38,5 +38,5 @@ msgpack>=0.5.6
 psutil==6.1.1
 pydantic==2.10.6
 pytest==8.3.4
-niquests ==3.12.3
+niquests ==3.13.0
 pyarrow ==19.0.0
