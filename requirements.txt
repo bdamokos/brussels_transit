@@ -12,7 +12,7 @@ flask[async]>=3.0.0
     # via
     #   -r requirements.in
     #   flask-cors
-flask-cors==5.0.0
+flask-cors==5.0.1
     # via -r requirements.in
 httpx==0.28.1
     # via -r requirements.in
