@@ -92,6 +92,8 @@ PORT = get_config("PORT")
 service_messages_cache = {"timestamp": None, "data": None}
 
 local_timezone = datetime.now().astimezone().tzname()
+if local_timezone=="CEST":
+    local_timezone="CET"
 TIMEZONE = pytz.timezone(local_timezone)
 
 
