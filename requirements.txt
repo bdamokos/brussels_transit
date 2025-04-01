@@ -25,7 +25,7 @@ pandas==2.2.3
     # via -r requirements.in
 python-dotenv>=1.0.0
     # via -r requirements.in
-pytz==2025.1
+pytz==2025.2
     # via
     #   -r requirements.in
     #   apscheduler
