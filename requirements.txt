@@ -37,6 +37,6 @@ fastapi >=0.115.5
 msgpack>=0.5.6
 psutil==7.0.0
 pydantic==2.11.7
-pytest==8.4.0
+pytest==8.4.1
 niquests ==3.14.1
 pyarrow ==19.0.1
