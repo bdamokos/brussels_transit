@@ -111,9 +111,7 @@ async def load_line_stops(line: str) -> Dict:
 
 async def validate_line_stops(line):
     try:
-        # Get route data
-        from routes import get_route_data  # Import the correct function
-
+        # Get route data (imported at module level from .routes)
         route_data = await get_route_data(line)
         logger.debug(f"Got route data for line {line}: {route_data}")
         if not route_data or line not in route_data:
