@@ -14,8 +14,8 @@ RUN pip install -r requirements.txt
 RUN apt-get update && apt-get install -y \
     curl \
     nano \
+    pkg-config \
     libmsgpack-dev \
-    libmsgpackc-dev \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
