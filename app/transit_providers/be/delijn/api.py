@@ -631,48 +631,64 @@ async def download_and_extract_gtfs() -> bool:
             logger.info("Some GTFS files are missing, downloading fresh copy")
 
     try:
+        # Attempt to acquire the lock and KEEP the FD open for the entire download
+        start_time = time.time()
+        lock_fd = None
         while True:  # Loop until we get the lock or timeout
             try:
-                start_time = time.time()
-                with open(lock_file, "w") as f:
+                lock_fd = open(lock_file, "w")
+                try:
+                    # Try to acquire lock (non-blocking)
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break  # Got the lock, proceed with download while holding lock_fd
+                except BlockingIOError:
+                    # Couldn't acquire - another process is downloading
+                    # Close FD before sleeping/retrying
                     try:
-                        # Try to acquire lock
-                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break  # Got the lock, proceed with download
-                    except BlockingIOError:
-                        # Check for stale lock
-                        if lock_file.exists():
-                            lock_age = time.time() - lock_file.stat().st_mtime
-                            if lock_age > 3600:  # 1 hour in seconds
-                                logger.warning(
-                                    f"Lock file is {lock_age:.1f}s old, attempting to remove stale lock"
-                                )
-                                try:
-                                    lock_file.unlink()
-                                    logger.info(
-                                        "Successfully removed stale lock, will retry"
-                                    )
-                                    continue  # Retry lock acquisition
-                                except Exception as e:
-                                    logger.error(f"Failed to remove stale lock: {e}")
+                        lock_fd.close()
+                    except Exception:
+                        pass
 
-                        # Not stale or couldn't remove - wait and retry
-                        logger.info(
-                            "Another process is downloading GTFS data, waiting..."
-                        )
-                        await asyncio.sleep(10)  # Wait 10 seconds before retry
+                    # Optionally check for stale lock file presence (fcntl locks clear on process exit)
+                    if lock_file.exists():
+                        lock_age = time.time() - lock_file.stat().st_mtime
+                        if lock_age > 3600:  # 1 hour in seconds
+                            logger.warning(
+                                f"Lock file is {lock_age:.1f}s old, ignoring age since fcntl locks are released on process exit"
+                            )
 
-                        # Check overall timeout
-                        if time.time() - start_time > 300:  # 5 minutes timeout
-                            logger.error("Timeout waiting for GTFS download lock")
-                            return False
+                    logger.info("Another process is downloading GTFS data, waiting...")
+                    await asyncio.sleep(10)  # Wait 10 seconds before retry
 
-                        continue  # Try again
+                    # Check overall timeout
+                    if time.time() - start_time > 300:  # 5 minutes timeout
+                        logger.error("Timeout waiting for GTFS download lock")
+                        return False
+
+                    continue  # Try again
             except Exception as e:
                 logger.error(f"Error handling lock file: {e}")
                 return False
 
         try:
+            # Re-check after acquiring the lock in case another process already updated the data
+            if GTFS_DIR.exists():
+                all_files_exist = True
+                oldest_file_age = 0
+                for filename in GTFS_USED_FILES:
+                    file_path = GTFS_DIR / filename
+                    if not file_path.exists():
+                        all_files_exist = False
+                        break
+                    file_age = time.time() - file_path.stat().st_mtime
+                    oldest_file_age = max(oldest_file_age, file_age)
+
+                if all_files_exist and oldest_file_age < GTFS_CACHE_DURATION:
+                    logger.debug(
+                        f"GTFS already up-to-date after waiting (age: {oldest_file_age:.1f}s). Skipping download."
+                    )
+                    return True
+
             logger.info("Starting GTFS data download")
 
             headers = {
@@ -721,13 +737,22 @@ async def download_and_extract_gtfs() -> bool:
             return True
 
         finally:
-            # Release lock and clean up
-            if lock_file.exists():
-                try:
+            # Release the fcntl lock by closing the FD, then remove the lock file
+            try:
+                if lock_fd is not None:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                    lock_fd.close()
+            except Exception as e:
+                logger.error(f"Error releasing GTFS lock: {e}")
+            try:
+                if lock_file.exists():
                     lock_file.unlink()
                     logger.debug("Deleted lock file")
-                except Exception as e:
-                    logger.error(f"Error deleting lock file: {e}")
+            except Exception as e:
+                logger.error(f"Error deleting lock file: {e}")
 
     except Exception as e:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
