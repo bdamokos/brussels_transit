@@ -48,7 +48,8 @@ def load_stops_data() -> Dict[str, Dict]:
             return json.load(f)
     except FileNotFoundError:
         logger.warning(f"File cache/stops.json not found. Initializing empty cache.")
-        # Create empty cache file
+        # Ensure cache directory exists, then create empty cache file
+        Path("cache").mkdir(parents=True, exist_ok=True)
         with open("cache/stops.json", "w") as f:
             json.dump({}, f)
         return {}
