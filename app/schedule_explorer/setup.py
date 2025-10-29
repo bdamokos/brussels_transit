@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "fastapi",
+        "fastapi>=119.0",
         "uvicorn",
         "pandas",
         "pytest",
