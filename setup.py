@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "mobility-db-api>=0.1.1",
+        "mobility-db-api>=0.5.0",
         "gtfs-realtime-bindings>=1.0.0",
         "httpx>=0.27.2",
         "python-dotenv>=1.0.0",
