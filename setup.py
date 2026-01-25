@@ -9,6 +9,7 @@ setup(
         "gtfs-realtime-bindings>=2.0.0",
         "httpx>=0.27.2",
         "python-dotenv>=1.0.0",
+        "protobuf >= 6.33.4"
     ],
     python_requires=">=3.9",
 ) 
