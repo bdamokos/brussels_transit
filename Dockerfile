@@ -9,9 +9,7 @@ ENV LOGS_DIR=/app/logs
 ENV GTFS_PRECACHE_DIR=/app/app/schedule_explorer/backend
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     curl \
     nano \
     pkg-config \
@@ -19,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+RUN pip install -r requirements.txt
 
 # Create necessary directories and set permissions
 RUN mkdir -p \
@@ -46,4 +45,3 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-
