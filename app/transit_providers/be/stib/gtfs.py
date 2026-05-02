@@ -27,6 +27,19 @@ if GTFS_DIR is not None:
     GTFS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _required_gtfs_filenames() -> list[str]:
+    if GTFS_USED_FILES:
+        return list(GTFS_USED_FILES)
+    return ["stops.txt"]
+
+
+def _missing_required_gtfs_files() -> list[str]:
+    req = _required_gtfs_filenames()
+    if GTFS_DIR is None:
+        return req
+    return [name for name in req if not (GTFS_DIR / name).exists()]
+
+
 def _trusted_download_netlocs() -> set[str]:
     """Hosts allowed to receive subscription headers on follow-up file downloads."""
     out = {urlparse(mobility_apim_base_url()).netloc.lower()}
@@ -39,12 +52,9 @@ def _trusted_download_netlocs() -> set[str]:
 
 
 def _headers_for_file_url(file_url: str) -> dict:
-    """Only send APIM credentials to the mobility API host (not arbitrary URLs in listings)."""
-    try:
-        parsed = urlparse(file_url)
-    except Exception:
-        return {}
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    """HTTPS + trusted host only — never send the subscription key over plain HTTP."""
+    parsed = urlparse(file_url)
+    if parsed.scheme != "https" or not parsed.netloc:
         return {}
     if parsed.netloc.lower() in _trusted_download_netlocs():
         return mobility_subscription_headers()
@@ -97,8 +107,11 @@ def _download_via_ods_file_list(data: dict) -> bool:
         except Exception as e:
             logger.error(f"Error downloading file from listing: {e}")
             continue
-    downloaded = list(GTFS_DIR.glob("*.txt")) if GTFS_DIR else []
-    return bool(GTFS_DIR and (GTFS_DIR / "stops.txt").exists())
+    missing = _missing_required_gtfs_files()
+    if missing:
+        logger.error("Missing GTFS files after JSON listing download: %s", missing)
+        return False
+    return True
 
 
 def download_gtfs_data():
@@ -153,10 +166,12 @@ def download_gtfs_data():
         downloaded_files = list(GTFS_DIR.glob("*.txt"))
         logger.info(f"Extracted GTFS files: {[f.name for f in downloaded_files]}")
 
-        if not (GTFS_DIR / "stops.txt").exists():
+        missing = _missing_required_gtfs_files()
+        if missing:
             logger.error(
-                "stops.txt not found after extract. Files: "
-                f"{[f.name for f in downloaded_files]}"
+                "Missing GTFS files after extract: %s. Present: %s",
+                missing,
+                [f.name for f in downloaded_files],
             )
             return False
         return True

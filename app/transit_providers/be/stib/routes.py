@@ -254,14 +254,16 @@ async def get_stops_for_line(line: str) -> Dict[str, List[Dict]]:
     if not STIB_STOPS_BY_LINE_API_URL:
         logger.error("STIB_STOPS_BY_LINE_API_URL is not configured")
         return cached_stops or {"City": [], "Suburb": []}
+    sub_headers = mobility_subscription_headers()
+    if not sub_headers.get("Ocp-Apim-Subscription-Key"):
+        logger.error("Mobility subscription key is not configured")
+        return cached_stops or {"City": [], "Suburb": []}
     url = STIB_STOPS_BY_LINE_API_URL
     params = {"where": f"lineid={line}", "limit": 20}
 
     try:
         async with await get_client() as client:
-            response = await client.get(
-                url, params=params, headers=mobility_subscription_headers()
-            )
+            response = await client.get(url, params=params, headers=sub_headers)
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 
@@ -346,14 +348,16 @@ async def get_route_data(line: str) -> Dict[str, List[Dict]]:
     if not STIB_STOPS_BY_LINE_API_URL:
         logger.error("STIB_STOPS_BY_LINE_API_URL is not configured")
         return {}
+    sub_headers = mobility_subscription_headers()
+    if not sub_headers.get("Ocp-Apim-Subscription-Key"):
+        logger.error("Mobility subscription key is not configured")
+        return {}
     url = STIB_STOPS_BY_LINE_API_URL
     params = {"where": f"lineid={line}", "limit": 20}
 
     try:
         async with await get_client() as client:
-            response = await client.get(
-                url, params=params, headers=mobility_subscription_headers()
-            )
+            response = await client.get(url, params=params, headers=sub_headers)
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 

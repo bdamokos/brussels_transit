@@ -358,6 +358,15 @@ def _to_utc_aware(ts: datetime) -> datetime:
     return ts.astimezone(timezone.utc)
 
 
+def _route_colors_subset(
+    data: Dict[str, str], monitored_lines: Optional[List[str]]
+) -> Dict[str, str]:
+    """Return full cache when unfiltered; only requested lines when filtered."""
+    if not monitored_lines:
+        return data
+    return {ln: data[ln] for ln in monitored_lines if ln in data}
+
+
 async def get_route_colors(monitored_lines=None):
     """Fetch route colors with caching"""
     # If monitored_lines is a string (single line number), convert it to a list
@@ -402,7 +411,7 @@ async def get_route_colors(monitored_lines=None):
         )
     ):
         logger.debug("Using cached route colors")
-        return routes_cache["data"]
+        return _route_colors_subset(routes_cache["data"], monitored_lines)
 
     logger.debug("Loading route colors from GTFS (routes.txt)")
     gtfs_path = Path(GTFS_DIR) if GTFS_DIR else Path()
@@ -468,7 +477,9 @@ async def get_route_colors(monitored_lines=None):
                         datetime.fromisoformat(raw_fallback)
                     )
                     if _utc_now() - cache_timestamp < CACHE_DURATION:
-                        return cache_data.get("data", {})
+                        return _route_colors_subset(
+                            cache_data.get("data", {}), monitored_lines
+                        )
         except Exception as cache_e:
             logger.error(
                 f"Error loading routes cache: {cache_e}\n{traceback.format_exc()}"
