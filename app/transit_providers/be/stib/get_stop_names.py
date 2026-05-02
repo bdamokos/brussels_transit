@@ -19,11 +19,11 @@ from .stop_coordinates import (
     get_cached_coordinates as get_cached_gtfs_coordinates,
     cache_coordinates as cache_gtfs_coordinates,
 )
+from .mobility import mobility_subscription_headers
 
 # Get configuration
 provider_config = get_provider_config("stib")
 STOPS_API_URL = provider_config.get("STIB_STOPS_API_URL")
-API_KEY = provider_config.get("API_KEY")
 CACHE_DIR = provider_config.get("CACHE_DIR")
 STOPS_CACHE_FILE = CACHE_DIR / "stops.json"
 CACHE_DURATION = provider_config.get("CACHE_DURATION")
@@ -391,11 +391,14 @@ def get_stop_names(stop_ids, preferred_language=None):
                 "limit": len(
                     variant_queries
                 ),  # Adjust limit to match number of variants
-                "apikey": API_KEY,
             }
 
             try:
-                response = requests.get(STOPS_API_URL, params=params)
+                response = requests.get(
+                    STOPS_API_URL,
+                    params=params,
+                    headers=mobility_subscription_headers(),
+                )
                 logger.debug(f"Batch API Response status: {response.status_code}")
 
                 if response.status_code != 200:

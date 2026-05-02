@@ -6,20 +6,26 @@ from datetime import datetime, timedelta
 import asyncio
 
 import logging
-from app.utils import RateLimiter, get_client
-from app.config import get_config
+from utils import RateLimiter, get_client
+from config import get_config
+from transit_providers.config import get_provider_config
+
+from .mobility import mobility_subscription_headers
 
 # Setup logging using configuration
 
 # Get logger
 logger = logging.getLogger("stib.routes")
 
+_provider = get_provider_config("stib")
+STIB_SHAPEFILES_API_URL = _provider.get("STIB_SHAPEFILES_API_URL")
+STIB_STOPS_BY_LINE_API_URL = _provider.get("STIB_STOPS_BY_LINE_API_URL")
+
 # Create cache directories for shapefiles and stops
 SHAPES_CACHE_DIR = get_config("CACHE_DIR") / "shapes"
 STOPS_CACHE_DIR = get_config("CACHE_DIR") / "stops"
 
 CACHE_DURATION = get_config("CACHE_DURATION")
-API_KEY = get_config("STIB_API_KEY")
 
 RATE_LIMIT_DELAY = get_config("RATE_LIMIT_DELAY")
 
@@ -112,17 +118,21 @@ async def get_route_shape(line: str) -> List[Dict]:
         formatted_line = f"{int(line):03}b"  # For bus lines
         formatted_line_fallback = f"{int(line):03}t"  # For tram lines
         formatted_line_fallback_2 = f"{int(line):03}m"  # For metro lines
-        url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/shapefiles-production/records"
+        if not STIB_SHAPEFILES_API_URL:
+            logger.error("STIB_SHAPEFILES_API_URL is not configured")
+            return cached_variants or []
+        url = STIB_SHAPEFILES_API_URL
         params = {
             "where": f'ligne="{formatted_line}" or ligne="{formatted_line_fallback}" or ligne="{formatted_line_fallback_2}"',
             "limit": 20,
-            "apikey": API_KEY,
         }
 
         logger.debug(f"Making API request for line {line}")
 
         async with await get_client() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(
+                url, params=params, headers=mobility_subscription_headers()
+            )
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 
@@ -239,12 +249,17 @@ async def get_stops_for_line(line: str) -> Dict[str, List[Dict]]:
     if not should_refresh:
         return cached_stops
 
-    url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/stops-by-line-production/records"
-    params = {"where": f"lineid={line}", "limit": 20, "apikey": API_KEY}
+    if not STIB_STOPS_BY_LINE_API_URL:
+        logger.error("STIB_STOPS_BY_LINE_API_URL is not configured")
+        return cached_stops or {"City": [], "Suburb": []}
+    url = STIB_STOPS_BY_LINE_API_URL
+    params = {"where": f"lineid={line}", "limit": 20}
 
     try:
         async with await get_client() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(
+                url, params=params, headers=mobility_subscription_headers()
+            )
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 
@@ -326,12 +341,17 @@ def match_stops_to_variants(shapes: Dict, stops_by_direction: Dict) -> Dict:
 
 async def get_route_data(line: str) -> Dict[str, List[Dict]]:
     """Get route data for a line, including stops and destinations"""
-    url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/stops-by-line-production/records"
-    params = {"where": f"lineid={line}", "limit": 20, "apikey": API_KEY}
+    if not STIB_STOPS_BY_LINE_API_URL:
+        logger.error("STIB_STOPS_BY_LINE_API_URL is not configured")
+        return {}
+    url = STIB_STOPS_BY_LINE_API_URL
+    params = {"where": f"lineid={line}", "limit": 20}
 
     try:
         async with await get_client() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(
+                url, params=params, headers=mobility_subscription_headers()
+            )
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 

@@ -1,4 +1,5 @@
 import os
+import csv
 from config import get_config
 import json
 from datetime import datetime, timezone, timedelta
@@ -32,6 +33,7 @@ from .locate_vehicles import (
     validate_segment,
 )
 from .validate_stops import validate_line_stops, load_route_shape
+from .mobility import mobility_subscription_headers
 
 # Get logger
 logger = logging.getLogger("stib")
@@ -47,16 +49,15 @@ MESSAGES_API_URL = provider_config.get("STIB_MESSAGES_API_URL", "")
 logger.debug(f"MESSAGES_API_URL: {MESSAGES_API_URL}")
 WAITING_TIMES_API_URL = provider_config.get("STIB_WAITING_TIME_API_URL", "")
 logger.debug(f"WAITING_TIMES_API_URL: {WAITING_TIMES_API_URL}")
+VEHICLE_POSITIONS_API_URL = provider_config.get("STIB_VEHICLE_POSITIONS_API_URL", "")
 GTFS_URL = provider_config.get("GTFS_URL", "")
-GTFS_DIR = get_config("GTFS_DIR")
+GTFS_DIR = provider_config.get("GTFS_DIR")
 CACHE_DIR = get_config("CACHE_DIR")
 SHAPES_CACHE_DIR = CACHE_DIR / "shapes"
 
 # Initialize caches
 _last_waiting_times_result = None
 
-# API keys
-API_KEY = provider_config.get("API_KEY")
 # Configuration
 STIB_STOPS = provider_config.get("STIB_STOPS")
 TIMEZONE = pytz.timezone(get_config("TIMEZONE"))
@@ -188,9 +189,8 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
             filters.extend(line_filters)
             logger.debug(f"Added {len(line_filters)} line filters")
 
-        # Build query parameters
+        # Build query parameters (Azure APIM + Explore-compatible dataset API)
         params = {
-            "apikey": API_KEY,
             "limit": 100,  # Get a reasonable number of messages
             "select": "content,lines,points,priority,type",  # Only get fields we need
         }
@@ -203,7 +203,11 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
 
         # Make API request
         async with await get_client() as client:
-            response = await client.get(MESSAGES_API_URL, params=params)
+            response = await client.get(
+                MESSAGES_API_URL,
+                params=params,
+                headers=mobility_subscription_headers(),
+            )
             rate_limiter.update_from_headers(response.headers)
 
             if response.status_code != 200:
@@ -323,6 +327,27 @@ class WaitingTimesCache:
     data: Dict[str, Any]
 
 
+def _route_colors_from_gtfs(
+    gtfs_dir: Path, monitored_lines: Optional[List[str]]
+) -> Dict[str, str]:
+    """Map route_short_name to #RRGGBB from GTFS routes.txt (Belgian Mobility static feed)."""
+    routes_file = gtfs_dir / "routes.txt"
+    out: Dict[str, str] = {}
+    if not routes_file.is_file():
+        return out
+    want = {str(x) for x in monitored_lines} if monitored_lines else None
+    with open(routes_file, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            num = (row.get("route_short_name") or "").strip()
+            if want is not None and num not in want:
+                continue
+            color = (row.get("route_color") or "").strip()
+            if num and color:
+                out[num] = f"#{color}"
+    return out
+
+
 async def get_route_colors(monitored_lines=None):
     """Fetch route colors with caching"""
     # If monitored_lines is a string (single line number), convert it to a list
@@ -365,57 +390,41 @@ async def get_route_colors(monitored_lines=None):
         logger.debug("Using cached route colors")
         return routes_cache["data"]
 
-    logger.debug("Fetching fresh route colors")
-    url = "https://stibmivb.opendatasoft.com/api/explore/v2.1/catalog/datasets/gtfs-routes-production/records"
-
-    params = {"limit": 100, "apikey": API_KEY}  # Get all routes
-
-    # Add filter if we have specific lines we're interested in
-    if monitored_lines:
-        conditions = [f'route_short_name="{line}"' for line in monitored_lines]
-        params["where"] = " or ".join(conditions)
-
+    logger.debug("Loading route colors from GTFS (routes.txt)")
+    gtfs_path = Path(GTFS_DIR) if GTFS_DIR else Path()
     try:
-        async with await get_client() as client:
-            # Check rate limits before making request
-            if not rate_limiter.can_make_request():
-                logger.warning("Rate limit exceeded, using cached colors")
-                return routes_cache.get("data", {})
-            response = await client.get(url, params=params)
-            # Update rate limits from response headers
-            rate_limiter.update_from_headers(response.headers)
+        if not gtfs_path.is_dir() or not (gtfs_path / "routes.txt").is_file():
+            logger.info("GTFS routes.txt missing; downloading static feed")
+            await asyncio.to_thread(download_gtfs_data)
 
-            data = response.json()
+        if not gtfs_path.is_dir() or not (gtfs_path / "routes.txt").is_file():
+            logger.error("Could not load routes.txt for route colors")
+            raise FileNotFoundError("routes.txt")
 
-            # Create dictionary mapping route numbers to colors
-            for route in data["results"]:
-                route_number = route["route_short_name"]
-                route_color = route.get("route_color", "")
-                if route_color:
-                    route_colors[route_number] = f"#{route_color}"
+        route_colors = await asyncio.to_thread(
+            _route_colors_from_gtfs,
+            gtfs_path,
+            list(monitored_lines) if monitored_lines else None,
+        )
 
-            # Update cache
-            routes_cache["timestamp"] = datetime.now()
-            routes_cache["data"] = route_colors
+        routes_cache["timestamp"] = datetime.now()
+        routes_cache["data"] = route_colors
 
-            # Also save to file cache
-            try:
-                with open(ROUTES_CACHE_FILE, "w") as f:
-                    json.dump(
-                        {
-                            "timestamp": routes_cache["timestamp"].isoformat(),
-                            "data": route_colors,
-                        },
-                        f,
-                    )
-            except Exception as e:
-                import traceback
-
-                logger.error(
-                    f"Error saving routes cache: {e}\n{traceback.format_exc()}"
+        try:
+            with open(ROUTES_CACHE_FILE, "w") as f:
+                json.dump(
+                    {
+                        "timestamp": routes_cache["timestamp"].isoformat(),
+                        "data": route_colors,
+                    },
+                    f,
                 )
+        except Exception as e:
+            import traceback
 
-            return route_colors
+            logger.error(f"Error saving routes cache: {e}\n{traceback.format_exc()}")
+
+        return route_colors
 
     except Exception as e:
         import traceback
@@ -484,10 +493,12 @@ async def get_vehicle_positions(line: str = None, direction: str = None):
         # The correct filter syntax for the API
         lines_filter = " or ".join([f'lineid="{line}"' for line in monitored_lines])
 
-        params = {"where": f"({lines_filter})", "limit": 100, "apikey": API_KEY}
+        params = {"where": f"({lines_filter})", "limit": 100}
 
         async with await get_client() as client:
-            base_url = "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/vehicle-position-rt-production/records"
+            if not VEHICLE_POSITIONS_API_URL:
+                logger.error("STIB_VEHICLE_POSITIONS_API_URL is not configured")
+                return {"vehicles": []}
             # Check if we've exceeded quota or have low remaining requests
             if not rate_limiter.can_make_request() or (
                 rate_limiter.remaining is not None and rate_limiter.remaining < 1000
@@ -497,7 +508,11 @@ async def get_vehicle_positions(line: str = None, direction: str = None):
                 )
                 return {"vehicles": []}
 
-            response = await client.get(base_url, params=params)
+            response = await client.get(
+                VEHICLE_POSITIONS_API_URL,
+                params=params,
+                headers=mobility_subscription_headers(),
+            )
             # Update rate limits from response headers
             rate_limiter.update_from_headers(response.headers)
 
@@ -678,7 +693,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
         # Check if we have a recent result
         now = datetime.now(timezone.utc)
         cache_key = str(stop_id) if stop_id else "all"
-        
+
         async with lock:
             if cache_key in waiting_times_cache:
                 cache_entry = waiting_times_cache[cache_key]
@@ -692,14 +707,19 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                     if "message" not in time_entry:
                                         # Parse the expected arrival time
                                         arrival_dt = datetime.fromisoformat(
-                                            time_entry["_raw_arrival_time"].replace("Z", "+00:00")
+                                            time_entry["_raw_arrival_time"].replace(
+                                                "Z", "+00:00"
+                                            )
                                         )
                                         # Calculate new minutes
                                         minutes = max(
-                                            0, int((arrival_dt - now).total_seconds() / 60)
+                                            0,
+                                            int(
+                                                (arrival_dt - now).total_seconds() / 60
+                                            ),
                                         )
                                         time_entry["minutes"] = minutes
-                    
+
                     logger.debug(f"Using cached waiting times for {cache_key}")
                     return cached_data
 
@@ -710,8 +730,12 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                     "stops_data": {},
                     "error": "Rate limit exceeded",
                     "rate_limit_exceeded": True,
-                    "reset_time": rate_limiter.reset_time.isoformat() if rate_limiter.reset_time else None,
-                    "remaining": rate_limiter.remaining
+                    "reset_time": (
+                        rate_limiter.reset_time.isoformat()
+                        if rate_limiter.reset_time
+                        else None
+                    ),
+                    "remaining": rate_limiter.remaining,
                 }
 
             # Get monitored stops from merged config
@@ -724,7 +748,6 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
 
             # Build API query
             params = {
-                "apikey": API_KEY,
                 "limit": 100,
                 "select": "pointid,lineid,passingtimes",
             }
@@ -763,14 +786,21 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             # Otherwise filter for all monitored stops
             elif monitored_stops:
                 stop_filter = " or ".join(
-                    f'pointid="{normalized_id}"' for normalized_id in monitored_stops.keys()
+                    f'pointid="{normalized_id}"'
+                    for normalized_id in monitored_stops.keys()
                 )
                 params["where"] = f"({stop_filter})"
-                params["limit"] = 100  # Make sure we get all results for monitored stops
+                params["limit"] = (
+                    100  # Make sure we get all results for monitored stops
+                )
                 logger.debug(f"Using monitored stops: {list(monitored_stops.keys())}")
 
             async with await get_client() as client:
-                response = await client.get(WAITING_TIMES_API_URL, params=params)
+                response = await client.get(
+                    WAITING_TIMES_API_URL,
+                    params=params,
+                    headers=mobility_subscription_headers(),
+                )
                 rate_limiter.update_from_headers(response.headers)
 
                 if response.status_code != 200:
@@ -797,7 +827,10 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             )
                             continue
                         # Otherwise only process monitored stops
-                        elif not requested_stops and current_stop_id not in monitored_stops:
+                        elif (
+                            not requested_stops
+                            and current_stop_id not in monitored_stops
+                        ):
                             logger.debug(
                                 f"Skipping stop {current_stop_id} - not in monitored stops"
                             )
@@ -827,7 +860,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                             stop_name = (
                                 monitored_stops[current_stop_id]["name"]
                                 if current_stop_id in monitored_stops
-                                else get_stop_names([response_stop_id])[response_stop_id]["name"]
+                                else get_stop_names([response_stop_id])[
+                                    response_stop_id
+                                ]["name"]
                             )
 
                             # Get coordinates for this stop (use original ID for coordinates lookup)
@@ -901,7 +936,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                     # Check if this destination is allowed for this line
                                     allowed_destinations = allowed_lines[line]
                                     if allowed_destinations and not any(
-                                        matches_destination(allowed_dest, destination_data)
+                                        matches_destination(
+                                            allowed_dest, destination_data
+                                        )
                                         for allowed_dest in allowed_destinations
                                     ):
                                         logger.warning(
@@ -913,23 +950,23 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                 # Initialize line data if needed
                                 if (
                                     line
-                                    not in formatted_data["stops_data"][response_stop_id][
-                                        "lines"
-                                    ]
+                                    not in formatted_data["stops_data"][
+                                        response_stop_id
+                                    ]["lines"]
                                 ):
-                                    formatted_data["stops_data"][response_stop_id]["lines"][
-                                        line
-                                    ] = {}
+                                    formatted_data["stops_data"][response_stop_id][
+                                        "lines"
+                                    ][line] = {}
 
                                 if (
                                     destination
-                                    not in formatted_data["stops_data"][response_stop_id][
-                                        "lines"
-                                    ][line]
+                                    not in formatted_data["stops_data"][
+                                        response_stop_id
+                                    ]["lines"][line]
                                 ):
-                                    formatted_data["stops_data"][response_stop_id]["lines"][
-                                        line
-                                    ][destination] = []
+                                    formatted_data["stops_data"][response_stop_id][
+                                        "lines"
+                                    ][line][destination] = []
 
                                 # Calculate minutes until arrival
                                 expected_time = passing_time.get("expectedArrivalTime")
@@ -947,15 +984,17 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                                         0, int((arrival_dt - now).total_seconds() / 60)
                                     )
 
-                                    formatted_data["stops_data"][response_stop_id]["lines"][
-                                        line
-                                    ][destination].append(
+                                    formatted_data["stops_data"][response_stop_id][
+                                        "lines"
+                                    ][line][destination].append(
                                         {
                                             "destination": destination,
                                             "destination_data": destination_data,  # Keep all language versions
                                             "minutes": minutes,
                                             "message": passing_time.get("message", ""),
-                                            "formatted_time": arrival_dt.strftime("%H:%M"),
+                                            "formatted_time": arrival_dt.strftime(
+                                                "%H:%M"
+                                            ),
                                             "_raw_arrival_time": expected_time,  # Store for recalculation
                                             "_metadata": {
                                                 "language": _metadata["language"]
@@ -988,7 +1027,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                 # Cache the result
                 waiting_times_cache[cache_key] = {
                     "timestamp": now,
-                    "data": formatted_data
+                    "data": formatted_data,
                 }
 
                 return formatted_data
@@ -1011,9 +1050,6 @@ async def get_route_data(line: str) -> Dict[str, Any]:
         Dictionary containing route variants with stops and shapes
     """
     try:
-        # Get route variants from validate_stops
-        from validate_stops import validate_line_stops, load_route_shape
-
         route_variants = await validate_line_stops(line)
 
         if not route_variants:
@@ -1045,10 +1081,12 @@ async def get_route_data(line: str) -> Dict[str, Any]:
 
 async def ensure_gtfs_data() -> Optional[Path]:
     """Ensure GTFS data is downloaded and return path to GTFS directory."""
-    if not GTFS_DIR.exists() or not (GTFS_DIR / "stops.txt").exists():
+    if not GTFS_DIR or not GTFS_DIR.exists() or not (GTFS_DIR / "stops.txt").exists():
         logger.info("GTFS data not found, downloading...")
-        await download_gtfs_data()
-    return GTFS_DIR
+        await asyncio.to_thread(download_gtfs_data)
+    if GTFS_DIR and (GTFS_DIR / "stops.txt").exists():
+        return GTFS_DIR
+    return None
 
 
 async def get_stops() -> Dict[str, Stop]:
@@ -1120,37 +1158,6 @@ def get_nearest_stop(coordinates: Tuple[float, float]) -> Dict[str, Any]:
     lat, lon = coordinates
     stops = asyncio.run(find_nearest_stops(lat, lon, limit=1))
     return stops[0] if stops else {}
-
-
-async def get_stop_coordinates(self, stop_id: str) -> Optional[Dict[str, float]]:
-    """Get coordinates for a stop."""
-    try:
-        # Try to get coordinates from API first
-        url = f"{self.stops_api_url}?apikey={self.api_key}&where=id='{stop_id}'"
-        async with await get_client() as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                logger.error(
-                    f"Failed to get stop coordinates: {response.status_code} {response.text}"
-                )
-                return None
-
-            data = response.json()
-            results = data.get("results", [])
-            if not results:
-                logger.warning(f"No results found for stop {stop_id}")
-                return get_stop_coordinates_with_fallback(stop_id)
-
-            stop = results[0]
-            lat = stop.get("latitude")
-            lon = stop.get("longitude")
-
-            # Use GTFS fallback if API returns null coordinates
-            return get_stop_coordinates_with_fallback(stop_id, (lat, lon))
-
-    except Exception as e:
-        logger.error(f"Error getting stop coordinates: {e}")
-        return get_stop_coordinates_with_fallback(stop_id)
 
 
 def convert_v2_to_v1_format(v2_data: Dict[str, Any]) -> Dict[str, Any]:

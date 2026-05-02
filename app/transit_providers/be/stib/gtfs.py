@@ -1,89 +1,118 @@
-""" Download the required GTFS data from the STIB API."""
+"""Download STIB GTFS static data from the Belgian Mobility Open Data Portal."""
 
-from transit_providers.config import get_provider_config
-import niquests as requests
+import io
+import json
 import logging
+import zipfile
 
-# Get logger
+import niquests as requests
+from transit_providers.config import get_provider_config
+
+from .mobility import mobility_subscription_headers
+
 logger = logging.getLogger("stib.gtfs")
 
-# Get provider configuration
 provider_config = get_provider_config("stib")
 logger.debug(f"Provider config: {provider_config}")
 
-STIB_API_KEY = provider_config.get("API_KEY")
-GTFS_API_URL = provider_config.get("GTFS_API_URL")
 GTFS_DIR = provider_config.get("GTFS_DIR")
+GTFS_STATIC_FEED_URL = provider_config.get(
+    "GTFS_STATIC_FEED_URL"
+) or provider_config.get("GTFS_API_URL")
 GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES")
-GTFS_DIR.mkdir(parents=True, exist_ok=True)
-GTFS_CACHE_DURATION = provider_config.get("GTFS_CACHE_DURATION")
-GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES")
+if GTFS_DIR is not None:
+    GTFS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _download_via_ods_file_list(data: dict) -> bool:
+    """Legacy: JSON listing of GTFS files (OpenDataSoft-style)."""
+    files = data.get("results", [])
+    for file_data in files:
+        try:
+            file_info = file_data.get("file", {})
+            filename = file_info.get("filename")
+            file_url = file_info.get("url")
+            if not filename or not file_url or not GTFS_DIR:
+                logger.error(f"Missing filename or URL in file data: {file_data}")
+                continue
+            if filename not in (GTFS_USED_FILES or []):
+                logger.debug(f"Skipping unused file: {filename}")
+                continue
+            logger.info(f"Downloading {filename} from {file_url}")
+            headers = mobility_subscription_headers()
+            file_response = requests.get(file_url, headers=headers, timeout=120)
+            if file_response.status_code != 200:
+                logger.error(
+                    f"Failed to download {filename}: {file_response.status_code}"
+                )
+                continue
+            file_path = GTFS_DIR / filename
+            file_path.write_bytes(file_response.content)
+            logger.info(f"Successfully downloaded {filename} to {file_path}")
+        except Exception as e:
+            logger.error(f"Error downloading file from listing: {e}")
+            continue
+    downloaded = list(GTFS_DIR.glob("*.txt")) if GTFS_DIR else []
+    return bool(GTFS_DIR and (GTFS_DIR / "stops.txt").exists())
 
 
 def download_gtfs_data():
-    """Connects to the GTFS API, and parses the response to get the required files."""
+    """Fetch STIB GTFS from the mobility portal (ZIP feed or legacy JSON file list)."""
     try:
-        # Ensure GTFS directory exists
-        # GTFS_DIR.mkdir(parents=True, exist_ok=True)
+        headers = mobility_subscription_headers()
+        if not headers:
+            logger.error(
+                "MOBILITY_API_PRIMARY_KEY (or STIB_API_KEY) is required for GTFS download"
+            )
+            return False
+        if not GTFS_STATIC_FEED_URL or not GTFS_DIR:
+            logger.error("GTFS_STATIC_FEED_URL or GTFS_DIR is not configured")
+            return False
 
-        # Get the GTFS files listing
-        url = f"{GTFS_API_URL}?apikey={STIB_API_KEY}"
-        response = requests.get(url)
+        logger.info("Downloading STIB GTFS from %s", GTFS_STATIC_FEED_URL)
+        response = requests.get(
+            GTFS_STATIC_FEED_URL,
+            headers=headers,
+            timeout=300,
+        )
         if response.status_code != 200:
             logger.error(
-                f"Failed to get GTFS files: {response.status_code} {response.text}"
+                "Failed to get GTFS feed: %s %s",
+                response.status_code,
+                response.text[:800],
             )
             return False
 
-        data = response.json()
-        files = data.get("results", [])
-
-        # Download each file
-        for file_data in files:
+        ctype = (response.headers.get("content-type") or "").lower()
+        if "json" in ctype or response.content[:1] == b"{":
             try:
-                file_info = file_data.get("file", {})
-                filename = file_info.get("filename")
-                file_url = file_info.get("url")
+                data = response.json()
+            except json.JSONDecodeError:
+                logger.error("GTFS endpoint returned non-JSON, non-ZIP body")
+                return False
+            return _download_via_ods_file_list(data)
 
-                if not filename or not file_url:
-                    logger.error(f"Missing filename or URL in file data: {file_data}")
-                    continue
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(response.content))
+        except zipfile.BadZipFile:
+            logger.error(
+                "GTFS response was not a valid ZIP (content-type=%s)",
+                ctype or "unknown",
+            )
+            return False
 
-                if filename not in GTFS_USED_FILES:
-                    logger.debug(f"Skipping unused file: {filename}")
-                    continue
+        zf.extractall(GTFS_DIR)
+        zf.close()
 
-                logger.info(f"Downloading {filename} from {file_url}")
-                file_response = requests.get(file_url, params={"apikey": STIB_API_KEY})
-
-                if file_response.status_code != 200:
-                    logger.error(
-                        f"Failed to download {filename}: {file_response.status_code}"
-                    )
-                    continue
-
-                # Save file
-                file_path = GTFS_DIR / filename
-                file_path.write_bytes(file_response.content)
-                logger.info(f"Successfully downloaded {filename} to {file_path}")
-
-            except Exception as e:
-                logger.error(f"Error downloading {filename}: {e}")
-                import traceback
-
-                logger.error(traceback.format_exc())
-                continue
-
-        # Verify downloads
         downloaded_files = list(GTFS_DIR.glob("*.txt"))
-        logger.info(f"Downloaded files: {[f.name for f in downloaded_files]}")
+        logger.info(f"Extracted GTFS files: {[f.name for f in downloaded_files]}")
 
         if not (GTFS_DIR / "stops.txt").exists():
             logger.error(
-                f"stops.txt not found after download. Files in directory: {[f.name for f in downloaded_files]}"
+                "stops.txt not found after extract. Files: "
+                f"{[f.name for f in downloaded_files]}"
             )
             return False
-
         return True
 
     except Exception as e:
@@ -96,7 +125,9 @@ def download_gtfs_data():
 
 def ensure_gtfs_data():
     """Ensures the GTFS data is downloaded and available."""
-    if not all((GTFS_DIR / file).exists() for file in GTFS_USED_FILES):
+    if not GTFS_DIR:
+        return False
+    if not all((GTFS_DIR / file).exists() for file in (GTFS_USED_FILES or [])):
         return download_gtfs_data()
     return True
 

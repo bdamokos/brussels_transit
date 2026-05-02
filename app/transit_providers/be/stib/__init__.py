@@ -11,6 +11,7 @@ import logging
 from transit_providers import TransitProvider, register_provider, PROVIDERS
 from .gtfs import ensure_gtfs_data
 from .get_stop_names import get_stop_names as get_stop_names_from_backend
+from .mobility import mobility_subscription_headers
 from flask import request
 import asyncio
 
@@ -196,16 +197,17 @@ class StibProvider(TransitProvider):
 
             # If not found in cache or GTFS, try API
             if not coordinates:
-                # Get stop details from STIB API
+                # Get stop details from STIB API (Belgian Mobility portal)
                 params = {
-                    "apikey": self.config.get("API_KEY"),
                     "where": f'id="{stop_id}"',
                     "limit": 1,
                 }
 
                 async with await get_client() as client:
                     response = await client.get(
-                        self.config.get("STOPS_API_URL"), params=params
+                        self.config.get("STIB_STOPS_API_URL"),
+                        params=params,
+                        headers=mobility_subscription_headers(),
                     )
                     if response.status_code == 200:
                         data = response.json()
