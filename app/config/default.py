@@ -160,8 +160,17 @@ PROVIDER_CONFIG = {
     "stib": {
         "provider_specific": {
             "API_KEY": os.getenv("STIB_API_KEY"),
+            "MOBILITY_API_PRIMARY_KEY": os.getenv("MOBILITY_API_PRIMARY_KEY"),
+            "MOBILITY_API_SECONDARY_KEY": os.getenv("MOBILITY_API_SECONDARY_KEY"),
             "_AVAILABLE_LANGUAGES": ["en", "fr", "nl"],
-            "API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
+            # Dataset URLs: transit_providers/be/stib/config.py (Belgian Mobility APIM)
+            "API_URL": (
+                os.getenv(
+                    "MOBILITY_APIM_BASE_URL",
+                    "https://api-management-opendata-production.azure-api.net",
+                ).rstrip("/")
+                + "/api/datasets/stibmivb"
+            ),
             "GTFS_DIR": PROJECT_ROOT / "cache" / "stib" / "gtfs",
             "CACHE_DIR": PROJECT_ROOT / "cache" / "stib",
             "STOPS_CACHE_FILE": PROJECT_ROOT / "cache" / "stib" / "stops.json",

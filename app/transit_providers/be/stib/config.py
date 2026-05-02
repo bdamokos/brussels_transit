@@ -12,6 +12,8 @@ logger = logging.getLogger("stib")
 # Get project root from environment variable (set by start.py)
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
+from .mobility import mobility_url
+
 # Register default configuration
 DEFAULT_CONFIG = {
     "STIB_STOPS": [
@@ -25,18 +27,34 @@ DEFAULT_CONFIG = {
             "direction": "City",  # or "Suburb"
         }  # Example stop, different from default.py to track config precedence
     ],
+    # Legacy app token (Open Data Soft); optional fallback if mobility keys unset
     "API_KEY": os.getenv("STIB_API_KEY"),
+    "MOBILITY_API_PRIMARY_KEY": os.getenv("MOBILITY_API_PRIMARY_KEY"),
+    "MOBILITY_API_SECONDARY_KEY": os.getenv("MOBILITY_API_SECONDARY_KEY"),
     "_AVAILABLE_LANGUAGES": [
         "en",
         "fr",
         "nl",
     ],  # Languages available in STIB API responses
-    "API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
-    "STIB_API_URL_BASE": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
-    "STIB_STOPS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/stop-details-production/records",
-    "STIB_WAITING_TIME_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/waiting-time-rt-production/records",
-    "STIB_MESSAGES_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/travellers-information-rt-production/records",
-    "GTFS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/gtfs-files-production/records",
+    # Belgian Mobility Open Data Portal (Azure APIM) — Explore-compatible dataset paths
+    "API_URL": mobility_url("/api/datasets/stibmivb"),
+    "STIB_API_URL_BASE": mobility_url("/api/datasets/stibmivb"),
+    "STIB_STOPS_API_URL": mobility_url("/api/datasets/stibmivb/static/stopDetails"),
+    "STIB_WAITING_TIME_API_URL": mobility_url("/api/datasets/stibmivb/rt/WaitingTimes"),
+    "STIB_MESSAGES_API_URL": mobility_url(
+        "/api/datasets/stibmivb/rt/TravellersInformation"
+    ),
+    "STIB_VEHICLE_POSITIONS_API_URL": mobility_url(
+        "/api/datasets/stibmivb/rt/VehiclePositions"
+    ),
+    "STIB_STOPS_BY_LINE_API_URL": mobility_url(
+        "/api/datasets/stibmivb/static/stopsByLine"
+    ),
+    "STIB_SHAPE_FILES_API_URL": mobility_url(
+        "/api/datasets/stibmivb/static/shape-files"
+    ),
+    "GTFS_STATIC_FEED_URL": mobility_url("/api/gtfs/feed/stibmivb/static"),
+    "GTFS_API_URL": mobility_url("/api/gtfs/feed/stibmivb/static"),
     "GTFS_DIR": PROJECT_ROOT / "cache" / "stib" / "gtfs",
     "CACHE_DIR": PROJECT_ROOT / "cache" / "stib",
     "STOPS_CACHE_FILE": PROJECT_ROOT / "cache" / "stib" / "stops.json",
