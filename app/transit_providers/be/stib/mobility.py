@@ -11,8 +11,12 @@ def mobility_apim_base_url() -> str:
 
 
 def mobility_subscription_headers() -> Dict[str, str]:
-    """Primary subscription key; falls back to legacy STIB_API_KEY for local dev."""
-    key = os.getenv("MOBILITY_API_PRIMARY_KEY") or os.getenv("STIB_API_KEY")
+    """Subscription key: primary, secondary (rotation), then legacy STIB_API_KEY."""
+    key = (
+        os.getenv("MOBILITY_API_PRIMARY_KEY")
+        or os.getenv("MOBILITY_API_SECONDARY_KEY")
+        or os.getenv("STIB_API_KEY")
+    )
     if not key:
         return {}
     return {"Ocp-Apim-Subscription-Key": key}

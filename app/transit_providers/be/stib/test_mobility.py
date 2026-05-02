@@ -7,9 +7,11 @@ from .mobility import mobility_apim_base_url, mobility_url
 
 def test_mobility_url_joins_base(monkeypatch):
     monkeypatch.delenv("MOBILITY_APIM_BASE_URL", raising=False)
-    assert mobility_apim_base_url().endswith("azure-api.net")
-    assert mobility_url("/api/datasets/stibmivb/rt/WaitingTimes").endswith(
-        "/api/datasets/stibmivb/rt/WaitingTimes"
+    expected_base = "https://api-management-opendata-production.azure-api.net"
+    assert mobility_apim_base_url() == expected_base
+    assert (
+        mobility_url("/api/datasets/stibmivb/rt/WaitingTimes")
+        == f"{expected_base}/api/datasets/stibmivb/rt/WaitingTimes"
     )
 
 

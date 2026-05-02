@@ -401,21 +401,30 @@ async def get_route_colors(monitored_lines=None):
             logger.error("Could not load routes.txt for route colors")
             raise FileNotFoundError("routes.txt")
 
-        route_colors = await asyncio.to_thread(
-            _route_colors_from_gtfs,
-            gtfs_path,
-            list(monitored_lines) if monitored_lines else None,
-        )
+        if monitored_lines:
+            route_colors = await asyncio.to_thread(
+                _route_colors_from_gtfs,
+                gtfs_path,
+                list(monitored_lines),
+            )
+            data_for_cache = await asyncio.to_thread(
+                _route_colors_from_gtfs, gtfs_path, None
+            )
+        else:
+            route_colors = await asyncio.to_thread(
+                _route_colors_from_gtfs, gtfs_path, None
+            )
+            data_for_cache = route_colors
 
         routes_cache["timestamp"] = datetime.now()
-        routes_cache["data"] = route_colors
+        routes_cache["data"] = data_for_cache
 
         try:
             with open(ROUTES_CACHE_FILE, "w") as f:
                 json.dump(
                     {
                         "timestamp": routes_cache["timestamp"].isoformat(),
-                        "data": route_colors,
+                        "data": data_for_cache,
                     },
                     f,
                 )

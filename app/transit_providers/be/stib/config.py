@@ -50,7 +50,7 @@ DEFAULT_CONFIG = {
     "STIB_STOPS_BY_LINE_API_URL": mobility_url(
         "/api/datasets/stibmivb/static/stopsByLine"
     ),
-    "STIB_SHAPEFILES_API_URL": mobility_url(
+    "STIB_SHAPE_FILES_API_URL": mobility_url(
         "/api/datasets/stibmivb/static/shape-files"
     ),
     "GTFS_STATIC_FEED_URL": mobility_url("/api/gtfs/feed/stibmivb/static"),

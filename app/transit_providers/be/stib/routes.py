@@ -18,7 +18,9 @@ from .mobility import mobility_subscription_headers
 logger = logging.getLogger("stib.routes")
 
 _provider = get_provider_config("stib")
-STIB_SHAPEFILES_API_URL = _provider.get("STIB_SHAPEFILES_API_URL")
+STIB_SHAPE_FILES_API_URL = _provider.get("STIB_SHAPE_FILES_API_URL") or _provider.get(
+    "STIB_SHAPEFILES_API_URL"
+)
 STIB_STOPS_BY_LINE_API_URL = _provider.get("STIB_STOPS_BY_LINE_API_URL")
 
 # Create cache directories for shapefiles and stops
@@ -118,10 +120,10 @@ async def get_route_shape(line: str) -> List[Dict]:
         formatted_line = f"{int(line):03}b"  # For bus lines
         formatted_line_fallback = f"{int(line):03}t"  # For tram lines
         formatted_line_fallback_2 = f"{int(line):03}m"  # For metro lines
-        if not STIB_SHAPEFILES_API_URL:
-            logger.error("STIB_SHAPEFILES_API_URL is not configured")
+        if not STIB_SHAPE_FILES_API_URL:
+            logger.error("STIB_SHAPE_FILES_API_URL is not configured")
             return cached_variants or []
-        url = STIB_SHAPEFILES_API_URL
+        url = STIB_SHAPE_FILES_API_URL
         params = {
             "where": f'ligne="{formatted_line}" or ligne="{formatted_line_fallback}" or ligne="{formatted_line_fallback_2}"',
             "limit": 20,

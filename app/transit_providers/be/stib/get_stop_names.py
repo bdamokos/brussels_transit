@@ -2,6 +2,7 @@
 
 import os
 import niquests as requests
+from niquests.exceptions import RequestException, Timeout as RequestsTimeout
 from pathlib import Path
 from datetime import timedelta, datetime
 import json
@@ -189,6 +190,30 @@ def get_stop_info_from_gtfs(stop_id: str) -> Optional[StopInfo]:
         return None
 
 
+def _mark_stops_failed(batch: List[str], cached_stops: Dict) -> None:
+    """Increment failure counters for every stop in batch (shared API error path)."""
+    for stop_id in batch:
+        failures = cached_stops.get(stop_id, {}).get("_failures", {})
+        if stop_id not in cached_stops:
+            cached_stops[stop_id] = {
+                "name": stop_id,
+                "names": {"fr": stop_id, "nl": stop_id},
+                "coordinates": {"lat": None, "lon": None},
+                "_metadata": {"source": "fallback"},
+                "_failures": {
+                    "count": failures.get("count", 0) + 1,
+                    "last_failure": datetime.now().isoformat(),
+                    "normalized_id": get_stop_id_variants(stop_id)[-1],
+                },
+            }
+        else:
+            cached_stops[stop_id]["_failures"] = {
+                "count": failures.get("count", 0) + 1,
+                "last_failure": datetime.now().isoformat(),
+                "normalized_id": get_stop_id_variants(stop_id)[-1],
+            }
+
+
 def should_retry_stop(stop_data):
     """Check if we should retry fetching a stop based on its failure history."""
     failures = stop_data.get("_failures", {})
@@ -372,198 +397,208 @@ def get_stop_names(stop_ids, preferred_language=None):
     if stops_to_fetch:
         logger.info(f"Fetching {len(stops_to_fetch)} stops from API")
 
-        # Process stops in batches
-        for i in range(0, len(stops_to_fetch), BATCH_SIZE):
-            batch = stops_to_fetch[i : i + BATCH_SIZE]
-            logger.debug(
-                f"Processing batch {i//BATCH_SIZE + 1}/{(len(stops_to_fetch) + BATCH_SIZE - 1)//BATCH_SIZE}"
-            )
-
-            # Build OR query for all stops in batch
-            variant_queries = []
-            for stop_id in batch:
-                variants = get_stop_id_variants(stop_id)
-                variant_queries.extend([f'id="{v}"' for v in variants])
-
-            query = " OR ".join(variant_queries)
-            params = {
-                "where": f"({query})",
-                "limit": len(
-                    variant_queries
-                ),  # Adjust limit to match number of variants
-            }
-
-            try:
-                response = requests.get(
-                    STOPS_API_URL,
-                    params=params,
-                    headers=mobility_subscription_headers(),
+        missing_url = not STOPS_API_URL
+        missing_key = not mobility_subscription_headers().get(
+            "Ocp-Apim-Subscription-Key"
+        )
+        if missing_url or missing_key:
+            if missing_url:
+                logger.error(
+                    "STIB_STOPS_API_URL is not configured; cannot fetch stop names"
                 )
-                logger.debug(f"Batch API Response status: {response.status_code}")
+            if missing_key:
+                logger.error(
+                    "MOBILITY_API_PRIMARY_KEY, MOBILITY_API_SECONDARY_KEY, or STIB_API_KEY "
+                    "is required for STIB stops API"
+                )
+            _mark_stops_failed(stops_to_fetch, cached_stops)
+            save_cached_stops(cached_stops)
+        else:
+            # Process stops in batches
+            for i in range(0, len(stops_to_fetch), BATCH_SIZE):
+                batch = stops_to_fetch[i : i + BATCH_SIZE]
+                logger.debug(
+                    f"Processing batch {i//BATCH_SIZE + 1}/{(len(stops_to_fetch) + BATCH_SIZE - 1)//BATCH_SIZE}"
+                )
 
-                if response.status_code != 200:
-                    logger.warning(f"Batch API Response text: {response.text}")
-                    # Mark all stops in batch as failed
-                    for stop_id in batch:
-                        failures = cached_stops.get(stop_id, {}).get("_failures", {})
-                        if stop_id not in cached_stops:
-                            cached_stops[stop_id] = {
-                                "name": stop_id,
-                                "names": {"fr": stop_id, "nl": stop_id},
-                                "coordinates": {"lat": None, "lon": None},
-                                "_metadata": {"source": "fallback"},
-                                "_failures": {
+                # Build OR query for all stops in batch
+                variant_queries = []
+                for stop_id in batch:
+                    variants = get_stop_id_variants(stop_id)
+                    variant_queries.extend([f'id="{v}"' for v in variants])
+
+                query = " OR ".join(variant_queries)
+                params = {
+                    "where": f"({query})",
+                    "limit": len(
+                        variant_queries
+                    ),  # Adjust limit to match number of variants
+                }
+
+                try:
+                    sub_headers = mobility_subscription_headers()
+                    response = requests.get(
+                        STOPS_API_URL,
+                        params=params,
+                        headers=sub_headers,
+                        timeout=10,
+                    )
+                    logger.debug(f"Batch API Response status: {response.status_code}")
+
+                    if response.status_code != 200:
+                        logger.warning(f"Batch API Response text: {response.text}")
+                        # Mark all stops in batch as failed
+                        for stop_id in batch:
+                            failures = cached_stops.get(stop_id, {}).get("_failures", {})
+                            if stop_id not in cached_stops:
+                                cached_stops[stop_id] = {
+                                    "name": stop_id,
+                                    "names": {"fr": stop_id, "nl": stop_id},
+                                    "coordinates": {"lat": None, "lon": None},
+                                    "_metadata": {"source": "fallback"},
+                                    "_failures": {
+                                        "count": failures.get("count", 0) + 1,
+                                        "last_failure": datetime.now().isoformat(),
+                                        "normalized_id": get_stop_id_variants(stop_id)[
+                                            -1
+                                        ],
+                                    },
+                                }
+                            else:
+                                cached_stops[stop_id]["_failures"] = {
                                     "count": failures.get("count", 0) + 1,
                                     "last_failure": datetime.now().isoformat(),
                                     "normalized_id": get_stop_id_variants(stop_id)[-1],
-                                },
-                            }
-                        else:
-                            cached_stops[stop_id]["_failures"] = {
-                                "count": failures.get("count", 0) + 1,
-                                "last_failure": datetime.now().isoformat(),
-                                "normalized_id": get_stop_id_variants(stop_id)[-1],
-                            }
-                    continue
-
-                response.raise_for_status()
-                data = response.json()
-
-                # Process results
-                found_stops = set()
-                for result in data["results"]:
-                    stop_data = result
-                    stop_id = stop_data["id"]
-
-                    # Find original stop ID that matches this result
-                    original_stop_id = None
-                    for batch_stop_id in batch:
-                        if stop_id in get_stop_id_variants(batch_stop_id):
-                            original_stop_id = batch_stop_id
-                            break
-
-                    if not original_stop_id:
-                        logger.warning(
-                            f"Could not map result stop {stop_id} back to original stop ID"
-                        )
+                                }
                         continue
 
-                    found_stops.add(original_stop_id)
+                    response.raise_for_status()
+                    data = response.json()
 
-                    # Extract coordinates
-                    gps_coords = json.loads(stop_data.get("gpscoordinates", "{}"))
-                    coordinates = {
-                        "lat": (
-                            float(gps_coords.get("latitude"))
-                            if gps_coords.get("latitude")
-                            else None
-                        ),
-                        "lon": (
-                            float(gps_coords.get("longitude"))
-                            if gps_coords.get("longitude")
-                            else None
-                        ),
-                    }
+                    # Process results
+                    found_stops = set()
+                    for result in data["results"]:
+                        stop_data = result
+                        stop_id = stop_data["id"]
 
-                    # If we have coordinates, also cache them in the GTFS coordinates cache
-                    if (
-                        coordinates["lat"] is not None
-                        and coordinates["lon"] is not None
-                    ):
-                        gtfs_coords = StopCoordinates(
-                            lat=coordinates["lat"],
-                            lon=coordinates["lon"],
-                            source="api",
-                            original_id=(
-                                stop_id if stop_id != original_stop_id else None
+                        # Find original stop ID that matches this result
+                        original_stop_id = None
+                        for batch_stop_id in batch:
+                            if stop_id in get_stop_id_variants(batch_stop_id):
+                                original_stop_id = batch_stop_id
+                                break
+
+                        if not original_stop_id:
+                            logger.warning(
+                                f"Could not map result stop {stop_id} back to original stop ID"
+                            )
+                            continue
+
+                        found_stops.add(original_stop_id)
+
+                        # Extract coordinates
+                        gps_coords = json.loads(stop_data.get("gpscoordinates", "{}"))
+                        coordinates = {
+                            "lat": (
+                                float(gps_coords.get("latitude"))
+                                if gps_coords.get("latitude")
+                                else None
                             ),
-                        )
-                        gtfs_cache = get_cached_gtfs_coordinates()
-                        gtfs_cache[original_stop_id] = gtfs_coords
-                        cache_gtfs_coordinates(gtfs_cache)
-
-                    # If we already have GTFS names, just update coordinates
-                    if original_stop_id in cached_stops:
-                        cached_stops[original_stop_id]["coordinates"] = coordinates
-                        cached_stops[original_stop_id]["_failures"] = {
-                            "count": 0,
-                            "last_failure": None,
-                            "normalized_id": stop_id,
+                            "lon": (
+                                float(gps_coords.get("longitude"))
+                                if gps_coords.get("longitude")
+                                else None
+                            ),
                         }
-                        logger.debug(
-                            f"Updated coordinates for stop {original_stop_id} from API"
-                        )
-                    else:
-                        # No GTFS data, use API data
-                        name_data = json.loads(stop_data["name"])
-                        resolved_names = resolve_stop_name(original_stop_id, name_data)
-                        cached_stops[original_stop_id] = {
-                            "name": resolved_names["fr"],
-                            "names": {
-                                "fr": resolved_names["fr"],
-                                "nl": resolved_names["nl"],
-                            },
-                            "coordinates": coordinates,
-                            "_metadata": resolved_names["_metadata"],
-                            "_failures": {
+
+                        # If we have coordinates, also cache them in the GTFS coordinates cache
+                        if (
+                            coordinates["lat"] is not None
+                            and coordinates["lon"] is not None
+                        ):
+                            gtfs_coords = StopCoordinates(
+                                lat=coordinates["lat"],
+                                lon=coordinates["lon"],
+                                source="api",
+                                original_id=(
+                                    stop_id if stop_id != original_stop_id else None
+                                ),
+                            )
+                            gtfs_cache = get_cached_gtfs_coordinates()
+                            gtfs_cache[original_stop_id] = gtfs_coords
+                            cache_gtfs_coordinates(gtfs_cache)
+
+                        # If we already have GTFS names, just update coordinates
+                        if original_stop_id in cached_stops:
+                            cached_stops[original_stop_id]["coordinates"] = coordinates
+                            cached_stops[original_stop_id]["_failures"] = {
                                 "count": 0,
                                 "last_failure": None,
                                 "normalized_id": stop_id,
-                            },
-                        }
-                        logger.debug(
-                            f"Added stop {original_stop_id} to cache with API data"
-                        )
-
-                # Mark unfound stops as failed
-                for stop_id in batch:
-                    if stop_id not in found_stops:
-                        failures = cached_stops.get(stop_id, {}).get("_failures", {})
-                        if stop_id not in cached_stops:
-                            cached_stops[stop_id] = {
-                                "name": stop_id,
-                                "names": {"fr": stop_id, "nl": stop_id},
-                                "coordinates": {"lat": None, "lon": None},
-                                "_metadata": {"source": "fallback"},
+                            }
+                            logger.debug(
+                                f"Updated coordinates for stop {original_stop_id} from API"
+                            )
+                        else:
+                            # No GTFS data, use API data
+                            name_data = json.loads(stop_data["name"])
+                            resolved_names = resolve_stop_name(
+                                original_stop_id, name_data
+                            )
+                            cached_stops[original_stop_id] = {
+                                "name": resolved_names["fr"],
+                                "names": {
+                                    "fr": resolved_names["fr"],
+                                    "nl": resolved_names["nl"],
+                                },
+                                "coordinates": coordinates,
+                                "_metadata": resolved_names["_metadata"],
                                 "_failures": {
+                                    "count": 0,
+                                    "last_failure": None,
+                                    "normalized_id": stop_id,
+                                },
+                            }
+                            logger.debug(
+                                f"Added stop {original_stop_id} to cache with API data"
+                            )
+
+                    # Mark unfound stops as failed
+                    for stop_id in batch:
+                        if stop_id not in found_stops:
+                            failures = cached_stops.get(stop_id, {}).get("_failures", {})
+                            if stop_id not in cached_stops:
+                                cached_stops[stop_id] = {
+                                    "name": stop_id,
+                                    "names": {"fr": stop_id, "nl": stop_id},
+                                    "coordinates": {"lat": None, "lon": None},
+                                    "_metadata": {"source": "fallback"},
+                                    "_failures": {
+                                        "count": failures.get("count", 0) + 1,
+                                        "last_failure": datetime.now().isoformat(),
+                                        "normalized_id": get_stop_id_variants(stop_id)[
+                                            -1
+                                        ],
+                                    },
+                                }
+                            else:
+                                cached_stops[stop_id]["_failures"] = {
                                     "count": failures.get("count", 0) + 1,
                                     "last_failure": datetime.now().isoformat(),
                                     "normalized_id": get_stop_id_variants(stop_id)[-1],
-                                },
-                            }
-                        else:
-                            cached_stops[stop_id]["_failures"] = {
-                                "count": failures.get("count", 0) + 1,
-                                "last_failure": datetime.now().isoformat(),
-                                "normalized_id": get_stop_id_variants(stop_id)[-1],
-                            }
-                        logger.warning(
-                            f"No data found for stop {stop_id}, failure count: {cached_stops[stop_id]['_failures']['count']}"
-                        )
+                                }
+                            logger.warning(
+                                f"No data found for stop {stop_id}, failure count: {cached_stops[stop_id]['_failures']['count']}"
+                            )
 
-            except Exception as e:
-                logger.error(f"Error fetching batch of stops: {e}", exc_info=True)
-                # Mark all stops in batch as failed
-                for stop_id in batch:
-                    failures = cached_stops.get(stop_id, {}).get("_failures", {})
-                    if stop_id not in cached_stops:
-                        cached_stops[stop_id] = {
-                            "name": stop_id,
-                            "names": {"fr": stop_id, "nl": stop_id},
-                            "coordinates": {"lat": None, "lon": None},
-                            "_metadata": {"source": "fallback"},
-                            "_failures": {
-                                "count": failures.get("count", 0) + 1,
-                                "last_failure": datetime.now().isoformat(),
-                                "normalized_id": get_stop_id_variants(stop_id)[-1],
-                            },
-                        }
-                    else:
-                        cached_stops[stop_id]["_failures"] = {
-                            "count": failures.get("count", 0) + 1,
-                            "last_failure": datetime.now().isoformat(),
-                            "normalized_id": get_stop_id_variants(stop_id)[-1],
-                        }
+                except (RequestsTimeout, RequestException) as e:
+                    logger.error(
+                        "STIB stops API request failed: %s", e, exc_info=True
+                    )
+                    _mark_stops_failed(batch, cached_stops)
+                except Exception as e:
+                    logger.error(f"Error fetching batch of stops: {e}", exc_info=True)
+                    _mark_stops_failed(batch, cached_stops)
 
         # Save updated cache
         save_cached_stops(cached_stops)
