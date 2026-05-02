@@ -441,7 +441,7 @@ def get_stop_names(stop_ids, preferred_language=None):
                         STOPS_API_URL,
                         params=params,
                         headers=sub_headers,
-                        timeout=10,
+                        timeout=30,
                     )
                     logger.debug(f"Batch API Response status: {response.status_code}")
 

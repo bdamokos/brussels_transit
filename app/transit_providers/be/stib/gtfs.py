@@ -173,7 +173,12 @@ def ensure_gtfs_data():
     """Ensures the GTFS data is downloaded and available."""
     if not GTFS_DIR:
         return False
-    if not all((GTFS_DIR / file).exists() for file in (GTFS_USED_FILES or [])):
+    if not (GTFS_DIR / "stops.txt").exists():
+        return download_gtfs_data()
+    used = GTFS_USED_FILES or []
+    if not used:
+        return True
+    if not all((GTFS_DIR / file).exists() for file in used):
         return download_gtfs_data()
     return True
 

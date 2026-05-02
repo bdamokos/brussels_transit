@@ -348,6 +348,16 @@ def _route_colors_from_gtfs(
     return out
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _to_utc_aware(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
 async def get_route_colors(monitored_lines=None):
     """Fetch route colors with caching"""
     # If monitored_lines is a string (single line number), convert it to a list
@@ -365,9 +375,13 @@ async def get_route_colors(monitored_lines=None):
             with open(ROUTES_CACHE_FILE, "r") as f:
                 cache_data = json.load(f)
                 routes_cache["data"] = cache_data.get("data", {})
-                routes_cache["timestamp"] = datetime.fromisoformat(
-                    cache_data.get("timestamp", "")
-                )
+                raw_ts = cache_data.get("timestamp", "") or ""
+                if raw_ts:
+                    routes_cache["timestamp"] = _to_utc_aware(
+                        datetime.fromisoformat(raw_ts)
+                    )
+                else:
+                    routes_cache["timestamp"] = None
                 logger.debug(
                     f"Loaded route colors from file cache: {routes_cache.get('data', 'Error no data in cache')}"
                 )
@@ -381,7 +395,7 @@ async def get_route_colors(monitored_lines=None):
     if (
         routes_cache["timestamp"]
         and routes_cache["data"]
-        and datetime.now() - routes_cache["timestamp"] < CACHE_DURATION
+        and _utc_now() - routes_cache["timestamp"] < CACHE_DURATION
         and (
             not monitored_lines
             or all(line in routes_cache["data"] for line in monitored_lines)
@@ -416,22 +430,25 @@ async def get_route_colors(monitored_lines=None):
             )
             data_for_cache = route_colors
 
-        routes_cache["timestamp"] = datetime.now()
+        routes_cache["timestamp"] = _utc_now()
         routes_cache["data"] = data_for_cache
 
-        try:
-            with open(ROUTES_CACHE_FILE, "w") as f:
-                json.dump(
-                    {
-                        "timestamp": routes_cache["timestamp"].isoformat(),
-                        "data": data_for_cache,
-                    },
-                    f,
-                )
-        except Exception as e:
-            import traceback
+        def _write_routes_cache() -> None:
+            try:
+                with open(ROUTES_CACHE_FILE, "w") as f:
+                    json.dump(
+                        {
+                            "timestamp": routes_cache["timestamp"].isoformat(),
+                            "data": data_for_cache,
+                        },
+                        f,
+                    )
+            except Exception as e:
+                import traceback
 
-            logger.error(f"Error saving routes cache: {e}\n{traceback.format_exc()}")
+                logger.error(f"Error saving routes cache: {e}\n{traceback.format_exc()}")
+
+        await asyncio.to_thread(_write_routes_cache)
 
         return route_colors
 
@@ -444,13 +461,13 @@ async def get_route_colors(monitored_lines=None):
             if ROUTES_CACHE_FILE.exists():
                 with open(ROUTES_CACHE_FILE, "r") as f:
                     cache_data = json.load(f)
-                    cache_timestamp = datetime.fromisoformat(
-                        cache_data.get("timestamp", "")
+                    raw_fallback = cache_data.get("timestamp", "") or ""
+                    if not raw_fallback:
+                        raise ValueError("missing cache timestamp")
+                    cache_timestamp = _to_utc_aware(
+                        datetime.fromisoformat(raw_fallback)
                     )
-                    if (
-                        cache_timestamp
-                        and datetime.now() - cache_timestamp < CACHE_DURATION
-                    ):
+                    if _utc_now() - cache_timestamp < CACHE_DURATION:
                         return cache_data.get("data", {})
         except Exception as cache_e:
             logger.error(
