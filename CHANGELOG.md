@@ -16,15 +16,15 @@
 
 ## [v0.2.5](https://github.com/bdamokos/brussels_transit/tree/v0.2.5) (2026-05-02)
 
-[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.1...v0.2.5)
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5)
 
 **STIB / API**
 
 - Belgian Mobility Open Data (Azure API Management) for STIB: `Ocp-Apim-Subscription-Key`, updated dataset and GTFS URLs, GTFS and route-color behavior, and related tests — [\#119](https://github.com/bdamokos/brussels_transit/pull/119).
 
-**Everything else since v0.2.1**
+**Since v0.2.4**
 
-This release tag points at `main` and includes all commits after [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1): ongoing **Dependabot** dependency updates, **Schedule Explorer** API/frontend work, **Docker** / **CI** adjustments, **cache and timezone** fixes, and **protobuf / GTFS-realtime** wiring in `requirements.txt` and `setup.py`. See the [full compare](https://github.com/bdamokos/brussels_transit/compare/v0.2.1...v0.2.5) for the complete list of merges and commits.
+This release is the delta from [v0.2.4](https://github.com/bdamokos/brussels_transit/tree/v0.2.4) to v0.2.5. Besides **PR #119** above, the [full compare](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5) lists any other commits in that range.
 
 ## [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1) (2025-01-09)
 
