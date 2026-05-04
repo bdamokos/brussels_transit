@@ -3,6 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
+  - [v0.2.5 (2026-05-02)](#v025-2026-05-02)
   - [v0.2.1 (2025-01-09)](#v021-2025-01-09)
   - [v0.2.0 (2025-01-03)](#v020-2025-01-03)
   - [v0.1.2 (2024-12-30)](#v012-2024-12-30)
@@ -12,6 +13,32 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # Changelog
+
+## [v0.2.5](https://github.com/bdamokos/brussels_transit/tree/v0.2.5) (2026-05-02)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5)
+
+Changes since [v0.2.4](https://github.com/bdamokos/brussels_transit/releases/tag/v0.2.4): PR **[\#119](https://github.com/bdamokos/brussels_transit/pull/119)** (STIB Mobility APIM), **16** Dependabot merges (HTTP stack and numerical stacks), **2** commits fixing CI for dependency security checks, plus `.env.example` and `Dockerfile` updates. Files: `app/transit_providers/be/stib/*`, `app/config/default.py`, `app/conftest.py`, `conftest.py`, `.env.example`, `requirements.txt`, `setup.py`, `Dockerfile` (see [compare](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5)).
+
+**STIB — Belgian Mobility Open Data (Azure APIM)** [\#119](https://github.com/bdamokos/brussels_transit/pull/119)
+
+- Authenticate with `Ocp-Apim-Subscription-Key`; read keys from env and merged provider config.
+- Point datasets and GTFS at the mobility gateway; safer GTFS ZIP handling and subscription headers on downloads.
+- Route colours from GTFS; stops-by-line and shape URLs updated; tests for APIM URL helpers.
+
+**Dependencies** (merged on `main` after v0.2.4)
+
+- `requirements.txt`: e.g. **niquests** 3.18.x, **uvicorn** 0.39.x, **pandas** 2.3.3, **psutil** 7.2.x, **pydantic** 2.11.9, **pytest** 8.4.2, **deepdiff** 8.6.2; add **protobuf** `>=5.29.6,<6` and **werkzeug** `>=3.1.8`; tighten **flask** / **flask-cors** floor; bump **mobility-db-api** and **gtfs-realtime-bindings** minimums.
+- `setup.py`: same minimums for **mobility-db-api**, **gtfs-realtime-bindings**, and explicit **protobuf** (already present on `main` before the release-only version bump).
+
+**Docs and container**
+
+- `.env.example`: Mobility APIM primary/secondary keys and optional `MOBILITY_APIM_BASE_URL`.
+- `Dockerfile`: run `apt-get upgrade`, install build/OS deps before `pip install -r requirements.txt`.
+
+**CI**
+
+- Workflow adjustments so dependency PRs pass security checks (commits `2fe781c`, `368bfbb`).
 
 ## [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1) (2025-01-09)
 
