@@ -3,6 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
+  - [v0.2.2 (2026-05-02)](#v022-2026-05-02)
   - [v0.2.1 (2025-01-09)](#v021-2025-01-09)
   - [v0.2.0 (2025-01-03)](#v020-2025-01-03)
   - [v0.1.2 (2024-12-30)](#v012-2024-12-30)
@@ -12,6 +13,19 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # Changelog
+
+## [v0.2.2](https://github.com/bdamokos/brussels_transit/tree/v0.2.2) (2026-05-02)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.1...v0.2.2)
+
+**Implemented enhancements:**
+
+- Migrate STIB outbound APIs to the Belgian Mobility Open Data portal (Azure API Management): subscription key headers, updated dataset URLs, GTFS download and route colors from static data [\#119](https://github.com/bdamokos/brussels_transit/pull/119)
+
+**Dependencies:**
+
+- Add `requirements.in` and regenerate `requirements.txt` with `pip-compile` (transit package version in `setup.py` is **0.2.2**).
+- Notable locked upgrades: **pydantic** 2.13.3, **pytz** 2026.2, **protobuf** 6.x (constraint `>=5.29.6,<7`), **fastapi** 0.136.x, **flask-cors** 6.0.2, and current patch releases of shared dependencies.
 
 ## [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1) (2025-01-09)
 
