@@ -24,7 +24,7 @@
 
 **Since v0.2.4**
 
-This release is the delta from [v0.2.4](https://github.com/bdamokos/brussels_transit/tree/v0.2.4) to v0.2.5. Besides **PR #119** above, the [full compare](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5) lists any other commits in that range.
+Tag **v0.2.5** points at `main` after merging PR #119 (and any other commits already on `main` between [v0.2.4](https://github.com/bdamokos/brussels_transit/tree/v0.2.4) and that tip). The **release packaging commit** for v0.2.5 only bumps the package version in `setup.py` and adds this changelog section—it does not itself change dependencies. Dependency and protobuf / GTFS-realtime pins live in `requirements.txt` and `setup.py` as merged on `main` over time; see the [full compare](https://github.com/bdamokos/brussels_transit/compare/v0.2.4...v0.2.5) for the exact file changes in that range.
 
 ## [v0.2.1](https://github.com/bdamokos/brussels_transit/tree/v0.2.1) (2025-01-09)
 
