@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from typing import Dict, List, Optional, TypedDict, Tuple
 from pathlib import Path
@@ -18,6 +19,19 @@ class Stop:
     order: int
     name: str
     coordinates: Tuple[float, float]
+
+    def _dict_coordinates(self) -> Dict[str, float]:
+        return {"lat": self.coordinates[0], "lon": self.coordinates[1]}
+
+    def __getitem__(self, key):
+        if key == "coordinates":
+            return self._dict_coordinates()
+        return getattr(self, key)
+
+    def get(self, key, default=None):
+        if key == "coordinates":
+            return self._dict_coordinates()
+        return getattr(self, key, default)
 
 
 @dataclass
@@ -130,34 +144,51 @@ async def validate_line_stops(line):
                 continue
 
             try:
-                stops = variant["stops"]
+                raw_stops = variant["stops"]
                 direction = variant.get("direction", "Unknown")
                 destination = variant.get("destination", {"fr": "Unknown"})
 
                 logger.debug(f"Processing variant for line {line}:")
                 logger.debug(f"  Direction: {direction}")
                 logger.debug(f"  Destination: {destination}")
-                logger.debug(f"  Stops: {stops}")
+                logger.debug(f"  Stops: {raw_stops}")
 
-                # Add coordinates to stops
-                for stop in stops:
+                # Add coordinates to stops and convert them to Stop objects.
+                stops = []
+                for stop in raw_stops:
                     stop_id = stop["id"]
                     # Try with and without F/G suffix
                     base_id = stop_id.rstrip("FG")
                     if base_id in stops_data:
-                        stop["coordinates"] = stops_data[base_id]["coordinates"]
-                        stop["name"] = stops_data[base_id].get(
+                        coordinates = stops_data[base_id]["coordinates"]
+                        name = stops_data[base_id].get(
                             "name", stop_id
                         )  # Use stop ID as fallback name
                     elif stop_id in stops_data:
-                        stop["coordinates"] = stops_data[stop_id]["coordinates"]
-                        stop["name"] = stops_data[stop_id].get(
+                        coordinates = stops_data[stop_id]["coordinates"]
+                        name = stops_data[stop_id].get(
                             "name", stop_id
                         )  # Use stop ID as fallback name
                     else:
                         logger.warning(f"No coordinates found for stop {stop_id}")
-                        stop["coordinates"] = {"lat": None, "lon": None}
-                        stop["name"] = stop_id  # Use stop ID as name if not found
+                        coordinates = {"lat": None, "lon": None}
+                        name = stop_id  # Use stop ID as name if not found
+
+                    if not coordinates:
+                        coordinates = (None, None)
+                    elif isinstance(coordinates, dict):
+                        coordinates = (coordinates.get("lat"), coordinates.get("lon"))
+                    else:
+                        coordinates = tuple(coordinates)
+
+                    stops.append(
+                        Stop(
+                            id=stop_id,
+                            order=stop.get("order", 0),
+                            name=name,
+                            coordinates=coordinates,
+                        )
+                    )
 
                 # Get shape data for this variant
                 shape = load_route_shape(line, direction)
@@ -218,13 +249,13 @@ def load_route_shape(line: str, direction: str = None) -> List[List[float]]:
         variant = None
 
         if direction:
-            # Variant 1 is City, Variant 2 is Suburb
+            # STIB shape variant 2 is City, variant 1 is Suburb.
             variant = next(
                 (
                     v
                     for v in variants
-                    if (v["variante"] == 1 and direction == "City")
-                    or (v["variante"] == 2 and direction == "Suburb")
+                    if (v["variante"] == 2 and direction == "City")
+                    or (v["variante"] == 1 and direction == "Suburb")
                 ),
                 None,
             )
@@ -361,12 +392,12 @@ async def validate_line(line: str):
             logger.debug(f"\nLine {line} {variant.direction}: All stops are on route")
 
 
-def get_terminus_stops(line: str) -> Dict[str, Dict]:
+async def get_terminus_stops(line: str) -> Dict[str, Dict]:
     """
     Get terminus stop IDs for each direction of a line.
     Returns a dict mapping terminus stop IDs to their direction and destination info
     """
-    variants = validate_line_stops(line)
+    variants = await validate_line_stops(line)
     terminus_map = {}
 
     for variant in variants:
@@ -403,17 +434,17 @@ def get_terminus_stops(line: str) -> Dict[str, Dict]:
     return terminus_map
 
 
-if __name__ == "__main__":
+async def main():
     # Test with lines 56 and 59
     for line in ["56", "59", "64"]:
         logger.info(f"\n=== Validating line {line} ===")
-        validate_line(line)
+        await validate_line(line)
 
     # Test with all lines
     all_terminus = {}
     for line in ["56", "59", "64"]:
         logger.info(f"\n=== Analyzing terminus stops for line {line} ===")
-        terminus_stops = get_terminus_stops(line)
+        terminus_stops = await get_terminus_stops(line)
         all_terminus[line] = terminus_stops
 
     # Print summary
@@ -424,3 +455,7 @@ if __name__ == "__main__":
             logger.info(f"  {terminus['stop_id']} ({terminus['stop_name']})")
             logger.info(f"    Direction: {terminus['direction']}")
             logger.info(f"    Destination: {terminus['destination']['fr']}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
