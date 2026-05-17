@@ -2,12 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/resource.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <msgpack.h>
 #include <sys/stat.h>
-#include <libgen.h>
 #include "gtfs_precache_version.h"
 
 #ifdef _WIN32
@@ -520,12 +516,30 @@ const char* get_version() {
 
     // Get the path to the executable
     char exe_path[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path)-1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        char* dir = dirname(exe_path);
+    if (get_executable_path(exe_path, sizeof(exe_path)) == 0) {
+#ifdef _WIN32
+        char* dir_end = strrchr(exe_path, '\\');
+        if (!dir_end) {
+            dir_end = strrchr(exe_path, '/');
+        }
+        const char path_separator = '\\';
+#else
+        char* dir_end = strrchr(exe_path, '/');
+        const char path_separator = '/';
+#endif
+
+        if (dir_end) {
+            *dir_end = '\0';
+        }
+
         char header_path[PATH_MAX];
-        snprintf(header_path, sizeof(header_path), "%s/gtfs_precache_version.h", dir);
+        snprintf(
+            header_path,
+            sizeof(header_path),
+            "%s%cgtfs_precache_version.h",
+            exe_path,
+            path_separator
+        );
         
         FILE* fp = fopen(header_path, "r");
         if (fp) {
@@ -690,6 +704,10 @@ int process_stop_times(const char* input_file, const char* output_file) {
         // Process the line
         if (process_line(line, pk) == 0) {
             successful++;
+        } else {
+            fprintf(stderr, "Error: Could not process stop_times row %zu\n", processed + 1);
+            fflush(stderr);
+            goto cleanup;
         }
         processed++;
 
@@ -702,9 +720,7 @@ int process_stop_times(const char* input_file, const char* output_file) {
             double eta = (total_lines - processed) / (speed > 0 ? speed : 1);
             
             // Get current memory usage
-            struct rusage r_usage;
-            getrusage(RUSAGE_SELF, &r_usage);
-            double memory_mb = r_usage.ru_maxrss / 1024.0;
+            double memory_mb = get_memory_usage() / (1024.0 * 1024.0);
 
             printf("Progress: %.1f%% (%zu/%zu) | Success: %zu | Speed: %.0f rows/s | Memory: %.1f MB | ETA: %.0fs | Buffer size: %zu bytes\n",
                    progress, processed, total_lines, successful, speed, memory_mb, eta, buffer->size);
@@ -792,4 +808,4 @@ int main(int argc, char* argv[]) {
     printf("Processing %s -> %s (CPU limit: %d%%)\n", input_file, output_file, cpu_limit);
     
     return process_stop_times(input_file, output_file);
-} 
+}
