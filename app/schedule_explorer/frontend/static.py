@@ -23,7 +23,7 @@ SCHEDULE_EXPLORER_API_URL = os.getenv('SCHEDULE_EXPLORER_API_URL', 'http://local
 @app.get("/")
 async def read_root(request: Request):
     """Serve the index page with injected environment variables"""
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "api_url": SCHEDULE_EXPLORER_API_URL
     })
@@ -36,7 +36,7 @@ async def read_index(request: Request):
 @app.get("/stop_explorer.html")
 async def read_stop_explorer(request: Request):
     """Serve the stop explorer page with injected environment variables"""
-    return templates.TemplateResponse("stop_explorer.html", {
+    return templates.TemplateResponse(request, "stop_explorer.html", {
         "request": request,
         "api_url": SCHEDULE_EXPLORER_API_URL
     })
@@ -44,7 +44,7 @@ async def read_stop_explorer(request: Request):
 @app.get("/get_gtfs_data.html")
 async def read_gtfs_data(request: Request):
     """Serve the GTFS data manager page with injected environment variables"""
-    return templates.TemplateResponse("get_gtfs_data.html", {
+    return templates.TemplateResponse(request, "get_gtfs_data.html", {
         "request": request,
         "api_url": SCHEDULE_EXPLORER_API_URL
-    }) 
+    })
