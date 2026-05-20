@@ -13,7 +13,6 @@ from mobility_db_api import MobilityAPI
 import time
 from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
-import asyncio
 
 from .models import (
     RouteResponse,
@@ -42,8 +41,6 @@ DOWNLOAD_DIR = FilePath(os.environ["PROJECT_ROOT"]) / "downloads"
 
 # Configure graceful timeout (in seconds)
 GRACEFUL_TIMEOUT = 3
-# Configure grace period for temporary disconnections (in seconds)
-GRACE_PERIOD = 5
 
 # Configure logging
 logger = logging.getLogger("schedule_explorer.backend")
@@ -90,50 +87,21 @@ async def check_client_connected(request: Request, operation: str):
         HTTPException: If client disconnects during operation
     """
     start_time = time.time()
-    operation_completed = False
     try:
         yield
-        operation_completed = True
-    finally:
+    except Exception:
+        raise
+    else:
         # If operation took less than GRACEFUL_TIMEOUT seconds, don't check connection
         elapsed = time.time() - start_time
         if elapsed < GRACEFUL_TIMEOUT:
             return
 
-        # Check if client is still connected
+        # Check if client is still connected after a long operation completes.
         if await request.is_disconnected():
-            # If operation is already complete, no need to wait
-            if operation_completed:
-                logger.info(
-                    f"Operation {operation} completed despite client disconnection after {elapsed:.2f}s"
-                )
-                return
-
-            # If operation is still ongoing, wait for GRACE_PERIOD to see if client reconnects
-            try:
-                for _ in range(GRACE_PERIOD):
-                    await asyncio.sleep(1)
-                    if not await request.is_disconnected():
-                        logger.info(
-                            f"Client reconnected during {operation} after temporary disconnection"
-                        )
-                        return
-                    if operation_completed:
-                        logger.info(
-                            f"Operation {operation} completed during grace period"
-                        )
-                        return
-
-                # If we get here, client is still disconnected after grace period
-                logger.info(
-                    f"Client disconnected during {operation} after {elapsed:.2f}s"
-                )
-                raise HTTPException(status_code=499, detail="Client disconnected")
-            except asyncio.CancelledError:
-                # If the operation completes during the grace period wait
-                if operation_completed:
-                    return
-                raise
+            logger.info(
+                f"Operation {operation} completed despite client disconnection after {elapsed:.2f}s"
+            )
 
 
 async def check_provider_availability(
@@ -933,6 +901,7 @@ async def get_routes(
     "/api/{provider_id}/stations/{station_id}/routes", response_model=List[RouteInfo]
 )
 async def get_station_routes_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     station_id: str = Path(...),
     language: Optional[str] = Query(
@@ -941,6 +910,7 @@ async def get_station_routes_with_provider(
 ):
     """Get all routes that serve this station with detailed information with explicit provider"""
     return await get_station_routes(
+        request=request,
         station_id=station_id,
         language=language,
         provider_id=provider_id,
@@ -1100,6 +1070,7 @@ async def get_station_routes(
     response_model=List[StationResponse],
 )
 async def get_destinations_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     station_id: str = Path(...),
     language: Optional[str] = Query(
@@ -1108,6 +1079,7 @@ async def get_destinations_with_provider(
 ):
     """Get all possible destination stations from a given station with explicit provider"""
     return await get_destinations(
+        request=request,
         station_id=station_id,
         language=language,
         provider_id=provider_id,
@@ -1180,6 +1152,7 @@ async def get_destinations(
     response_model=List[StationResponse],
 )
 async def get_origins_with_provider(
+    request: Request,
     provider_id: str = Path(...),
     station_id: str = Path(...),
     language: Optional[str] = Query(
@@ -1188,6 +1161,7 @@ async def get_origins_with_provider(
 ):
     """Get all possible origin stations that can reach a given station with explicit provider"""
     return await get_origins(
+        request=request,
         station_id=station_id,
         language=language,
         provider_id=provider_id,
@@ -1956,4 +1930,3 @@ async def find_route_by_name(
             )
 
     return matching_routes
-

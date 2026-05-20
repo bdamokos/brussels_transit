@@ -1,0 +1,47 @@
+services:
+  web:
+    image: ghcr.io/bdamokos/brussels_transit:latest
+    container_name: brussels_transit_web_standalone
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+      - "8005:8000"
+      - "8085:8080"
+    volumes:
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+    env_file:
+      - .env
+    environment:
+      - STIB_API_KEY=${STIB_API_KEY}
+      - MOBILITY_API_PRIMARY_KEY=${MOBILITY_API_PRIMARY_KEY}
+      - MOBILITY_API_SECONDARY_KEY=${MOBILITY_API_SECONDARY_KEY}
+      - MOBILITY_API_REFRESH_TOKEN=${MOBILITY_API_REFRESH_TOKEN}
+      - DELIJN_API_KEY=${DELIJN_API_KEY}
+      - DELIJN_GTFS_STATIC_API_KEY=${DELIJN_GTFS_STATIC_API_KEY}
+      - DELIJN_GTFS_REALTIME_API_KEY=${DELIJN_GTFS_REALTIME_API_KEY}
+      - BKK_API_KEY=${BKK_API_KEY}
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_DOMAIN=${NGROK_DOMAIN}
+      - SNCB_GTFS_REALTIME_API_URL=${SNCB_GTFS_REALTIME_API_URL}
+      - SCHEDULE_EXPLORER_API_URL=${SCHEDULE_EXPLORER_API_URL:-https://gtfs8000.bdamokos.org}
+      - SCHEDULE_EXPLORER_FRONTEND_URL=${SCHEDULE_EXPLORER_FRONTEND_URL:-https://gtfs8080.bdamokos.org}
+      - PORT=5001
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - PROJECT_ROOT=/app
+      - CACHE_DIR=/app/cache
+      - DOWNLOADS_DIR=/app/downloads
+      - LOGS_DIR=/app/logs
+      - GTFS_PRECACHE_DIR=/app/app/schedule_explorer/backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 120s
+      retries: 5
+      start_period: 120s
+
+networks:
+  default:
+    name: brussels_transit_standalone
