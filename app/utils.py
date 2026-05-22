@@ -1,6 +1,7 @@
 import httpx
 from datetime import datetime, timedelta, timezone
 import logging
+import re
 
 # Get logger
 logger = logging.getLogger("utils")
@@ -16,6 +17,17 @@ class RateLimiter:
 
     def update_from_headers(self, headers):
         try:
+            if not any(
+                header in headers
+                for header in (
+                    "x-ratelimit-remaining",
+                    "x-ratelimit-reset",
+                    "x-ratelimit-limit",
+                )
+            ):
+                logger.debug("No rate limit headers present; leaving limiter state unchanged")
+                return
+
             previous_remaining = self.remaining
             self.remaining = int(headers.get("x-ratelimit-remaining", 0))
             reset_time_str = headers.get("x-ratelimit-reset", "0")
@@ -56,6 +68,53 @@ class RateLimiter:
             self.reset_time = datetime.now(timezone.utc) + timedelta(
                 hours=1
             )  # Set default reset time
+
+    def update_from_response(self, response):
+        """Update limiter state from APIM headers or throttling response body."""
+        self.update_from_headers(response.headers)
+
+        if response.status_code not in (403, 429):
+            return
+
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                self.mark_limited_for(int(retry_after), status_code=response.status_code)
+                return
+            except ValueError:
+                pass
+
+        body = getattr(response, "text", "") or ""
+        seconds = self._limited_seconds_from_body(body)
+        if seconds is not None:
+            self.mark_limited_for(seconds, status_code=response.status_code)
+
+    def mark_limited_for(self, seconds: int, status_code: int = 429):
+        self.remaining = 0
+        self.limit = 0
+        self.reset_time = datetime.now(timezone.utc) + timedelta(seconds=max(1, seconds))
+        logger.warning(
+            "API limit response %s; pausing requests until %s",
+            status_code,
+            self.reset_time.strftime("%H:%M:%S"),
+        )
+
+    @staticmethod
+    def _limited_seconds_from_body(body: str):
+        match = re.search(r"Try again in\s+(\d+)\s+seconds?", body, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+        match = re.search(
+            r"Quota will be replenished in\s+(\d+):(\d+):(\d+)",
+            body,
+            re.IGNORECASE,
+        )
+        if match:
+            hours, minutes, seconds = (int(part) for part in match.groups())
+            return hours * 3600 + minutes * 60 + seconds
+
+        return None
 
     def can_make_request(self) -> bool:
         """Check if we can make a request based on rate limits"""

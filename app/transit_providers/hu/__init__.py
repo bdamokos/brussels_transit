@@ -1,8 +1,10 @@
 """Hungarian transit providers"""
 
-from transit_providers import register_provider
-from . import bkk
+from config import get_config
 
-# The BKK provider will register itself if enabled in configuration
+if "bkk" in get_config("ENABLED_PROVIDERS", []):
+    from . import bkk
+else:
+    bkk = None
 
 __all__ = ['bkk']

@@ -28,7 +28,7 @@ def mobility_subscription_headers() -> Dict[str, str]:
         )
     if not key:
         return {}
-    return {"Ocp-Apim-Subscription-Key": key}
+    return {"bmc-partner-key": key}
 
 
 def mobility_url(path: str) -> str:

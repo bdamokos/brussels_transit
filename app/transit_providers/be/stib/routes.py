@@ -136,7 +136,7 @@ async def get_route_shape(line: str) -> List[Dict]:
                 url, params=params, headers=mobility_subscription_headers()
             )
             # Update rate limits from response headers
-            rate_limiter.update_from_headers(response.headers)
+            rate_limiter.update_from_response(response)
 
             logger.debug(f"API Response status: {response.status_code}")
 
@@ -265,7 +265,7 @@ async def get_stops_for_line(line: str) -> Dict[str, List[Dict]]:
         async with await get_client() as client:
             response = await client.get(url, params=params, headers=sub_headers)
             # Update rate limits from response headers
-            rate_limiter.update_from_headers(response.headers)
+            rate_limiter.update_from_response(response)
 
             data = response.json()
 
@@ -359,7 +359,7 @@ async def get_route_data(line: str) -> Dict[str, List[Dict]]:
         async with await get_client() as client:
             response = await client.get(url, params=params, headers=sub_headers)
             # Update rate limits from response headers
-            rate_limiter.update_from_headers(response.headers)
+            rate_limiter.update_from_response(response)
 
             data = response.json()
             logger.debug(f"Got API response for line {line}: {data}")

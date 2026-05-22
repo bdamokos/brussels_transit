@@ -14,13 +14,20 @@ dotenv.load_dotenv(override=True)
 # Get project root from environment variable (set by start.py)
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 
+def _parse_enabled_providers():
+    enabled = os.getenv("ENABLED_PROVIDERS")
+    if not enabled:
+        return [
+            "delijn",
+            "stib",
+            "bkk",
+            "sncb",
+        ]
+    return [provider.strip() for provider in enabled.split(",") if provider.strip()]
+
+
 # Provider Configuration
-ENABLED_PROVIDERS = [
-    "delijn",
-    "stib",
-    "bkk",
-    "sncb",
-]  # List of enabled transit providers
+ENABLED_PROVIDERS = _parse_enabled_providers()  # List of enabled transit providers
 
 # Language Configuration
 LANGUAGE_PRECEDENCE = ["en", "hu", "fr", "nl", "de"]  # Default language fallback chain

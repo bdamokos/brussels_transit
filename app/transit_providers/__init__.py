@@ -92,6 +92,10 @@ def import_providers():
     logger.debug("Starting provider discovery")
     # Get the directory containing this file
     providers_dir = Path(__file__).parent
+    from config import get_config
+
+    enabled_providers = set(get_config("ENABLED_PROVIDERS", []))
+    known_provider_packages = {"bkk", "delijn", "sncb", "stib"}
     
     # Walk through all subdirectories
     for root, dirs, files in os.walk(providers_dir):
@@ -107,6 +111,14 @@ def import_providers():
         if '__init__.py' in files:
             # Convert path to module notation
             module_name = '.'.join(module_parts)
+            package_providers = known_provider_packages.intersection(module_parts)
+            if package_providers and not package_providers.intersection(enabled_providers):
+                logger.debug(
+                    "Skipping disabled provider module %s; enabled providers: %s",
+                    module_name,
+                    sorted(enabled_providers),
+                )
+                continue
             try:
                 logger.debug(f"Attempting to import module: {module_name}")
                 importlib.import_module(module_name)

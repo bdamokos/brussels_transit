@@ -208,7 +208,7 @@ async def get_service_messages(monitored_lines=None, monitored_stops=None):
                 params=params,
                 headers=mobility_subscription_headers(),
             )
-            rate_limiter.update_from_headers(response.headers)
+            rate_limiter.update_from_response(response)
 
             if response.status_code != 200:
                 logger.error(
@@ -551,7 +551,7 @@ async def get_vehicle_positions(line: str = None, direction: str = None):
                 headers=mobility_subscription_headers(),
             )
             # Update rate limits from response headers
-            rate_limiter.update_from_headers(response.headers)
+            rate_limiter.update_from_response(response)
 
             data = response.json()
 
@@ -838,7 +838,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                     params=params,
                     headers=mobility_subscription_headers(),
                 )
-                rate_limiter.update_from_headers(response.headers)
+                rate_limiter.update_from_response(response)
 
                 if response.status_code != 200:
                     logger.error(
