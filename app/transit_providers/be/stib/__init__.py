@@ -5,7 +5,7 @@ from . import config
 
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable, List
-from transit_providers.config import get_provider_config
+from transit_providers.config import get_provider_config, redact_config
 from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider, PROVIDERS
@@ -48,7 +48,7 @@ class StibProvider(TransitProvider):
 
         self.config = get_provider_config("stib")
         logger.info("=== STIB CONFIG DEBUG ===")
-        logger.info(f"Raw config: {self.config}")
+        logger.info("Raw config: %s", redact_config(self.config))
         logger.info("=== END STIB CONFIG DEBUG ===")
 
         stib_stops = self.config.get("STIB_STOPS", [])

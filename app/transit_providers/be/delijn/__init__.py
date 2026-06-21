@@ -5,7 +5,7 @@ from . import config
 
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable, List
-from transit_providers.config import get_provider_config
+from transit_providers.config import get_provider_config, redact_config
 from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider, PROVIDERS
@@ -35,7 +35,7 @@ from .api import (
 
 provider_config = get_provider_config("delijn")
 logger.info("=== DE LIJN CONFIG DEBUG ===")
-logger.info(f"Raw config: {provider_config}")
+logger.info("Raw config: %s", redact_config(provider_config))
 logger.info("=== END DE LIJN CONFIG DEBUG ===")
 
 GTFS_DIR = provider_config.get("GTFS_DIR")

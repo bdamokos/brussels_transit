@@ -9,6 +9,7 @@ from .config_schema import (
     ProviderConfig,
     validate_provider_config
 )
+from .config import redact_config
 
 # Sample configurations from default.py
 SAMPLE_STIB_CONFIG = {
@@ -154,4 +155,26 @@ def test_bkk_config_validation():
     assert validated['provider_specific']['PROVIDER_ID'] == 'mdb-990'
     assert validated['provider_specific']['CACHE_DIR'] == Path('cache/bkk')
     assert validated['provider_specific']['GTFS_DIR'] == Path('gtfs/bkk')
-    assert validated['provider_specific']['API_KEY'] == 'dummy_key' 
+    assert validated['provider_specific']['API_KEY'] == 'dummy_key'
+
+def test_redact_config_masks_sensitive_values():
+    """Test redaction for provider config logging."""
+    config = {
+        "API_KEY": "secret",
+        "MOBILITY_API_PRIMARY_KEY": "secret",
+        "LEGACY_REALTIME_URL": "https://example.test/feed?key=secret",
+        "provider_specific": {
+            "MOBILITY_API_SECONDARY_KEY": "secret",
+            "PUBLIC_URL": "https://example.test/feed",
+        },
+        "stops": [{"id": "5710", "token": "secret"}],
+    }
+
+    redacted = redact_config(config)
+
+    assert redacted["API_KEY"] == "<redacted>"
+    assert redacted["MOBILITY_API_PRIMARY_KEY"] == "<redacted>"
+    assert redacted["LEGACY_REALTIME_URL"] == "<redacted>"
+    assert redacted["provider_specific"]["MOBILITY_API_SECONDARY_KEY"] == "<redacted>"
+    assert redacted["provider_specific"]["PUBLIC_URL"] == "https://example.test/feed"
+    assert redacted["stops"][0]["token"] == "<redacted>"

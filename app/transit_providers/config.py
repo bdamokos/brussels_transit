@@ -12,6 +12,44 @@ logger = logging.getLogger("transit_providers.config")
 # Registry for provider default configurations
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {}
 
+_SENSITIVE_URL_MARKERS = (
+    "api_key",
+    "apikey",
+    "access_token",
+    "subscription-key",
+    "password",
+    "signature",
+    "token=",
+    "key=",
+)
+
+
+def redact_config_value(key: str, value: Any) -> Any:
+    """Return a log-safe copy of a provider configuration value."""
+    upper_key = key.upper()
+    if any(marker in upper_key for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+        return "<redacted>"
+    if "URL" in upper_key and isinstance(value, str):
+        lower_value = value.lower()
+        if any(marker in lower_value for marker in _SENSITIVE_URL_MARKERS):
+            return "<redacted>"
+    if isinstance(value, dict):
+        return redact_config(value)
+    if isinstance(value, list):
+        return [
+            redact_config(item) if isinstance(item, dict) else item
+            for item in value
+        ]
+    return value
+
+
+def redact_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a log-safe copy of a provider configuration dictionary."""
+    return {
+        key: redact_config_value(key, value)
+        for key, value in config.items()
+    }
+
 
 def deep_update(base_dict: Dict, update_dict: Dict) -> Dict:
     """Recursively update a dictionary, preserving nested structures.

@@ -5,7 +5,7 @@ from . import config
 
 from dataclasses import dataclass
 from typing import Dict, Any, Callable, Awaitable, List
-from transit_providers.config import get_provider_config
+from transit_providers.config import get_provider_config, redact_config
 from config import get_config
 import logging
 from transit_providers import TransitProvider, register_provider, PROVIDERS
@@ -25,38 +25,9 @@ from .api import (
 )
 
 
-def _redact_config_value(key: str, value: Any) -> Any:
-    upper_key = key.upper()
-    if "KEY" in upper_key or "TOKEN" in upper_key:
-        return "<redacted>"
-    if upper_key == "LEGACY_REALTIME_URL":
-        return "<redacted>"
-    if "URL" in upper_key and isinstance(value, str):
-        sensitive_markers = (
-            "api_key",
-            "apikey",
-            "access_token",
-            "sncb-opendata.hafas.de/gtfs/realtime/",
-            "subscription-key",
-            "password",
-            "signature",
-            "token=",
-            "key=",
-        )
-        if any(marker in value.lower() for marker in sensitive_markers):
-            return "<redacted>"
-    return value
-
-
 provider_config = get_provider_config("sncb")
 logger.info("=== SNCB CONFIG DEBUG ===")
-logger.info(
-    "Raw config: %s",
-    {
-        key: _redact_config_value(key, value)
-        for key, value in provider_config.items()
-    },
-)
+logger.info("Raw config: %s", redact_config(provider_config))
 logger.info("=== END SNCB CONFIG DEBUG ===")
 
 GTFS_DIR = provider_config.get("GTFS_DIR")
