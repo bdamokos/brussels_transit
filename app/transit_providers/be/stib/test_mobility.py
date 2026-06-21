@@ -42,5 +42,6 @@ def test_mobility_subscription_headers_from_provider_config(monkeypatch):
 
     monkeypatch.setattr(mobility_mod, "get_provider_config", fake_pc)
     assert mobility_subscription_headers() == {
+        "Ocp-Apim-Subscription-Key": "k-from-provider-config",
         "bmc-partner-key": "k-from-provider-config",
     }

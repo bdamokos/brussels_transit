@@ -11,6 +11,11 @@ logger = logging.getLogger("transit_providers.config")
 
 # Registry for provider default configurations
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {}
+PROVIDER_ALIASES = {"tec": "letec"}
+
+
+def canonical_provider_name(provider_name: str) -> str:
+    return PROVIDER_ALIASES.get(provider_name, provider_name)
 
 _SENSITIVE_URL_MARKERS = (
     "api_key",
@@ -92,6 +97,7 @@ def register_provider_config(
     provider_name: str, default_config: Dict[str, Any]
 ) -> None:
     """Register a provider's default configuration"""
+    provider_name = canonical_provider_name(provider_name)
     PROVIDER_DEFAULTS[provider_name] = default_config
     logger.debug(f"Registered default config for {provider_name}")
 
@@ -103,6 +109,8 @@ def get_provider_config(provider_name: str) -> Dict[str, Any]:
     2. default.py (overrides provider defaults)
     3. local.py (most important, overrides both)
     )"""
+    provider_name = canonical_provider_name(provider_name)
+
     # Start with provider-specific defaults (least important)
     config = deepcopy(PROVIDER_DEFAULTS.get(provider_name, {}))
     logger.debug(f"Starting with provider defaults for {provider_name}: {config}")
@@ -135,7 +143,18 @@ def get_provider_config(provider_name: str) -> Dict[str, Any]:
                 config[key] = deepcopy(default_value)
 
     # Then, check PROVIDER_CONFIG in default.py
-    default_provider_config = get_config("PROVIDER_CONFIG", {}).get(provider_name, {})
+    provider_config_map = get_config("PROVIDER_CONFIG", {})
+    default_provider_config = {}
+    for alias, canonical in PROVIDER_ALIASES.items():
+        if canonical == provider_name:
+            default_provider_config = deep_update(
+                default_provider_config,
+                deepcopy(provider_config_map.get(alias, {})),
+            )
+    default_provider_config = deep_update(
+        default_provider_config,
+        deepcopy(provider_config_map.get(provider_name, {})),
+    )
     logger.debug(
         f"Provider config from default.py for {provider_name}: {default_provider_config}"
     )
@@ -145,7 +164,15 @@ def get_provider_config(provider_name: str) -> Dict[str, Any]:
 
     # Get user config from local.py and merge it (most important)
     provider_config = get_config("PROVIDER_CONFIG", {})
-    user_config = deepcopy(provider_config.get(provider_name, {}))
+    user_config = {}
+    for alias, canonical in PROVIDER_ALIASES.items():
+        if canonical == provider_name:
+            user_config = deep_update(
+                user_config, deepcopy(provider_config.get(alias, {}))
+            )
+    user_config = deep_update(
+        user_config, deepcopy(provider_config.get(provider_name, {}))
+    )
     logger.debug(f"User config from local.py for {provider_name}: {user_config}")
     if user_config:
         config = deep_update(config, user_config)

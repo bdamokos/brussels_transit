@@ -3,6 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
+  - [Unreleased](#unreleased)
   - [v0.2.10 (2026-06-21)](#v0210-2026-06-21)
   - [v0.2.9 (2026-06-21)](#v029-2026-06-21)
   - [v0.2.5 (2026-05-02)](#v025-2026-05-02)
@@ -15,6 +16,16 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # Changelog
+
+## Unreleased
+
+**Le TEC — Belgian Mobility Open Data (Azure APIM)**
+
+- Add a `letec` provider backed by Belgian Mobility APIM static GTFS, GTFS-RT trip updates, and GTFS-RT service alerts.
+- Keep Belgian Mobility's external `/tec/` feed slug configurable while exposing the local provider identity as `letec`; `tec` config/API aliases normalize to `letec`.
+- Normalize Belgian Mobility GTFS-RT ID prefixes and combine delay-only Le TEC trip updates with static `stop_times.txt` schedules so realtime waiting times populate from APIM feeds.
+- Keep default Le TEC static fallbacks HTTPS-only; the historical plaintext iRail fallback is no longer configured by default.
+- Document Le TEC API access, environment overrides, static fallback URLs, and the current NeTEx non-goal for this app.
 
 ## [v0.2.10](https://github.com/bdamokos/brussels_transit/tree/v0.2.10) (2026-06-21)
 

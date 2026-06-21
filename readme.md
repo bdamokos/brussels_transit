@@ -33,7 +33,7 @@ Creates a dashboard showing waiting times for implemented public transport compa
 The aim is for a modular design that allows for easy addition of new transit providers, including in other countries.
 
 Currently supported real-time waiting times:
-- Belgium: STIB, De Lijn, SNCB
+- Belgium: STIB, De Lijn, SNCB, Le TEC
 - Hungary: BKK
 
 Schedule based waiting times: supported in 70 countries covered by the Mobility Database.
@@ -150,6 +150,22 @@ SNCB/NMBS now publishes scheduled and realtime GTFS data through the [Belgian Mo
 4. Optional static fallback: add `MOBILITY_API_REFRESH_TOKEN` so the app can fall back to Mobility Database / GTFS.be static GTFS if Belgian Mobility static GTFS is temporarily unavailable.
 
 The old `SNCB_GTFS_REALTIME_API_URL` setting is deprecated. GTFS.be's `tripUpdates.pb` mirror is not used as a realtime fallback because it is not reliably updated.
+
+### Le TEC (Belgium)
+
+Le TEC publishes static GTFS, GTFS-RT trip updates, and GTFS-RT service alerts through the [Belgian Mobility Open Data Portal](https://data.belgianmobility.io/).
+
+1. Visit https://api-management-opendata-production.developer.azure-api.net/
+2. Create an account and subscribe to the Standard product.
+3. Add the primary or secondary key to `.env` as `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY`.
+
+Use `letec` as the provider ID in this app. Belgian Mobility APIM still uses the feed slug `tec`, so the default URLs are `/api/gtfs/feed/tec/static`, `/api/gtfs/feed/tec/rt/trip-update`, and `/api/gtfs/feed/tec/rt/alert`.
+
+Le TEC GTFS-RT trip updates can use Belgian Mobility-prefixed IDs such as `gs:tec:*`, `gr:tec:*`, and `gt:tec:*`, and may publish delay-only stop updates. The provider normalizes those IDs and joins realtime delays to static GTFS `stop_times.txt` schedules before returning waiting times.
+
+Static GTFS falls back to the official HTTPS Le TEC ZIP at `https://opendata.tec-wl.be/Current%20GTFS/TEC-GTFS.zip` if APIM static GTFS is unavailable.
+
+The app does not consume Le TEC NeTEx data yet; this provider is wired for GTFS static data and GTFS-RT realtime feeds.
 
 ### BKK (Budapest)
 

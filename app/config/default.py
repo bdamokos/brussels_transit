@@ -22,12 +22,19 @@ def _parse_enabled_providers():
             "stib",
             "bkk",
             "sncb",
+            "letec",
         ]
-    return [provider.strip() for provider in enabled.split(",") if provider.strip()]
+    aliases = {"tec": "letec"}
+    return [
+        aliases.get(provider.strip(), provider.strip())
+        for provider in enabled.split(",")
+        if provider.strip()
+    ]
 
 
 # Provider Configuration
 ENABLED_PROVIDERS = _parse_enabled_providers()  # List of enabled transit providers
+LETEC_APIM_FEED_SLUG = os.getenv("LETEC_APIM_FEED_SLUG", "tec")
 
 # Language Configuration
 LANGUAGE_PRECEDENCE = ["en", "hu", "fr", "nl", "de"]  # Default language fallback chain
@@ -284,5 +291,54 @@ PROVIDER_CONFIG = {
             },
         ],
         "monitored_lines": ["116", "117", "118", "144"],
+    },
+    "letec": {
+        "provider_specific": {
+            "PROVIDER_ID": "f-u0g-tec",
+            "APIM_FEED_SLUG": LETEC_APIM_FEED_SLUG,
+            "MOBILITY_API_PRIMARY_KEY": os.getenv("MOBILITY_API_PRIMARY_KEY"),
+            "MOBILITY_API_SECONDARY_KEY": os.getenv("MOBILITY_API_SECONDARY_KEY"),
+            "GTFS_STATIC_URL": os.getenv("LETEC_GTFS_STATIC_URL")
+            or (
+                os.getenv(
+                    "MOBILITY_APIM_BASE_URL",
+                    "https://api-management-opendata-production.azure-api.net",
+                ).rstrip("/")
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/static"
+            ),
+            "TRIP_UPDATES_URL": os.getenv("LETEC_GTFS_RT_TRIP_UPDATES_URL")
+            or (
+                os.getenv(
+                    "MOBILITY_APIM_BASE_URL",
+                    "https://api-management-opendata-production.azure-api.net",
+                ).rstrip("/")
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/rt/trip-update"
+            ),
+            "SERVICE_ALERTS_URL": os.getenv("LETEC_GTFS_RT_SERVICE_ALERTS_URL")
+            or (
+                os.getenv(
+                    "MOBILITY_APIM_BASE_URL",
+                    "https://api-management-opendata-production.azure-api.net",
+                ).rstrip("/")
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/rt/alert"
+            ),
+            "GTFS_STATIC_FALLBACK_URLS": [
+                os.getenv(
+                    "LETEC_GTFS_STATIC_FALLBACK_URL",
+                    "https://opendata.tec-wl.be/Current%20GTFS/TEC-GTFS.zip",
+                ),
+            ],
+            "GTFS_STATIC_DIR": CACHE_DIR / "letec/gtfs",
+            "CACHE_DIR": CACHE_DIR / "letec",
+            "GTFS_CACHE_DURATION": 86400,
+            "GTFS_USED_FILES": [
+                "stops.txt",
+                "routes.txt",
+                "trips.txt",
+                "stop_times.txt",
+            ],
+        },
+        "stops": [],
+        "monitored_lines": [],
     },
 }

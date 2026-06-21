@@ -14,6 +14,6 @@ The provider uses Belgian Mobility APIM by default:
 - Static GTFS: `/api/gtfs/feed/nmbssncb/static`
 - Realtime trip updates: `/api/gtfs/feed/nmbssncb/rt/trip-update`
 
-Set `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY` in `.env`. The app sends the key as the `bmc-partner-key` header.
+Set `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY` in `.env`. The app sends the key as both `Ocp-Apim-Subscription-Key` and `bmc-partner-key` for Belgian Mobility APIM compatibility.
 
 The old SNCB GTFS-RT URL can still be used only by setting `SNCB_REALTIME_SOURCE=legacy` and `SNCB_LEGACY_GTFS_REALTIME_API_URL`. GTFS.be remains useful for static GTFS fallback through Mobility Database, but its `tripUpdates.pb` mirror is not used because it is not reliably live.
