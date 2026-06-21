@@ -63,16 +63,28 @@ def _normalize_static_gtfs_file(path: Path, columns: set[str]) -> None:
         if not reader.fieldnames:
             return
 
+        existing_columns = columns.intersection(reader.fieldnames)
+        if not existing_columns:
+            return
+
         try:
+            changed = False
             with tmp_path.open("w", encoding="utf-8", newline="") as out_file:
                 writer = csv.DictWriter(out_file, fieldnames=reader.fieldnames)
                 writer.writeheader()
                 for row in reader:
-                    for column in columns:
-                        if row.get(column):
-                            row[column] = strip_delijn_id_prefix(row[column])
+                    for column in existing_columns:
+                        value = row[column]
+                        if value:
+                            normalized = strip_delijn_id_prefix(value)
+                            if normalized != value:
+                                row[column] = normalized
+                                changed = True
                     writer.writerow(row)
-            tmp_path.replace(path)
+            if changed:
+                tmp_path.replace(path)
+            else:
+                tmp_path.unlink()
         except Exception:
             if tmp_path.exists():
                 tmp_path.unlink()

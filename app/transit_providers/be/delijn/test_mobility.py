@@ -44,6 +44,23 @@ def test_normalize_static_gtfs_dir(tmp_path):
     ]
 
 
+def test_normalize_static_gtfs_file_leaves_unchanged_file_in_place(tmp_path):
+    stops = tmp_path / "stops.txt"
+    with stops.open("w", encoding="utf-8", newline="") as out_file:
+        writer = csv.DictWriter(out_file, fieldnames=["stop_id", "parent_station"])
+        writer.writeheader()
+        writer.writerow({"stop_id": "307250", "parent_station": ""})
+
+    before_mtime = stops.stat().st_mtime_ns
+    delijn_ids.normalize_static_gtfs_dir(tmp_path)
+
+    assert stops.stat().st_mtime_ns == before_mtime
+    assert not (tmp_path / "stops.txt.tmp").exists()
+    assert list(csv.DictReader(stops.open(encoding="utf-8"))) == [
+        {"stop_id": "307250", "parent_station": ""}
+    ]
+
+
 def test_format_belgian_mobility_alerts_maps_entities_to_legacy_shape():
     feed = {
         "entity": [
@@ -102,3 +119,30 @@ def test_format_belgian_mobility_alerts_maps_entities_to_legacy_shape():
             "source": "belgian_mobility",
         }
     ]
+
+
+def test_format_belgian_mobility_alerts_sorts_mixed_lines():
+    feed = {
+        "entity": [
+            {
+                "id": "alert-1",
+                "alert": {
+                    "informedEntity": [
+                        {"routeId": "gr:delijn:10010"},
+                        {"routeId": "gr:delijn:10002"},
+                        {"routeId": "gr:delijn:N1"},
+                    ],
+                },
+            }
+        ]
+    }
+
+    messages = delijn_api._format_belgian_mobility_alerts(
+        feed,
+        route_map={"10010": "10", "10002": "2"},
+        stop_map={},
+        monitored_lines=set(),
+        monitored_stops=set(),
+    )
+
+    assert messages[0]["affected_lines"] == ["2", "10", "N1"]

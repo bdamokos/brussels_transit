@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, TypedDict, Any, Union, Tuple, Generator
 from pathlib import Path
 import pandas as pd
 import zipfile
-import niquests as requests
 import pytz
 import inspect
 import logging
@@ -465,25 +464,22 @@ async def get_line_color_from_gtfs(line_number: str) -> Optional[Dict[str, str]]
         if not gtfs_dir:
             return None
 
-        routes_file = gtfs_dir / "routes.txt"
-        if not routes_file.exists():
+        _, route = await get_route_info(gtfs_dir, str(line_number))
+        if not route:
             return None
 
-        for route in iter_gtfs_file(routes_file):
-            if route.get("route_short_name") != str(line_number):
-                continue
-            background = route.get("route_color")
-            text = route.get("route_text_color")
-            if not background:
-                return None
-            color_data = {
-                "text": f"#{text}" if text else "#FFFFFF",
-                "background": f"#{background}",
-                "text_border": f"#{text}" if text else "#FFFFFF",
-                "background_border": f"#{background}",
-            }
-            await cache_set(f"line_color_{line_number}", color_data)
-            return color_data
+        background = route.get("route_color")
+        text = route.get("route_text_color")
+        if not background:
+            return None
+        color_data = {
+            "text": f"#{text}" if text else "#FFFFFF",
+            "background": f"#{background}",
+            "text_border": f"#{text}" if text else "#FFFFFF",
+            "background_border": f"#{background}",
+        }
+        await cache_set(f"line_color_{line_number}", color_data)
+        return color_data
     except Exception as exc:
         logger.error("Error reading line color from GTFS for %s: %s", line_number, exc)
     return None
@@ -872,62 +868,34 @@ async def _download_gtfs_source(source: str, url: str, headers: Dict[str, str]) 
         tmp_zip.unlink()
 
     try:
-        response = requests.get(url, headers=headers, stream=True, timeout=120)
-        response.raise_for_status()
-        total_size = int(response.headers.get("content-length", 0))
-        if total_size:
-            logger.info(
-                "GTFS file size from %s: %.1fMB",
-                source,
-                total_size / (1024 * 1024),
-            )
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            async with client.stream("GET", url, headers=headers) as response:
+                response.raise_for_status()
+                response_headers = dict(response.headers)
+                total_size = int(response.headers.get("content-length", 0))
+                if total_size:
+                    logger.info(
+                        "GTFS file size from %s: %.1fMB",
+                        source,
+                        total_size / (1024 * 1024),
+                    )
 
-        progress = ProgressTracker(total_size) if total_size else None
-        with open(tmp_zip, "wb") as f_zip:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f_zip.write(chunk)
-                    if progress:
-                        progress.update(len(chunk))
+                progress = ProgressTracker(total_size) if total_size else None
+                with open(tmp_zip, "wb") as f_zip:
+                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                        if chunk:
+                            f_zip.write(chunk)
+                            if progress:
+                                progress.update(len(chunk))
 
-        tmp_dir.mkdir(parents=True)
-        with zipfile.ZipFile(tmp_zip, "r") as zip_ref:
-            _safe_extract_zip(zip_ref, tmp_dir)
-
-        if source == "belgian_mobility":
-            normalize_static_gtfs_dir(tmp_dir)
-
-        missing_files = [
-            filename
-            for filename in _required_gtfs_files()
-            if not (tmp_dir / filename).exists()
-        ]
-        if missing_files:
-            logger.error("GTFS download from %s missing files: %s", source, missing_files)
-            return False
-
-        for file in tmp_dir.glob("*"):
-            if file.name not in _required_gtfs_files():
-                file.unlink()
-                logger.debug("Deleted unused GTFS file: %s", file.name)
-
-        if GTFS_DIR.exists():
-            shutil.rmtree(GTFS_DIR)
-        tmp_dir.rename(GTFS_DIR)
-
-        metadata = {
-            "downloaded_at": datetime.now(timezone.utc).isoformat(),
-            "source": source,
-            "source_url": url,
-            "last_modified": response.headers.get("last-modified"),
-            "etag": response.headers.get("etag"),
-        }
-        (CACHE_DIR / "gtfs_metadata.json").write_text(
-            json.dumps(metadata, indent=2), encoding="utf-8"
+        return await asyncio.to_thread(
+            _install_gtfs_archive,
+            source,
+            url,
+            tmp_zip,
+            tmp_dir,
+            response_headers,
         )
-
-        logger.info("GTFS data updated successfully from %s", source)
-        return True
     except Exception as exc:
         logger.error("Error downloading De Lijn GTFS from %s: %s", source, exc)
         return False
@@ -936,6 +904,54 @@ async def _download_gtfs_source(source: str, url: str, headers: Dict[str, str]) 
             tmp_zip.unlink()
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
+
+
+def _install_gtfs_archive(
+    source: str,
+    url: str,
+    tmp_zip: Path,
+    tmp_dir: Path,
+    response_headers: Dict[str, str],
+) -> bool:
+    tmp_dir.mkdir(parents=True)
+    with zipfile.ZipFile(tmp_zip, "r") as zip_ref:
+        _safe_extract_zip(zip_ref, tmp_dir)
+
+    if source == "belgian_mobility":
+        normalize_static_gtfs_dir(tmp_dir)
+
+    missing_files = [
+        filename
+        for filename in _required_gtfs_files()
+        if not (tmp_dir / filename).exists()
+    ]
+    if missing_files:
+        logger.error("GTFS download from %s missing files: %s", source, missing_files)
+        return False
+
+    required_files = set(_required_gtfs_files())
+    for file in tmp_dir.glob("*"):
+        if file.name not in required_files:
+            file.unlink()
+            logger.debug("Deleted unused GTFS file: %s", file.name)
+
+    if GTFS_DIR.exists():
+        shutil.rmtree(GTFS_DIR)
+    tmp_dir.rename(GTFS_DIR)
+
+    metadata = {
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "source_url": url,
+        "last_modified": response_headers.get("last-modified"),
+        "etag": response_headers.get("etag"),
+    }
+    (CACHE_DIR / "gtfs_metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )
+
+    logger.info("GTFS data updated successfully from %s", source)
+    return True
 
 
 def iter_gtfs_file(file_path: Path) -> Generator[Dict[str, str], None, None]:
@@ -1461,7 +1477,8 @@ def _format_belgian_mobility_alerts(
                 affected_stops[stop_id] = stop_map.get(stop_id, stop_id)
 
         sorted_lines = sorted(
-            affected_lines, key=lambda x: int(x) if str(x).isdigit() else str(x)
+            affected_lines,
+            key=lambda x: (0, int(x)) if str(x).isdigit() else (1, str(x)),
         )
         sorted_stops = [
             {"id": stop_id, "name": name, "long_name": name}

@@ -73,7 +73,7 @@ Example vehicle position data:
 - Belgian Mobility GTFS IDs are normalized back to the app's existing De Lijn ID shape. For example, `gs:delijn:307250` becomes `307250`, and `gr:delijn:10010` becomes `10010`.
 - Service alerts now default to Belgian Mobility GTFS-RT alerts and fall back to the legacy De Lijn `storingen` / `omleidingen` endpoints.
 - Vehicle positions remain legacy-only. The Belgian Mobility De Lijn realtime endpoints currently expose TripUpdates and Alerts; TripUpdates are useful for arrival/delay work, but they are not equivalent to the legacy vehicle-position feed.
-- Live check on 2026-06-21: the Belgian Mobility static De Lijn feed returned `gtfs-delijn-bmc-latest.zip` with `Content-Length: 243075546` and `Last-Modified: Sun, 21 Jun 2026 03:09:29 GMT`. The APIM `trip-update` and `alert` paths exist but require quota/auth handling; guessed `vehicle-position` and `vehicle-positions` paths returned 404.
+- Authenticated live check on 2026-06-21 using the Belgian Mobility subscription headers: the Belgian Mobility static De Lijn feed returned HTTP 200, `Content-Type: application/zip`, `Content-Length: 243075546`, and ZIP magic `PK`. APIM `alert` returned HTTP 200 with 384 alert entities. APIM `trip-update` returned HTTP 200 with 1,969 TripUpdate entities and 0 VehiclePosition entities. Guessed APIM `vehicle-position` and `vehicle-positions` paths both returned 404.
 
 ## Frontend Display
 
