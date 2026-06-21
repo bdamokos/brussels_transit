@@ -239,11 +239,21 @@ def _load_routes_cache() -> None:
                 "route_short_name": (row.get("route_short_name") or route_id).strip(),
                 "route_long_name": (row.get("route_long_name") or "").strip(),
                 "route_desc": (row.get("route_desc") or "").strip(),
-                "route_type": int(route_type) if route_type else None,
+                "route_type": _parse_route_type(route_type),
                 "route_color": (row.get("route_color") or "").strip(),
                 "route_text_color": (row.get("route_text_color") or "").strip(),
             }
     _routes_cache = new_cache
+
+
+def _parse_route_type(route_type: Optional[str]) -> Optional[int]:
+    if not route_type or not route_type.strip():
+        return None
+    try:
+        return int(route_type)
+    except ValueError:
+        logger.warning("Ignoring invalid Le TEC GTFS route_type: %s", route_type)
+        return None
 
 
 def _load_trips_cache() -> None:
@@ -283,7 +293,12 @@ def _load_stop_times_cache() -> None:
             except ValueError:
                 stop_sequence = 0
             new_cache.setdefault(trip_id, []).append(
-                {"stop_id": stop_id, "stop_sequence": stop_sequence}
+                {
+                    "stop_id": stop_id,
+                    "stop_sequence": stop_sequence,
+                    "arrival_time": (row.get("arrival_time") or "").strip(),
+                    "departure_time": (row.get("departure_time") or "").strip(),
+                }
             )
     for stops in new_cache.values():
         stops.sort(key=lambda stop: stop["stop_sequence"])
@@ -324,6 +339,58 @@ def _parse_realtime_feed(response: httpx.Response) -> gtfs_realtime_pb2.FeedMess
     return feed
 
 
+def _normalize_gtfs_id(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    parts = value.split(":", 2)
+    if len(parts) == 3 and parts[1] == provider_config.get("APIM_FEED_SLUG", "tec"):
+        return parts[2]
+    return value
+
+
+def _parse_gtfs_datetime(
+    service_date: Optional[str], gtfs_time: Optional[str]
+) -> Optional[datetime]:
+    if not gtfs_time:
+        return None
+    try:
+        hours, minutes, seconds = [int(part) for part in gtfs_time.split(":")]
+    except (TypeError, ValueError):
+        return None
+
+    timezone_brussels = ZoneInfo("Europe/Brussels")
+    if service_date:
+        try:
+            service_day = datetime.strptime(service_date, "%Y%m%d").date()
+        except ValueError:
+            service_day = datetime.now(timezone_brussels).date()
+    else:
+        service_day = datetime.now(timezone_brussels).date()
+
+    base = datetime.combine(service_day, datetime.min.time(), tzinfo=timezone_brussels)
+    return base + timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+
+def _scheduled_stop_time(
+    trip_id: str,
+    stop_id: str,
+    stop_sequence: Optional[int],
+    service_date: Optional[str],
+    use_arrival: bool,
+) -> Optional[datetime]:
+    time_key = "arrival_time" if use_arrival else "departure_time"
+    fallback_key = "departure_time" if use_arrival else "arrival_time"
+    for stop in _trip_route_entries(trip_id):
+        if stop["stop_id"] != stop_id:
+            continue
+        if stop_sequence is not None and stop["stop_sequence"] != stop_sequence:
+            continue
+        return _parse_gtfs_datetime(
+            service_date, stop.get(time_key) or stop.get(fallback_key)
+        )
+    return None
+
+
 def _unwrap_gtfs_json_ints(value: Any) -> Any:
     """Convert protobufjs-style Long JSON objects into Python integers."""
     if isinstance(value, dict):
@@ -352,6 +419,7 @@ async def _fetch_feed(url: str) -> gtfs_realtime_pb2.FeedMessage:
 
 
 def _trip_candidates(trip_id: str) -> Iterable[str]:
+    trip_id = _normalize_gtfs_id(trip_id)
     yield trip_id
     if "-" in trip_id:
         yield trip_id.split("-")[0]
@@ -365,15 +433,18 @@ def _get_trip_info(trip_id: str) -> Dict[str, Any]:
 
 
 def _get_stop_info(stop_id: str) -> Dict[str, Any]:
+    stop_id = _normalize_gtfs_id(stop_id)
     return _stops_cache.get(stop_id, {"name": f"Unknown stop ({stop_id})"})
 
 
 def _route_key(route_id: str) -> str:
+    route_id = _normalize_gtfs_id(route_id)
     route_info = _routes_cache.get(route_id, {})
     return route_info.get("route_short_name") or route_id
 
 
 def _route_metadata(route_id: str) -> Dict[str, Any]:
+    route_id = _normalize_gtfs_id(route_id)
     route_info = _routes_cache.get(route_id, {})
     metadata = {
         "route_id": route_id,
@@ -390,23 +461,26 @@ def _route_metadata(route_id: str) -> Dict[str, Any]:
 
 
 def _trip_route(trip_id: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "stop_id": stop["stop_id"],
+            "stop_name": _get_stop_info(stop["stop_id"]).get("name", stop["stop_id"]),
+            "stop_sequence": stop["stop_sequence"],
+        }
+        for stop in _trip_route_entries(trip_id)
+    ]
+
+
+def _trip_route_entries(trip_id: str) -> List[Dict[str, Any]]:
     for candidate in _trip_candidates(trip_id):
         stops = _stop_times_cache.get(candidate)
         if stops:
-            return [
-                {
-                    "stop_id": stop["stop_id"],
-                    "stop_name": _get_stop_info(stop["stop_id"]).get(
-                        "name", stop["stop_id"]
-                    ),
-                    "stop_sequence": stop["stop_sequence"],
-                }
-                for stop in stops
-            ]
+            return stops
     return []
 
 
 def _line_is_monitored(route_id: str, monitored_lines: List[str]) -> bool:
+    route_id = _normalize_gtfs_id(route_id)
     if not monitored_lines:
         return True
     route_info = _routes_cache.get(route_id, {})
@@ -419,11 +493,16 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
     global _last_waiting_times_result, _last_waiting_times_update
 
     if isinstance(stop_id, str):
-        stop_ids = [s.strip() for s in stop_id.split(",") if s.strip()]
+        stop_ids = [
+            _normalize_gtfs_id(s.strip()) for s in stop_id.split(",") if s.strip()
+        ]
     elif stop_id:
-        stop_ids = [str(s) for s in stop_id]
+        stop_ids = [_normalize_gtfs_id(str(s)) for s in stop_id]
     else:
-        stop_ids = [str(s) for s in get_provider_config(PROVIDER).get("STOP_IDS", [])]
+        stop_ids = [
+            _normalize_gtfs_id(str(s))
+            for s in get_provider_config(PROVIDER).get("STOP_IDS", [])
+        ]
 
     monitored_lines = get_provider_config(PROVIDER).get("MONITORED_LINES", [])
     formatted_data = {
@@ -466,9 +545,11 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             if not entity.HasField("trip_update"):
                 continue
             update = entity.trip_update
-            trip_id = update.trip.trip_id
+            trip_id = _normalize_gtfs_id(update.trip.trip_id)
             trip_info = _get_trip_info(trip_id)
-            route_id = update.trip.route_id or trip_info.get("route_id")
+            route_id = _normalize_gtfs_id(update.trip.route_id) or trip_info.get(
+                "route_id"
+            )
             if not route_id or not _line_is_monitored(route_id, monitored_lines):
                 continue
 
@@ -482,32 +563,51 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
             route_metadata = _route_metadata(route_id)
 
             for stop_time in update.stop_time_update:
-                sid = stop_time.stop_id
+                sid = _normalize_gtfs_id(stop_time.stop_id)
                 if sid not in formatted_data["stops_data"]:
                     continue
 
+                has_arrival = stop_time.HasField("arrival")
                 event = (
                     stop_time.arrival
-                    if stop_time.HasField("arrival")
+                    if has_arrival
                     else stop_time.departure
                     if stop_time.HasField("departure")
                     else None
                 )
-                if event is None or not event.time:
+                if event is None:
                     continue
+                delay = event.delay if event.HasField("delay") else None
+                if event.HasField("time"):
+                    event_timestamp = event.time
+                else:
+                    stop_sequence = (
+                        int(stop_time.stop_sequence)
+                        if stop_time.HasField("stop_sequence")
+                        else None
+                    )
+                    scheduled_time = _scheduled_stop_time(
+                        trip_id,
+                        sid,
+                        stop_sequence,
+                        update.trip.start_date,
+                        has_arrival,
+                    )
+                    if scheduled_time is None:
+                        continue
+                    event_timestamp = int(scheduled_time.timestamp()) + (delay or 0)
 
                 line_data = formatted_data["stops_data"][sid]["lines"].setdefault(
                     line_key, {"_metadata": route_metadata}
                 )
                 times = line_data.setdefault(destination, [])
-                arrival_time = datetime.fromtimestamp(event.time, timezone.utc).astimezone(
-                    ZoneInfo("Europe/Brussels")
-                )
+                arrival_time = datetime.fromtimestamp(
+                    event_timestamp, timezone.utc
+                ).astimezone(ZoneInfo("Europe/Brussels"))
                 minutes = int((arrival_time - now_local).total_seconds() / 60)
                 if minutes < -2:
                     continue
 
-                delay = event.delay if event.HasField("delay") else None
                 current_sequence = next(
                     (
                         stop["stop_sequence"]
@@ -529,6 +629,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                         "message": None,
                         "realtime_minutes": f"{minutes}'",
                         "realtime_time": arrival_time.strftime("%H:%M"),
+                        "timestamp": event_timestamp,
                         "provider": PROVIDER,
                         "remaining_stops": remaining_stops,
                     }
@@ -540,7 +641,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
                 for destination, times in list(line_data.items()):
                     if destination == "_metadata":
                         continue
-                    times.sort(key=lambda item: item["realtime_time"])
+                    times.sort(key=lambda item: item["timestamp"])
                     if not times:
                         del line_data[destination]
                 if len(line_data) == 1 and "_metadata" in line_data:
@@ -604,8 +705,9 @@ async def get_service_alerts() -> List[Dict[str, Any]]:
                 "informed_entities": [
                     {
                         "agency_id": entity_selector.agency_id or None,
-                        "route_id": entity_selector.route_id or None,
-                        "stop_id": entity_selector.stop_id or None,
+                        "route_id": _normalize_gtfs_id(entity_selector.route_id)
+                        or None,
+                        "stop_id": _normalize_gtfs_id(entity_selector.stop_id) or None,
                     }
                     for entity_selector in alert.informed_entity
                 ],
