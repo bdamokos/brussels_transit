@@ -1,6 +1,7 @@
 """SNCB (Belgium) transit provider API implementation"""
 
 import os
+import csv
 import io
 import json
 import shutil
@@ -168,16 +169,11 @@ def _load_stop_times_cache() -> None:
 
         new_cache = {}
         with open(stop_times_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            stop_id_index = header.index("stop_id")
-            stop_sequence_index = header.index("stop_sequence")
-
-            for line in f:
-                fields = line.strip().split(",")
-                trip_id = strip_sncb_id_prefix(fields[trip_id_index].strip('"'))
+            reader = csv.DictReader(f)
+            for row in reader:
+                trip_id = strip_sncb_id_prefix(row["trip_id"])
                 stop_id = normalize_sncb_stop_id(
-                    fields[stop_id_index].strip('"'), collapse_platform=True
+                    row["stop_id"], collapse_platform=True
                 )
 
                 if trip_id not in new_cache:
@@ -186,7 +182,7 @@ def _load_stop_times_cache() -> None:
                 new_cache[trip_id].append(
                     {
                         "stop_id": stop_id,
-                        "stop_sequence": int(fields[stop_sequence_index]),
+                        "stop_sequence": int(row["stop_sequence"]),
                     }
                 )
 
@@ -220,42 +216,38 @@ def _load_trips_cache() -> None:
 
         new_cache = {}
         with open(trips_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            try:
-                trip_id_index = header.index("trip_id")
-                trip_headsign_index = header.index("trip_headsign")
-                route_id_index = header.index("route_id")
-            except ValueError as e:
-                logger.error(f"Required column not found in trips.txt: {e}")
+            reader = csv.DictReader(f)
+            required_columns = {"trip_id", "trip_headsign", "route_id"}
+            if not reader.fieldnames or not required_columns.issubset(
+                reader.fieldnames
+            ):
+                missing = required_columns.difference(reader.fieldnames or [])
+                logger.error("Required columns not found in trips.txt: %s", missing)
                 return
 
-            for line in f:
-                fields = line.strip().split(",")
-                if len(fields) > max(
-                    trip_id_index, trip_headsign_index, route_id_index
-                ):
-                    route_id = strip_sncb_id_prefix(fields[route_id_index].strip('"'))
-                    trip_id = strip_sncb_id_prefix(fields[trip_id_index].strip('"'))
-                    headsign = fields[trip_headsign_index].strip('"')
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
+                trip_id = strip_sncb_id_prefix(row["trip_id"])
+                headsign = row["trip_headsign"]
 
-                    trip_data = {
-                        "headsign": headsign,
-                        "route_id": route_id,
-                    }
+                trip_data = {
+                    "headsign": headsign,
+                    "route_id": route_id,
+                }
 
-                    # Always cache monitored lines
-                    if not monitored_lines or route_id in monitored_lines:
-                        new_cache[trip_id] = trip_data
-                    # For non-monitored lines, use LRU cache
-                    elif trip_id in _trips_lru_cache:
-                        new_cache[trip_id] = _trips_lru_cache[trip_id]
-                    else:
-                        # Add to LRU cache if there's space or remove oldest entry
-                        if len(_trips_lru_cache) >= _trips_lru_cache_max_size:
-                            # Remove oldest entry (first key in dict)
-                            _trips_lru_cache.pop(next(iter(_trips_lru_cache)))
-                        _trips_lru_cache[trip_id] = trip_data
-                        new_cache[trip_id] = trip_data
+                # Always cache monitored lines
+                if not monitored_lines or route_id in monitored_lines:
+                    new_cache[trip_id] = trip_data
+                # For non-monitored lines, use LRU cache
+                elif trip_id in _trips_lru_cache:
+                    new_cache[trip_id] = _trips_lru_cache[trip_id]
+                else:
+                    # Add to LRU cache if there's space or remove oldest entry
+                    if len(_trips_lru_cache) >= _trips_lru_cache_max_size:
+                        # Remove oldest entry (first key in dict)
+                        _trips_lru_cache.pop(next(iter(_trips_lru_cache)))
+                    _trips_lru_cache[trip_id] = trip_data
+                    new_cache[trip_id] = trip_data
 
         _trips_cache = new_cache
         _trips_cache_update = datetime.now(timezone.utc)
@@ -363,6 +355,7 @@ class GTFSManager:
         )
         self.current_gtfs_path: Optional[Path] = None
         self.mobility_api: Optional[MobilityAPI] = None
+        self._lock: Optional[asyncio.Lock] = None
         logger.info(f"Initializing GTFSManager with directory: {self.gtfs_dir}")
 
         # Create GTFS directory if it doesn't exist
@@ -388,7 +381,7 @@ class GTFSManager:
         if not self.apim_metadata_file.exists():
             return False
         try:
-            metadata = json.loads(self.apim_metadata_file.read_text())
+            metadata = json.loads(self.apim_metadata_file.read_text(encoding="utf-8"))
             downloaded_at = datetime.fromisoformat(metadata["downloaded_at"])
             if downloaded_at.tzinfo is None:
                 downloaded_at = downloaded_at.replace(tzinfo=timezone.utc)
@@ -444,7 +437,6 @@ class GTFSManager:
             if self.apim_gtfs_dir.exists():
                 shutil.rmtree(self.apim_gtfs_dir)
             tmp_dir.rename(self.apim_gtfs_dir)
-            self.apim_gtfs_dir.mkdir(parents=True, exist_ok=True)
 
             metadata = {
                 "downloaded_at": datetime.now(timezone.utc).isoformat(),
@@ -454,7 +446,9 @@ class GTFSManager:
                 "etag": response.headers.get("etag"),
             }
             self.apim_metadata_file.parent.mkdir(parents=True, exist_ok=True)
-            self.apim_metadata_file.write_text(json.dumps(metadata, indent=2))
+            self.apim_metadata_file.write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8"
+            )
 
             logger.info(
                 "Downloaded SNCB Belgian Mobility GTFS to %s (%.2f MB)",
@@ -471,7 +465,12 @@ class GTFSManager:
     async def _ensure_apim_gtfs_data(self) -> Optional[Path]:
         if self._apim_cache_is_valid():
             return self.apim_gtfs_dir
-        return await self._download_apim_static_gtfs()
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            if self._apim_cache_is_valid():
+                return self.apim_gtfs_dir
+            return await self._download_apim_static_gtfs()
 
     def _is_dataset_expired(self, dataset) -> bool:
         """Check if dataset needs updating"""
@@ -647,35 +646,15 @@ def _load_routes_cache() -> None:
 
         new_cache = {}
         with open(routes_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            route_id_index = header.index("route_id")
-            route_short_name_index = header.index("route_short_name")
-            route_desc_index = (
-                header.index("route_desc") if "route_desc" in header else -1
-            )
-            route_long_name_index = (
-                header.index("route_long_name") if "route_long_name" in header else -1
-            )
-            route_type_index = (
-                header.index("route_type") if "route_type" in header else -1
-            )
-
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = strip_sncb_id_prefix(fields[route_id_index])
+            reader = csv.DictReader(f)
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
+                route_type = row.get("route_type")
                 new_cache[route_id] = {
-                    "route_short_name": fields[route_short_name_index],
-                    "route_desc": (
-                        fields[route_desc_index] if route_desc_index >= 0 else None
-                    ),
-                    "route_long_name": (
-                        fields[route_long_name_index]
-                        if route_long_name_index >= 0
-                        else None
-                    ),
-                    "route_type": (
-                        int(fields[route_type_index]) if route_type_index >= 0 else None
-                    ),
+                    "route_short_name": row["route_short_name"],
+                    "route_desc": row.get("route_desc"),
+                    "route_long_name": row.get("route_long_name"),
+                    "route_type": int(route_type) if route_type else None,
                 }
 
         _routes_cache = new_cache
@@ -860,10 +839,11 @@ def _normalize_realtime_feed_ids(feed: gtfs_realtime_pb2.FeedMessage) -> None:
 
         if entity.HasField("vehicle"):
             vehicle = entity.vehicle
-            if vehicle.trip.trip_id:
-                vehicle.trip.trip_id = strip_sncb_id_prefix(vehicle.trip.trip_id)
-            if vehicle.trip.route_id:
-                vehicle.trip.route_id = strip_sncb_id_prefix(vehicle.trip.route_id)
+            if vehicle.HasField("trip"):
+                if vehicle.trip.trip_id:
+                    vehicle.trip.trip_id = strip_sncb_id_prefix(vehicle.trip.trip_id)
+                if vehicle.trip.route_id:
+                    vehicle.trip.route_id = strip_sncb_id_prefix(vehicle.trip.route_id)
             if vehicle.stop_id:
                 vehicle.stop_id = normalize_sncb_stop_id(
                     vehicle.stop_id, collapse_platform=True
@@ -893,6 +873,8 @@ async def _fetch_trip_updates_feed(
             "MOBILITY_API_PRIMARY_KEY or MOBILITY_API_SECONDARY_KEY is required "
             "for SNCB Belgian Mobility realtime"
         )
+    if not APIM_TRIP_UPDATES_URL:
+        raise RuntimeError("SNCB APIM_TRIP_UPDATES_URL is not configured")
     response = await client.get(APIM_TRIP_UPDATES_URL, headers=headers)
     response.raise_for_status()
     feed = gtfs_realtime_pb2.FeedMessage()
@@ -1355,17 +1337,9 @@ def _get_line_id_from_trip(route_id: str) -> str:
         routes_file = gtfs_path / "routes.txt"
         if routes_file.exists():
             with open(routes_file, "r", encoding="utf-8") as rf:
-                # Skip header line
-                header = next(rf).strip().split(",")
-                route_id_index = header.index("route_id")
-                route_short_name_index = header.index("route_short_name")
-
-                for route_line in rf:
-                    fields = route_line.strip().split(",")
-                    if (
-                        len(fields) > max(route_id_index, route_short_name_index)
-                        and fields[route_id_index] == route_id
-                    ):
+                reader = csv.DictReader(rf)
+                for row in reader:
+                    if strip_sncb_id_prefix(row["route_id"]) == route_id:
                         # Found the route, return the route_id as is since it's already in the correct format
                         return route_id
 
@@ -1452,43 +1426,9 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
             return {}
 
         with open(routes_file, "r", encoding="utf-8") as f:
-            # Read header
-            header = f.readline().strip().split(",")
-            route_id_index = header.index("route_id")
-            route_short_name_index = header.index("route_short_name")
-            route_long_name_index = (
-                header.index("route_long_name") if "route_long_name" in header else -1
-            )
-            route_type_index = (
-                header.index("route_type") if "route_type" in header else -1
-            )
-            route_color_index = (
-                header.index("route_color") if "route_color" in header else -1
-            )
-            route_text_color_index = (
-                header.index("route_text_color") if "route_text_color" in header else -1
-            )
-
-            # Read routes
-            for line in f:
-                # Split by comma but preserve quoted fields
-                fields = []
-                current_field = []
-                in_quotes = False
-                for char in line.strip():
-                    if char == '"':
-                        in_quotes = not in_quotes
-                    elif char == "," and not in_quotes:
-                        fields.append("".join(current_field))
-                        current_field = []
-                    else:
-                        current_field.append(char)
-                fields.append("".join(current_field))
-
-                # Remove quotes from fields
-                fields = [f.strip('"') for f in fields]
-
-                route_id = strip_sncb_id_prefix(fields[route_id_index])
+            reader = csv.DictReader(f)
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
 
                 # Only include monitored lines
                 if route_id not in MONITORED_LINES:
@@ -1496,23 +1436,21 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
 
                 info = {
                     "route_id": route_id,
-                    "display_name": fields[route_short_name_index],
+                    "display_name": row["route_short_name"],
                     "provider": "sncb",
                 }
 
                 # Add optional fields if available
-                if route_long_name_index >= 0:
-                    info["long_name"] = fields[route_long_name_index]
-                if route_type_index >= 0:
-                    info["route_type"] = int(fields[route_type_index])
-                if route_color_index >= 0 and len(fields) > route_color_index:
-                    color = fields[route_color_index].strip()
-                    if color:
-                        info["color"] = f"#{color}"
-                if route_text_color_index >= 0 and len(fields) > route_text_color_index:
-                    text_color = fields[route_text_color_index].strip()
-                    if text_color:
-                        info["text_color"] = f"#{text_color}"
+                if row.get("route_long_name"):
+                    info["long_name"] = row["route_long_name"]
+                if row.get("route_type"):
+                    info["route_type"] = int(row["route_type"])
+                color = (row.get("route_color") or "").strip()
+                if color:
+                    info["color"] = f"#{color}"
+                text_color = (row.get("route_text_color") or "").strip()
+                if text_color:
+                    info["text_color"] = f"#{text_color}"
 
                 line_info[route_id] = info
 

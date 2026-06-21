@@ -71,18 +71,23 @@ def normalize_static_gtfs_dir(gtfs_dir: Path) -> None:
 
 
 def _normalize_static_gtfs_file(path: Path, columns: set[str]) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
     with path.open("r", encoding="utf-8", newline="") as in_file:
         reader = csv.DictReader(in_file)
         if not reader.fieldnames:
             return
-        rows = []
-        for row in reader:
-            for column in columns:
-                if column in row and row[column]:
-                    row[column] = strip_sncb_id_prefix(row[column])
-            rows.append(row)
 
-    with path.open("w", encoding="utf-8", newline="") as out_file:
-        writer = csv.DictWriter(out_file, fieldnames=reader.fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+        try:
+            with tmp_path.open("w", encoding="utf-8", newline="") as out_file:
+                writer = csv.DictWriter(out_file, fieldnames=reader.fieldnames)
+                writer.writeheader()
+                for row in reader:
+                    for column in columns:
+                        if row.get(column):
+                            row[column] = strip_sncb_id_prefix(row[column])
+                    writer.writerow(row)
+            tmp_path.replace(path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise

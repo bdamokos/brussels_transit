@@ -44,9 +44,9 @@ def mobility_subscription_headers(
                 break
 
     if not key and provider_name:
-        pc = get_provider_config(provider_name)
-        key = (pc.get("MOBILITY_API_PRIMARY_KEY") or "") or (
-            pc.get("MOBILITY_API_SECONDARY_KEY") or ""
+        pc = get_provider_config(provider_name) or {}
+        key = pc.get("MOBILITY_API_PRIMARY_KEY") or pc.get(
+            "MOBILITY_API_SECONDARY_KEY"
         )
         if not key:
             for config_key in legacy_config_keys:

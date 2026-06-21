@@ -9,6 +9,8 @@ If you want to override any settings, do so in local.py.
 # API Keys
 MOBILITY_API_PRIMARY_KEY = "your-belgian-mobility-primary-subscription-key"
 MOBILITY_API_SECONDARY_KEY = "your-belgian-mobility-secondary-subscription-key"
+# Optional: static GTFS fallback
+# MOBILITY_API_REFRESH_TOKEN = "your-mobility-database-refresh-token"
 STIB_API_KEY = "your-stib-api-key"
 DELIJN_API_KEY = "your-delijn-api-key"
 DELIJN_GTFS_STATIC_API_KEY = "your-delijn-gtfs-static-key"

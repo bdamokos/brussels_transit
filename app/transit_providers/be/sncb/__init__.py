@@ -24,12 +24,36 @@ from .api import (
     _ensure_caches_initialized,
 )
 
+
+def _redact_config_value(key: str, value: Any) -> Any:
+    upper_key = key.upper()
+    if "KEY" in upper_key or "TOKEN" in upper_key:
+        return "<redacted>"
+    if upper_key == "LEGACY_REALTIME_URL":
+        return "<redacted>"
+    if "URL" in upper_key and isinstance(value, str):
+        sensitive_markers = (
+            "api_key",
+            "apikey",
+            "access_token",
+            "sncb-opendata.hafas.de/gtfs/realtime/",
+            "subscription-key",
+            "password",
+            "signature",
+            "token=",
+            "key=",
+        )
+        if any(marker in value.lower() for marker in sensitive_markers):
+            return "<redacted>"
+    return value
+
+
 provider_config = get_provider_config("sncb")
 logger.info("=== SNCB CONFIG DEBUG ===")
 logger.info(
     "Raw config: %s",
     {
-        key: ("<redacted>" if "KEY" in key or "TOKEN" in key or "URL" in key else value)
+        key: _redact_config_value(key, value)
         for key, value in provider_config.items()
     },
 )
