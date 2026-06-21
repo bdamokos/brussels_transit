@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="transit_providers",
-    version="0.2.10",
+    version="0.2.11",
     packages=find_packages(),
     install_requires=[
         "mobility-db-api>=0.5.1",

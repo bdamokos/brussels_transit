@@ -3,7 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
-  - [Unreleased](#unreleased)
+  - [v0.2.11 (2026-06-21)](#v0211-2026-06-21)
   - [v0.2.10 (2026-06-21)](#v0210-2026-06-21)
   - [v0.2.9 (2026-06-21)](#v029-2026-06-21)
   - [v0.2.5 (2026-05-02)](#v025-2026-05-02)
@@ -17,7 +17,16 @@
 
 # Changelog
 
-## Unreleased
+## [v0.2.11](https://github.com/bdamokos/brussels_transit/tree/v0.2.11) (2026-06-21)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.10...v0.2.11)
+
+**De Lijn — Belgian Mobility Open Data** [\#129](https://github.com/bdamokos/brussels_transit/pull/129)
+
+- Use Belgian Mobility as the primary De Lijn static GTFS source, with legacy De Lijn static GTFS fallback.
+- Normalize Belgian Mobility De Lijn GTFS IDs back to the app's existing stop, route, trip, service, and shape ID format.
+- Use Belgian Mobility GTFS-RT service alerts by default, with legacy `storingen` / `omleidingen` fallback.
+- Keep De Lijn vehicle positions on the legacy GTFS realtime endpoint; Belgian Mobility TripUpdates are not treated as vehicle-position data.
 
 **Le TEC — Belgian Mobility Open Data (Azure APIM)**
 
@@ -39,13 +48,6 @@
 ## [v0.2.9](https://github.com/bdamokos/brussels_transit/tree/v0.2.9) (2026-06-21)
 
 [Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.8...v0.2.9)
-
-**De Lijn — Belgian Mobility Open Data** [\#129](https://github.com/bdamokos/brussels_transit/pull/129)
-
-- Use Belgian Mobility as the primary De Lijn static GTFS source, with legacy De Lijn static GTFS fallback.
-- Normalize Belgian Mobility De Lijn GTFS IDs back to the app's existing stop, route, trip, service, and shape ID format.
-- Use Belgian Mobility GTFS-RT service alerts by default, with legacy `storingen` / `omleidingen` fallback.
-- Keep De Lijn vehicle positions on the legacy GTFS realtime endpoint; Belgian Mobility TripUpdates are not treated as vehicle-position data.
 
 **SNCB/NMBS — Belgian Mobility Open Data (Azure APIM)**
 
