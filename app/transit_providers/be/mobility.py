@@ -56,4 +56,7 @@ def mobility_subscription_headers(
 
     if not key:
         return {}
-    return {"bmc-partner-key": key}
+    return {
+        "Ocp-Apim-Subscription-Key": key,
+        "bmc-partner-key": key,
+    }

@@ -5,6 +5,7 @@ import importlib
 import logging
 from pathlib import Path
 import inspect
+from transit_providers.config import canonical_provider_name
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ def get_provider_path(provider_name: str) -> str:
 
 def register_provider(name: str, provider: Union[Dict[str, Callable], TransitProvider]) -> None:
     """Register a transit provider and its endpoints"""
+    name = canonical_provider_name(name)
     logger.debug(f"Registering provider: {name}")
     
     # If it's already a TransitProvider instance, store it directly
@@ -94,8 +96,11 @@ def import_providers():
     providers_dir = Path(__file__).parent
     from config import get_config
 
-    enabled_providers = set(get_config("ENABLED_PROVIDERS", []))
-    known_provider_packages = {"bkk", "delijn", "sncb", "stib"}
+    enabled_providers = {
+        canonical_provider_name(provider)
+        for provider in get_config("ENABLED_PROVIDERS", [])
+    }
+    known_provider_packages = {"bkk", "delijn", "letec", "sncb", "stib"}
     
     # Walk through all subdirectories
     for root, dirs, files in os.walk(providers_dir):

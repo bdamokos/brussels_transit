@@ -22,6 +22,7 @@ import inspect
 import logging
 from flask import jsonify
 from transit_providers import PROVIDERS, get_provider_from_path
+from transit_providers.config import canonical_provider_name
 from config import get_config
 from dataclasses import asdict
 import os
@@ -743,6 +744,9 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
             # Redirect to the schedule explorer
             return redirect(url)
 
+        original_provider = provider
+        provider = canonical_provider_name(provider)
+
         # If not a proxied provider, check if it's a legacy provider
         if provider not in PROVIDERS:
             available_providers = list(PROVIDERS.keys())
@@ -840,6 +844,11 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
                 result = await func()
             else:
                 result = func()
+
+        if original_provider != provider and isinstance(result, dict):
+            result.setdefault("_metadata", {})
+            result["_metadata"]["deprecated_provider"] = original_provider
+            result["_metadata"]["canonical_provider"] = provider
 
         return jsonify(result)
 

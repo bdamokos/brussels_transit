@@ -41,7 +41,7 @@ TIMEZONE = "Europe/Brussels"
 
 
 # List of enabled providers
-ENABLED_PROVIDERS = ["delijn", "stib", "bkk"]
+ENABLED_PROVIDERS = ["delijn", "stib", "bkk", "sncb", "letec"]
 
 # Language Configuration
 # Override the default language precedence order
@@ -60,7 +60,11 @@ PROVIDER_CONFIG = {
         "MONITORED_LINES": [
             "3040",  # tram line 4
         ],
-    }
+    },
+    "letec": {
+        "STOP_IDS": [],
+        "MONITORED_LINES": [],
+    },
 }
 
 # Add any other overrides here

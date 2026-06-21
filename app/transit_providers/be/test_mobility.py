@@ -41,5 +41,6 @@ def test_mobility_subscription_headers_reads_top_level_config(monkeypatch):
     monkeypatch.setattr(mobility, "get_provider_config", lambda provider: {})
 
     assert mobility_subscription_headers("sncb") == {
+        "Ocp-Apim-Subscription-Key": "top-level-key",
         "bmc-partner-key": "top-level-key"
     }

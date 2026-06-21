@@ -15,6 +15,14 @@
 
 # Changelog
 
+## Unreleased
+
+**Le TEC — Belgian Mobility Open Data (Azure APIM)**
+
+- Add a `letec` provider backed by Belgian Mobility APIM static GTFS, GTFS-RT trip updates, and GTFS-RT service alerts.
+- Keep Belgian Mobility's external `/tec/` feed slug configurable while exposing the local provider identity as `letec`; `tec` config/API aliases normalize to `letec`.
+- Document Le TEC API access, environment overrides, static fallback URLs, and the current NeTEx non-goal for this app.
+
 ## [v0.2.9](https://github.com/bdamokos/brussels_transit/tree/v0.2.9) (2026-06-21)
 
 [Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.8...v0.2.9)
