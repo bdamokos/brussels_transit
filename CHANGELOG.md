@@ -19,7 +19,7 @@
 
 [Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.8...v0.2.9)
 
-**De Lijn — Belgian Mobility Open Data**
+**De Lijn — Belgian Mobility Open Data** [\#129](https://github.com/bdamokos/brussels_transit/pull/129)
 
 - Use Belgian Mobility as the primary De Lijn static GTFS source, with legacy De Lijn static GTFS fallback.
 - Normalize Belgian Mobility De Lijn GTFS IDs back to the app's existing stop, route, trip, service, and shape ID format.
