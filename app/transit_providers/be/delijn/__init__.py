@@ -31,6 +31,7 @@ from .api import (
     get_nearest_stop,
     find_nearest_stops,
     get_stop_by_name,
+    get_realtime_source_status,
 )
 
 provider_config = get_provider_config("delijn")
@@ -68,6 +69,7 @@ class DelijnProvider(TransitProvider):
             "nearest_stop": get_nearest_stop,
             "get_stop_by_name": self.get_stop_by_name,
             "get_nearest_stops": self.get_nearest_stops,
+            "realtime_sources": get_realtime_source_status,
         }
 
         # Call parent class constructor

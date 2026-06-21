@@ -67,6 +67,14 @@ Example vehicle position data:
 - Direction is used as a fallback if headsign is not available
 - Vehicles are only shown if they belong to our monitored lines
 
+## Belgian Mobility Migration Notes
+
+- Static GTFS now defaults to Belgian Mobility and falls back to the legacy De Lijn static GTFS endpoint when the Belgian Mobility download fails.
+- Belgian Mobility GTFS IDs are normalized back to the app's existing De Lijn ID shape. For example, `gs:delijn:307250` becomes `307250`, and `gr:delijn:10010` becomes `10010`.
+- Service alerts now default to Belgian Mobility GTFS-RT alerts and fall back to the legacy De Lijn `storingen` / `omleidingen` endpoints.
+- Vehicle positions remain legacy-only. The Belgian Mobility De Lijn realtime endpoints currently expose TripUpdates and Alerts; TripUpdates are useful for arrival/delay work, but they are not equivalent to the legacy vehicle-position feed.
+- Live check on 2026-06-21: the Belgian Mobility static De Lijn feed returned `gtfs-delijn-bmc-latest.zip` with `Content-Length: 243075546` and `Last-Modified: Sun, 21 Jun 2026 03:09:29 GMT`. The APIM `trip-update` and `alert` paths exist but require quota/auth handling; guessed `vehicle-position` and `vehicle-positions` paths returned 404.
+
 ## Frontend Display
 
 The frontend receives the processed vehicle data and displays:
@@ -113,4 +121,3 @@ From this, we can see that:
 |----------|------------|---------|---------------|-----------------|--------------|-----------|-----------|
 | 3118_2VR3128-19_0 | 1956 | 3118_101_404_2VR3128-19_3288-0863mod2951_1433_1034d2511267a1e815e372681f1e12b05b4b5c774f7c15b855a68ba7a044d1c8 | Brussel Zuid - Itterbeek - `Schepdaal` | 101 | `0` | 3288-0863mod2951 | 3118404 |
 | 3118_2VR3128-19_1 | 1612 | 3118_104_406_2VR3128-19_3288-0863mod2951_1581_c1db6f3129dc61c84f378eeca36d005d31a16fe7d4c45dec41ab0ad8a8576b7b | Schepdaal - Itterbeek - Brussel Zuid | 104 | 1 | 3288-0863mod2951 | 3118406 |
-

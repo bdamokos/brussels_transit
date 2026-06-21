@@ -15,6 +15,7 @@ import asyncio
 from transit_providers.config import get_provider_config
 import pytz
 from dataclasses import asdict
+import shutil
 from transit_providers.nearest_stop import (
     ingest_gtfs_stops,
     get_nearest_stops,
@@ -28,6 +29,12 @@ import time
 import csv
 from functools import lru_cache
 import hashlib
+from transit_providers.be.mobility import mobility_subscription_headers
+from .ids import (
+    normalize_delijn_stop_id,
+    normalize_static_gtfs_dir,
+    strip_delijn_id_prefix,
+)
 
 
 # Get logger
@@ -40,6 +47,9 @@ logger.debug(f"Provider config: {provider_config}")
 # API configuration
 API_URL = provider_config.get("API_URL")
 GTFS_URL = provider_config.get("GTFS_URL")
+LEGACY_GTFS_URL = provider_config.get(
+    "LEGACY_GTFS_URL", "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip"
+)
 
 
 GTFS_DIR = provider_config.get("GTFS_DIR")
@@ -56,6 +66,22 @@ BASE_URL = provider_config.get("API_URL")
 DELIJN_API_KEY = provider_config.get("API_KEY")
 DELIJN_GTFS_STATIC_API_KEY = provider_config.get("GTFS_STATIC_API_KEY")
 DELIJN_GTFS_REALTIME_API_KEY = provider_config.get("GTFS_REALTIME_API_KEY")
+GTFS_STATIC_SOURCE = str(
+    provider_config.get("GTFS_STATIC_SOURCE", "belgian_mobility")
+).lower()
+SERVICE_ALERTS_SOURCE = str(
+    provider_config.get("SERVICE_ALERTS_SOURCE", "belgian_mobility")
+).lower()
+BELGIAN_MOBILITY_ALERTS_URL = provider_config.get("BELGIAN_MOBILITY_ALERTS_URL")
+BELGIAN_MOBILITY_TRIP_UPDATES_URL = provider_config.get(
+    "BELGIAN_MOBILITY_TRIP_UPDATES_URL"
+)
+VEHICLE_POSITIONS_SOURCE = str(
+    provider_config.get("VEHICLE_POSITIONS_SOURCE", "legacy")
+).lower()
+BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL = provider_config.get(
+    "BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL"
+)
 
 # Configuration
 STOP_ID = provider_config.get("STOP_IDS")
@@ -132,6 +158,63 @@ class ProgressTracker:
                 f"ETA: {estimated_time_remaining:.1f}s"
             )
             self.last_update = current_time
+
+
+def _required_gtfs_files() -> List[str]:
+    return list(
+        GTFS_USED_FILES or ["stops.txt", "routes.txt", "trips.txt", "shapes.txt"]
+    )
+
+
+def _gtfs_dir_has_required_files(path: Path) -> bool:
+    return path.exists() and all(
+        (path / filename).exists() for filename in _required_gtfs_files()
+    )
+
+
+def _safe_extract_zip(zf: zipfile.ZipFile, dest_dir: Path) -> None:
+    """Extract ZIP members under dest_dir only."""
+    dest_root = dest_dir.resolve()
+    for member in zf.infolist():
+        name = member.filename
+        if not name or name.endswith("/"):
+            continue
+        target = (dest_root / name).resolve()
+        try:
+            target.relative_to(dest_root)
+        except ValueError:
+            logger.warning("Skipping ZIP entry outside GTFS dir: %s", name)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(member, "r") as src, open(target, "wb") as out_f:
+            shutil.copyfileobj(src, out_f)
+
+
+def _mobility_headers() -> Dict[str, str]:
+    headers = mobility_subscription_headers(
+        "delijn",
+        legacy_env_keys=("DELIJN_GTFS_REALTIME_API_KEY", "DELIJN_API_KEY"),
+        legacy_config_keys=("GTFS_REALTIME_API_KEY", "API_KEY"),
+    )
+    key = headers.get("bmc-partner-key")
+    if key:
+        headers["Ocp-Apim-Subscription-Key"] = key
+    return headers
+
+
+def _legacy_headers(api_key: Optional[str]) -> Dict[str, str]:
+    headers = {"Cache-Control": "no-cache"}
+    if api_key:
+        headers["Ocp-Apim-Subscription-Key"] = api_key
+    return headers
+
+
+def _service_alerts_use_belgian_mobility() -> bool:
+    return SERVICE_ALERTS_SOURCE in {"belgian_mobility", "mobility", "apim"}
+
+
+def _gtfs_static_use_belgian_mobility() -> bool:
+    return GTFS_STATIC_SOURCE in {"belgian_mobility", "mobility", "apim"}
 
 
 async def cache_get(cache_key: str) -> Optional[Any]:
@@ -372,6 +455,37 @@ async def get_line_color(line_number: str) -> Optional[Dict[str, str]]:
         logger.error(
             f"Error getting line colors for line {line_number}: {str(e)}", exc_info=True
         )
+    return await get_line_color_from_gtfs(line_number)
+
+
+async def get_line_color_from_gtfs(line_number: str) -> Optional[Dict[str, str]]:
+    """Get color information for a line from static GTFS routes.txt."""
+    try:
+        gtfs_dir = await ensure_gtfs_data()
+        if not gtfs_dir:
+            return None
+
+        routes_file = gtfs_dir / "routes.txt"
+        if not routes_file.exists():
+            return None
+
+        for route in iter_gtfs_file(routes_file):
+            if route.get("route_short_name") != str(line_number):
+                continue
+            background = route.get("route_color")
+            text = route.get("route_text_color")
+            if not background:
+                return None
+            color_data = {
+                "text": f"#{text}" if text else "#FFFFFF",
+                "background": f"#{background}",
+                "text_border": f"#{text}" if text else "#FFFFFF",
+                "background_border": f"#{background}",
+            }
+            await cache_set(f"line_color_{line_number}", color_data)
+            return color_data
+    except Exception as exc:
+        logger.error("Error reading line color from GTFS for %s: %s", line_number, exc)
     return None
 
 
@@ -598,7 +712,7 @@ async def get_formatted_arrivals(stop_ids: List[str] = None) -> Dict:
 
 
 async def download_and_extract_gtfs() -> bool:
-    """Download and extract fresh GTFS data with file locking"""
+    """Download and extract fresh GTFS data with file locking."""
     lock_file = CACHE_DIR / "gtfs_download.lock"
 
     # Check if we already have recent GTFS data
@@ -607,7 +721,7 @@ async def download_and_extract_gtfs() -> bool:
         all_files_exist = True
         oldest_file_age = 0
 
-        for filename in GTFS_USED_FILES:
+        for filename in _required_gtfs_files():
             file_path = GTFS_DIR / filename
             if not file_path.exists():
                 logger.info(
@@ -675,7 +789,7 @@ async def download_and_extract_gtfs() -> bool:
             if GTFS_DIR.exists():
                 all_files_exist = True
                 oldest_file_age = 0
-                for filename in GTFS_USED_FILES:
+                for filename in _required_gtfs_files():
                     file_path = GTFS_DIR / filename
                     if not file_path.exists():
                         all_files_exist = False
@@ -689,52 +803,41 @@ async def download_and_extract_gtfs() -> bool:
                     )
                     return True
 
-            logger.info("Starting GTFS data download")
+            source_attempts = []
+            if _gtfs_static_use_belgian_mobility():
+                source_attempts.append(
+                    (
+                        "belgian_mobility",
+                        GTFS_URL,
+                        _mobility_headers() or {"Cache-Control": "no-cache"},
+                    )
+                )
+                source_attempts.append(
+                    (
+                        "legacy",
+                        LEGACY_GTFS_URL,
+                        _legacy_headers(DELIJN_GTFS_STATIC_API_KEY),
+                    )
+                )
+            else:
+                source_attempts.append(
+                    (
+                        "legacy",
+                        LEGACY_GTFS_URL,
+                        _legacy_headers(DELIJN_GTFS_STATIC_API_KEY),
+                    )
+                )
 
-            headers = {
-                "Cache-Control": "no-cache",
-                "Ocp-Apim-Subscription-Key": DELIJN_GTFS_STATIC_API_KEY,
-            }
+            for source, url, headers in source_attempts:
+                if not url:
+                    continue
+                logger.info("Starting De Lijn GTFS download from %s", source)
+                if await _download_gtfs_source(source, url, headers):
+                    return True
+                logger.warning("De Lijn GTFS download from %s failed", source)
 
-            # Get file size and download with progress tracking
-            response = requests.get(GTFS_URL, headers=headers, stream=True)
-            response.raise_for_status()
-            total_size = int(response.headers.get("content-length", 0))
-            logger.info(f"GTFS file size: {total_size/(1024*1024):.1f}MB")
-
-            logger.debug("Saving GTFS zip file")
-            progress = ProgressTracker(total_size)
-
-            with open("gtfs_transit.zip", "wb") as f_zip:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f_zip.write(chunk)
-                        progress.update(len(chunk))
-
-            logger.debug("Extracting GTFS data")
-            GTFS_DIR.mkdir(exist_ok=True)
-            try:
-                with zipfile.ZipFile("gtfs_transit.zip", "r") as zip_ref:
-                    zip_ref.extractall(GTFS_DIR)
-                    logger.debug(f"Extracted GTFS data to {GTFS_DIR}")
-            except Exception as e:
-                logger.error(f"Error extracting GTFS data: {e}", exc_info=True)
-
-            # Clean up zip file
-            try:
-                Path("gtfs_transit.zip").unlink()
-                logger.debug("Deleted GTFS zip file")
-            except Exception as e:
-                logger.error(f"Error deleting GTFS zip file: {e}", exc_info=True)
-
-            # Clean up unused files
-            for file in GTFS_DIR.glob("*"):
-                if file.name not in GTFS_USED_FILES:
-                    file.unlink()
-                    logger.debug(f"Deleted unused GTFS file: {file.name}")
-
-            logger.info("GTFS data updated successfully")
-            return True
+            logger.error("All De Lijn GTFS download sources failed")
+            return False
 
         finally:
             # Release the fcntl lock by closing the FD, then remove the lock file
@@ -757,6 +860,82 @@ async def download_and_extract_gtfs() -> bool:
     except Exception as e:
         logger.error(f"Error updating GTFS data: {str(e)}", exc_info=True)
         return False
+
+
+async def _download_gtfs_source(source: str, url: str, headers: Dict[str, str]) -> bool:
+    tmp_dir = GTFS_DIR.parent / f".{GTFS_DIR.name}.{source}.tmp"
+    tmp_zip = CACHE_DIR / f"gtfs_transit.{source}.zip"
+
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    if tmp_zip.exists():
+        tmp_zip.unlink()
+
+    try:
+        response = requests.get(url, headers=headers, stream=True, timeout=120)
+        response.raise_for_status()
+        total_size = int(response.headers.get("content-length", 0))
+        if total_size:
+            logger.info(
+                "GTFS file size from %s: %.1fMB",
+                source,
+                total_size / (1024 * 1024),
+            )
+
+        progress = ProgressTracker(total_size) if total_size else None
+        with open(tmp_zip, "wb") as f_zip:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f_zip.write(chunk)
+                    if progress:
+                        progress.update(len(chunk))
+
+        tmp_dir.mkdir(parents=True)
+        with zipfile.ZipFile(tmp_zip, "r") as zip_ref:
+            _safe_extract_zip(zip_ref, tmp_dir)
+
+        if source == "belgian_mobility":
+            normalize_static_gtfs_dir(tmp_dir)
+
+        missing_files = [
+            filename
+            for filename in _required_gtfs_files()
+            if not (tmp_dir / filename).exists()
+        ]
+        if missing_files:
+            logger.error("GTFS download from %s missing files: %s", source, missing_files)
+            return False
+
+        for file in tmp_dir.glob("*"):
+            if file.name not in _required_gtfs_files():
+                file.unlink()
+                logger.debug("Deleted unused GTFS file: %s", file.name)
+
+        if GTFS_DIR.exists():
+            shutil.rmtree(GTFS_DIR)
+        tmp_dir.rename(GTFS_DIR)
+
+        metadata = {
+            "downloaded_at": datetime.now(timezone.utc).isoformat(),
+            "source": source,
+            "source_url": url,
+            "last_modified": response.headers.get("last-modified"),
+            "etag": response.headers.get("etag"),
+        }
+        (CACHE_DIR / "gtfs_metadata.json").write_text(
+            json.dumps(metadata, indent=2), encoding="utf-8"
+        )
+
+        logger.info("GTFS data updated successfully from %s", source)
+        return True
+    except Exception as exc:
+        logger.error("Error downloading De Lijn GTFS from %s: %s", source, exc)
+        return False
+    finally:
+        if tmp_zip.exists():
+            tmp_zip.unlink()
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
 
 
 def iter_gtfs_file(file_path: Path) -> Generator[Dict[str, str], None, None]:
@@ -939,6 +1118,13 @@ async def get_vehicle_positions(
 ) -> List[Dict]:
     """Get real-time positions of vehicles for a specific line"""
     try:
+        if VEHICLE_POSITIONS_SOURCE != "legacy":
+            logger.warning(
+                "Ignoring DELIJN_VEHICLE_POSITIONS_SOURCE=%s; De Lijn vehicle "
+                "positions remain legacy-only until Belgian Mobility exposes "
+                "comparable VehiclePositions data.",
+                VEHICLE_POSITIONS_SOURCE,
+            )
         logger.info(f"\n=== Fetching vehicle positions for line {line_number} ===")
 
         # First get the route ID from GTFS data
@@ -1092,6 +1278,26 @@ async def get_vehicle_positions(
         return []
 
 
+async def get_realtime_source_status() -> Dict[str, Any]:
+    """Report De Lijn realtime source selection and vehicle-position compatibility."""
+    return {
+        "gtfs_static_source": GTFS_STATIC_SOURCE,
+        "service_alerts_source": SERVICE_ALERTS_SOURCE,
+        "vehicle_positions_source": "legacy",
+        "legacy_vehicle_positions_url": "https://api.delijn.be/gtfs/v3/realtime",
+        "belgian_mobility_trip_updates_url": BELGIAN_MOBILITY_TRIP_UPDATES_URL,
+        "belgian_mobility_alerts_url": BELGIAN_MOBILITY_ALERTS_URL,
+        "belgian_mobility_vehicle_positions_url": BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL,
+        "belgian_mobility_vehicle_positions_comparable": bool(
+            BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL
+        ),
+        "notes": [
+            "Belgian Mobility De Lijn TripUpdates can support delay/arrival work, but it is not a vehicle-position feed.",
+            "No Belgian Mobility De Lijn VehiclePositions endpoint is configured by default.",
+        ],
+    }
+
+
 def message_is_duplicate(msg1: dict, msg2: dict) -> bool:
     """Compare two messages to determine if they are duplicates.
 
@@ -1134,11 +1340,217 @@ def message_is_duplicate(msg1: dict, msg2: dict) -> bool:
     return True
 
 
+def _translation_text(value: Dict[str, Any]) -> Optional[str]:
+    translations = value.get("translation") or value.get("translations") or []
+    if isinstance(translations, dict):
+        translations = [translations]
+    if not translations:
+        return value.get("text") if isinstance(value, dict) else None
+
+    preferred_languages = get_config("LANGUAGE_PRECEDENCE", ["nl", "en", "fr"])
+    for lang in preferred_languages:
+        for item in translations:
+            if item.get("language") == lang and item.get("text"):
+                return item["text"]
+    for item in translations:
+        if item.get("text"):
+            return item["text"]
+    return None
+
+
+def _enum_name(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _format_timestamp(value: Any) -> Optional[str]:
+    if value in (None, "", 0, "0"):
+        return None
+    try:
+        return (
+            datetime.fromtimestamp(int(value), tz=timezone.utc)
+            .astimezone(TIMEZONE)
+            .isoformat()
+        )
+    except (TypeError, ValueError, OSError):
+        return str(value)
+
+
+def _route_short_name_map() -> Dict[str, str]:
+    try:
+        routes_file = GTFS_DIR / "routes.txt"
+        if not routes_file.exists():
+            return {}
+        route_map = {}
+        for route in iter_gtfs_file(routes_file):
+            route_id = strip_delijn_id_prefix(route.get("route_id", ""))
+            short_name = route.get("route_short_name")
+            if route_id and short_name:
+                route_map[route_id] = short_name
+        return route_map
+    except Exception as exc:
+        logger.warning("Could not load De Lijn route map from GTFS: %s", exc)
+        return {}
+
+
+def _stop_name_map() -> Dict[str, str]:
+    try:
+        stops_file = GTFS_DIR / "stops.txt"
+        if not stops_file.exists():
+            return {}
+        stop_map = {}
+        for stop in iter_gtfs_file(stops_file):
+            stop_id = normalize_delijn_stop_id(stop.get("stop_id"))
+            stop_name = stop.get("stop_name")
+            if stop_id and stop_name:
+                stop_map[stop_id] = stop_name
+        return stop_map
+    except Exception as exc:
+        logger.warning("Could not load De Lijn stop map from GTFS: %s", exc)
+        return {}
+
+
+def _extract_informed_entities(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entities = alert.get("informedEntity") or alert.get("informed_entity") or []
+    if isinstance(entities, dict):
+        return [entities]
+    return entities
+
+
+def _extract_active_period(alert: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    periods = alert.get("activePeriod") or alert.get("active_period") or []
+    if isinstance(periods, dict):
+        periods = [periods]
+    if not periods:
+        return {"start": None, "end": None}
+    first = periods[0]
+    return {
+        "start": _format_timestamp(first.get("start")),
+        "end": _format_timestamp(first.get("end")),
+    }
+
+
+def _format_belgian_mobility_alerts(
+    feed: Dict[str, Any],
+    route_map: Dict[str, str],
+    stop_map: Dict[str, str],
+    monitored_lines: set[str],
+    monitored_stops: set[str],
+) -> List[Dict]:
+    formatted_messages = []
+    for entity in feed.get("entity", []):
+        alert = entity.get("alert")
+        if not alert:
+            continue
+
+        affected_lines = set()
+        affected_stops = {}
+        for informed_entity in _extract_informed_entities(alert):
+            route_id = strip_delijn_id_prefix(
+                informed_entity.get("routeId") or informed_entity.get("route_id")
+            )
+            stop_id = normalize_delijn_stop_id(
+                informed_entity.get("stopId") or informed_entity.get("stop_id")
+            )
+            if route_id:
+                affected_lines.add(route_map.get(route_id, route_id))
+            if stop_id:
+                affected_stops[stop_id] = stop_map.get(stop_id, stop_id)
+
+        sorted_lines = sorted(
+            affected_lines, key=lambda x: int(x) if str(x).isdigit() else str(x)
+        )
+        sorted_stops = [
+            {"id": stop_id, "name": name, "long_name": name}
+            for stop_id, name in sorted(affected_stops.items())
+        ]
+        title = _translation_text(
+            alert.get("headerText") or alert.get("header_text") or {}
+        )
+        description = _translation_text(
+            alert.get("descriptionText") or alert.get("description_text") or {}
+        )
+
+        formatted_messages.append(
+            {
+                "title": title or description or entity.get("id"),
+                "description": description or title,
+                "period": _extract_active_period(alert),
+                "type": _enum_name(alert.get("effect")) or _enum_name(alert.get("cause")),
+                "reference": entity.get("id"),
+                "affected_lines": sorted_lines,
+                "line_colors": {},
+                "affected_stops": sorted_stops,
+                "affected_days": [],
+                "is_monitored": bool(
+                    monitored_lines.intersection(sorted_lines)
+                    or monitored_stops.intersection(affected_stops.keys())
+                ),
+                "source": "belgian_mobility",
+            }
+        )
+    return formatted_messages
+
+
+async def _get_belgian_mobility_service_messages() -> List[Dict]:
+    """Fetch and format De Lijn GTFS-RT alerts from Belgian Mobility."""
+    if not BELGIAN_MOBILITY_ALERTS_URL:
+        raise RuntimeError("DELIJN_BELGIAN_MOBILITY_ALERTS_URL is not configured")
+
+    await ensure_gtfs_data()
+    route_map = _route_short_name_map()
+    stop_map = _stop_name_map()
+    monitored_lines = set(MONITORED_LINES or [])
+    monitored_stops = {str(stop_id) for stop_id in (STOP_ID or [])}
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        response = await client.get(
+            BELGIAN_MOBILITY_ALERTS_URL, headers=_mobility_headers()
+        )
+        response.raise_for_status()
+        feed = response.json()
+
+    formatted_messages = _format_belgian_mobility_alerts(
+        feed, route_map, stop_map, monitored_lines, monitored_stops
+    )
+    for formatted_message in formatted_messages:
+        line_colors = {}
+        for line in formatted_message["affected_lines"]:
+            colors = await get_line_color(line)
+            if colors:
+                line_colors[line] = colors
+        formatted_message["line_colors"] = line_colors
+
+    return formatted_messages
+
+
 service_messages_cache = {}
 
 
 async def get_service_messages() -> List[Dict]:
-    """Get service messages for monitored stops and lines with caching"""
+    """Get service messages for monitored stops and lines with caching."""
+    if _service_alerts_use_belgian_mobility():
+        try:
+            messages = await _get_belgian_mobility_service_messages()
+            cache_until = datetime.now(timezone.utc) + timedelta(
+                seconds=SERVICE_MESSAGE_CACHE_DURATION
+            )
+            await cache_set("service_messages", messages, cache_until)
+            return messages
+        except Exception as exc:
+            logger.warning(
+                "Belgian Mobility De Lijn service alerts failed; "
+                "falling back to legacy: %s",
+                exc,
+            )
+    return await _get_legacy_service_messages()
+
+
+async def _get_legacy_service_messages() -> List[Dict]:
+    """Get service messages from the legacy De Lijn API with caching."""
     cache_key = "service_messages"
 
     # Try to get from cache first
@@ -1376,7 +1788,7 @@ async def ensure_gtfs_data() -> Optional[Path]:
 
     # Verify files after download
     if GTFS_DIR.exists():
-        missing_files = [f for f in GTFS_USED_FILES if not (GTFS_DIR / f).exists()]
+        missing_files = [f for f in _required_gtfs_files() if not (GTFS_DIR / f).exists()]
         if missing_files:
             logger.error(f"After GTFSdownload, still missing files: {missing_files}")
             return None
