@@ -3,7 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
-  - [Unreleased](#unreleased)
+  - [v0.2.9 (2026-06-21)](#v029-2026-06-21)
   - [v0.2.5 (2026-05-02)](#v025-2026-05-02)
   - [v0.2.1 (2025-01-09)](#v021-2025-01-09)
   - [v0.2.0 (2025-01-03)](#v020-2025-01-03)
@@ -15,7 +15,9 @@
 
 # Changelog
 
-## Unreleased
+## [v0.2.9](https://github.com/bdamokos/brussels_transit/tree/v0.2.9) (2026-06-21)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.8...v0.2.9)
 
 **SNCB/NMBS — Belgian Mobility Open Data (Azure APIM)**
 
