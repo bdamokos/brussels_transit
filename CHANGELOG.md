@@ -3,6 +3,8 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
+  - [Unreleased](#unreleased)
+  - [v0.2.10 (2026-06-21)](#v0210-2026-06-21)
   - [v0.2.9 (2026-06-21)](#v029-2026-06-21)
   - [v0.2.5 (2026-05-02)](#v025-2026-05-02)
   - [v0.2.1 (2025-01-09)](#v021-2025-01-09)
@@ -22,6 +24,15 @@
 - Add a `letec` provider backed by Belgian Mobility APIM static GTFS, GTFS-RT trip updates, and GTFS-RT service alerts.
 - Keep Belgian Mobility's external `/tec/` feed slug configurable while exposing the local provider identity as `letec`; `tec` config/API aliases normalize to `letec`.
 - Document Le TEC API access, environment overrides, static fallback URLs, and the current NeTEx non-goal for this app.
+
+## [v0.2.10](https://github.com/bdamokos/brussels_transit/tree/v0.2.10) (2026-06-21)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.9...v0.2.10)
+
+**Provider Logging**
+
+- Redact provider config startup logs for API keys, tokens, passwords, secrets, and sensitive URL query values.
+- Apply the shared redaction helper to STIB, SNCB, De Lijn, and BKK provider startup config logs.
 
 ## [v0.2.9](https://github.com/bdamokos/brussels_transit/tree/v0.2.9) (2026-06-21)
 
