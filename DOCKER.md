@@ -147,12 +147,14 @@ The servers will be available at:
 Create a `.env` file with the following variables (depending on your API choice):
 ```env
 # Real-time Transit Display APIs
+MOBILITY_API_PRIMARY_KEY=your_mobility_primary_subscription_key
+MOBILITY_API_SECONDARY_KEY=your_mobility_secondary_subscription_key
 STIB_API_KEY=your_stib_api_key
 DELIJN_API_KEY=your_delijn_api_key
 DELIJN_GTFS_STATIC_API_KEY=your_delijn_gtfs_static_key
 DELIJN_GTFS_REALTIME_API_KEY=your_delijn_gtfs_realtime_key
 BKK_API_KEY=your_bkk_api_key
-MOBILITY_API_REFRESH_TOKEN=your_mobility_api_refresh_token # optional
+MOBILITY_API_REFRESH_TOKEN=your_mobility_api_refresh_token # optional static GTFS fallback
 
 # Port Configuration
 PORT=5001  # For Real-time Transit Display
@@ -242,4 +244,4 @@ docker compose -f <config-file> logs -f
 
 # Stop services
 docker compose -f <config-file> down
-``` 
+```

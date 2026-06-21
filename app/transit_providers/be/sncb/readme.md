@@ -7,8 +7,13 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 
-Sign an agreement with SNCB to be able to use their data: https://www.belgiantrain.be/en/3rd-party-services/mobility-service-providers/public-data
+SNCB/NMBS now directs public timetable users to Belgian Mobility: https://www.belgiantrain.be/en/3rd-party-services/mobility-service-providers/public-data
 
-Once you have the agreement signed by both parties, you will get a URL to a page with the datasets. Copy the adress of the GTFS realtime endpoint and add it to the .env file as SNCB_GTFS_REALTIME_API_URL.
+The provider uses Belgian Mobility APIM by default:
 
-As a fallback you can use the GTFS mirror at [https://data.gtfs.be/sncb/gtfs/tripUpdates.pb](https://data.gtfs.be/sncb/gtfs/tripUpdates.pb) provided by [GTFS.be](https://gtfs.be).
+- Static GTFS: `/api/gtfs/feed/nmbssncb/static`
+- Realtime trip updates: `/api/gtfs/feed/nmbssncb/rt/trip-update`
+
+Set `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY` in `.env`. The app sends the key as the `bmc-partner-key` header.
+
+The old SNCB GTFS-RT URL can still be used only by setting `SNCB_REALTIME_SOURCE=legacy` and `SNCB_LEGACY_GTFS_REALTIME_API_URL`. GTFS.be remains useful for static GTFS fallback through Mobility Database, but its `tripUpdates.pb` mirror is not used because it is not reliably live.

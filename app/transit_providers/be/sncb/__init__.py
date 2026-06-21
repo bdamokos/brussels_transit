@@ -26,7 +26,13 @@ from .api import (
 
 provider_config = get_provider_config("sncb")
 logger.info("=== SNCB CONFIG DEBUG ===")
-logger.info(f"Raw config: {provider_config}")
+logger.info(
+    "Raw config: %s",
+    {
+        key: ("<redacted>" if "KEY" in key or "TOKEN" in key or "URL" in key else value)
+        for key, value in provider_config.items()
+    },
+)
 logger.info("=== END SNCB CONFIG DEBUG ===")
 
 GTFS_DIR = provider_config.get("GTFS_DIR")
