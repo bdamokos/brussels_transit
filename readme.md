@@ -128,12 +128,14 @@ DELIJN_GTFS_REALTIME_API_KEY)
 
 ### SNCB (Belgium)
 
-Note that the app works without signing an agreement with SNCB through the mirrored data provided by [GTFS.be](https://gtfs.be/).
+SNCB/NMBS now publishes scheduled and realtime GTFS data through the [Belgian Mobility Open Data Portal](https://data.belgianmobility.io/).
 
-1. Visit https://opendata.sncb.be/
-2. Register and request an agreement
-3. Once both parties have signed the agreement, you will receive a link to a page where the GTFS real time feed is linked
-4. Add the url to your `.env` file as "SNCB_GTFS_REALTIME_API_URL"
+1. Visit https://api-management-opendata-production.developer.azure-api.net/
+2. Create an account and subscribe to the Standard product.
+3. Add the primary or secondary key to `.env` as `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY`.
+4. Optional static fallback: add `MOBILITY_API_REFRESH_TOKEN` so the app can fall back to Mobility Database / GTFS.be static GTFS if Belgian Mobility static GTFS is temporarily unavailable.
+
+The old `SNCB_GTFS_REALTIME_API_URL` setting is deprecated. GTFS.be's `tripUpdates.pb` mirror is not used as a realtime fallback because it is not reliably updated.
 
 ### BKK (Budapest)
 

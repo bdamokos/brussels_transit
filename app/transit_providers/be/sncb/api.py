@@ -1,6 +1,11 @@
 """SNCB (Belgium) transit provider API implementation"""
 
 import os
+import csv
+import io
+import json
+import shutil
+import zipfile
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import logging
@@ -31,6 +36,13 @@ from asyncio import (
 )
 import time
 from schedule_explorer.backend.gtfs_loader import load_translations
+from transit_providers.be.mobility import mobility_subscription_headers
+from transit_providers.be.sncb_ids import (
+    normalize_sncb_stop_id,
+    normalize_static_gtfs_dir,
+    strip_sncb_id_prefix,
+    unwrap_gtfs_json_ints,
+)
 
 # Export public API functions
 __all__ = [
@@ -58,8 +70,15 @@ STOP_IDS = provider_config.get("STOP_IDS", [])
 GTFS_USED_FILES = provider_config.get("GTFS_USED_FILES", [])
 
 # GTFS-realtime endpoints
+REALTIME_SOURCE = str(
+    provider_config.get("REALTIME_SOURCE", "belgian_mobility")
+).lower()
+APIM_TRIP_UPDATES_URL = provider_config.get("APIM_TRIP_UPDATES_URL")
+LEGACY_TRIP_UPDATES_URL = provider_config.get("LEGACY_REALTIME_URL")
 REALTIME_URL = provider_config.get("REALTIME_URL")
-TRIP_UPDATES_URL = REALTIME_URL
+TRIP_UPDATES_URL = (
+    LEGACY_TRIP_UPDATES_URL if REALTIME_SOURCE == "legacy" else APIM_TRIP_UPDATES_URL
+)
 
 # Cache for stop and route information
 _stops_cache = {}
@@ -99,6 +118,42 @@ def get_directory_size(directory: Path) -> float:
             total_size += path.stat().st_size
     return total_size / (1024 * 1024)
 
+
+def _safe_extract_zip(zf: zipfile.ZipFile, dest_dir: Path) -> None:
+    """Extract ZIP members under dest_dir only."""
+    dest_root = dest_dir.resolve()
+    for member in zf.infolist():
+        name = member.filename
+        if not name or name.endswith("/"):
+            continue
+        target = (dest_root / name).resolve()
+        try:
+            target.relative_to(dest_root)
+        except ValueError:
+            logger.warning("Skipping ZIP entry outside GTFS dir: %s", name)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(member, "r") as src, open(target, "wb") as out_f:
+            shutil.copyfileobj(src, out_f)
+
+
+def _required_gtfs_files() -> List[str]:
+    return ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
+
+
+def _gtfs_dir_has_required_files(path: Path) -> bool:
+    return path.exists() and all(
+        (path / filename).exists() for filename in _required_gtfs_files()
+    )
+
+
+def _cache_duration_seconds() -> int:
+    duration = provider_config.get("GTFS_CACHE_DURATION", 86400 * 7)
+    if isinstance(duration, timedelta):
+        return int(duration.total_seconds())
+    return int(duration)
+
+
 def _load_stop_times_cache() -> None:
     """Load stop times from GTFS data into cache"""
     global _stop_times_cache, _stop_times_cache_update
@@ -114,25 +169,20 @@ def _load_stop_times_cache() -> None:
 
         new_cache = {}
         with open(stop_times_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            trip_id_index = header.index("trip_id")
-            stop_id_index = header.index("stop_id")
-            stop_sequence_index = header.index("stop_sequence")
-
-            for line in f:
-                fields = line.strip().split(",")
-                trip_id = fields[trip_id_index].strip('"')
-                stop_id = fields[stop_id_index].strip('"')
-                # Remove any suffix after underscore (e.g. 8814001_7 -> 8814001)
-                base_stop_id = stop_id.split("_")[0]
+            reader = csv.DictReader(f)
+            for row in reader:
+                trip_id = strip_sncb_id_prefix(row["trip_id"])
+                stop_id = normalize_sncb_stop_id(
+                    row["stop_id"], collapse_platform=True
+                )
 
                 if trip_id not in new_cache:
                     new_cache[trip_id] = []
 
                 new_cache[trip_id].append(
                     {
-                        "stop_id": base_stop_id,
-                        "stop_sequence": int(fields[stop_sequence_index]),
+                        "stop_id": stop_id,
+                        "stop_sequence": int(row["stop_sequence"]),
                     }
                 )
 
@@ -166,42 +216,38 @@ def _load_trips_cache() -> None:
 
         new_cache = {}
         with open(trips_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            try:
-                trip_id_index = header.index("trip_id")
-                trip_headsign_index = header.index("trip_headsign")
-                route_id_index = header.index("route_id")
-            except ValueError as e:
-                logger.error(f"Required column not found in trips.txt: {e}")
+            reader = csv.DictReader(f)
+            required_columns = {"trip_id", "trip_headsign", "route_id"}
+            if not reader.fieldnames or not required_columns.issubset(
+                reader.fieldnames
+            ):
+                missing = required_columns.difference(reader.fieldnames or [])
+                logger.error("Required columns not found in trips.txt: %s", missing)
                 return
 
-            for line in f:
-                fields = line.strip().split(",")
-                if len(fields) > max(
-                    trip_id_index, trip_headsign_index, route_id_index
-                ):
-                    route_id = fields[route_id_index].strip('"')
-                    trip_id = fields[trip_id_index].strip('"')
-                    headsign = fields[trip_headsign_index].strip('"')
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
+                trip_id = strip_sncb_id_prefix(row["trip_id"])
+                headsign = row["trip_headsign"]
 
-                    trip_data = {
-                        "headsign": headsign,
-                        "route_id": route_id,
-                    }
+                trip_data = {
+                    "headsign": headsign,
+                    "route_id": route_id,
+                }
 
-                    # Always cache monitored lines
-                    if not monitored_lines or route_id in monitored_lines:
-                        new_cache[trip_id] = trip_data
-                    # For non-monitored lines, use LRU cache
-                    elif trip_id in _trips_lru_cache:
-                        new_cache[trip_id] = _trips_lru_cache[trip_id]
-                    else:
-                        # Add to LRU cache if there's space or remove oldest entry
-                        if len(_trips_lru_cache) >= _trips_lru_cache_max_size:
-                            # Remove oldest entry (first key in dict)
-                            _trips_lru_cache.pop(next(iter(_trips_lru_cache)))
-                        _trips_lru_cache[trip_id] = trip_data
-                        new_cache[trip_id] = trip_data
+                # Always cache monitored lines
+                if not monitored_lines or route_id in monitored_lines:
+                    new_cache[trip_id] = trip_data
+                # For non-monitored lines, use LRU cache
+                elif trip_id in _trips_lru_cache:
+                    new_cache[trip_id] = _trips_lru_cache[trip_id]
+                else:
+                    # Add to LRU cache if there's space or remove oldest entry
+                    if len(_trips_lru_cache) >= _trips_lru_cache_max_size:
+                        # Remove oldest entry (first key in dict)
+                        _trips_lru_cache.pop(next(iter(_trips_lru_cache)))
+                    _trips_lru_cache[trip_id] = trip_data
+                    new_cache[trip_id] = trip_data
 
         _trips_cache = new_cache
         _trips_cache_update = datetime.now(timezone.utc)
@@ -288,33 +334,143 @@ async def _initialize_caches():
 
 
 class GTFSManager:
-    """Manages GTFS data download and caching using mobility-db-api"""
+    """Manages SNCB static GTFS data download and caching."""
 
     def __init__(self):
         # Get GTFS directory from config or use default
-        self.gtfs_dir = (
+        self.gtfs_dir = Path(
             provider_config.get("GTFS_DIR")
             or Path(os.environ["PROJECT_ROOT"]) / "downloads"
         )
+        cache_dir = Path(
+            provider_config.get("CACHE_DIR")
+            or Path(os.environ["PROJECT_ROOT"]) / "cache" / "sncb"
+        )
+        self.apim_gtfs_dir = Path(
+            provider_config.get("GTFS_STATIC_DIR") or (cache_dir / "gtfs")
+        )
+        self.apim_metadata_file = Path(
+            provider_config.get("GTFS_STATIC_METADATA_FILE")
+            or (self.apim_gtfs_dir / "metadata.json")
+        )
+        self.current_gtfs_path: Optional[Path] = None
+        self.mobility_api: Optional[MobilityAPI] = None
+        self._lock: Optional[asyncio.Lock] = None
         logger.info(f"Initializing GTFSManager with directory: {self.gtfs_dir}")
 
         # Create GTFS directory if it doesn't exist
         self.gtfs_dir.mkdir(parents=True, exist_ok=True)
+        self.apim_gtfs_dir.mkdir(parents=True, exist_ok=True)
 
         # Check for refresh token
         refresh_token = os.getenv("MOBILITY_API_REFRESH_TOKEN")
         if not refresh_token:
-            logger.error(
+            logger.warning(
                 "MOBILITY_API_REFRESH_TOKEN not found in environment variables. "
-                "GTFS data download from Mobility Database will not be available. "
-                "Please add MOBILITY_API_REFRESH_TOKEN to your .env file."
+                "Static GTFS fallback through Mobility Database will not be available."
+            )
+        else:
+            self.mobility_api = MobilityAPI(
+                data_dir=str(self.gtfs_dir),
+                refresh_token=refresh_token,
+            )
+
+    def _apim_cache_is_valid(self) -> bool:
+        if not _gtfs_dir_has_required_files(self.apim_gtfs_dir):
+            return False
+        if not self.apim_metadata_file.exists():
+            return False
+        try:
+            metadata = json.loads(self.apim_metadata_file.read_text(encoding="utf-8"))
+            downloaded_at = datetime.fromisoformat(metadata["downloaded_at"])
+            if downloaded_at.tzinfo is None:
+                downloaded_at = downloaded_at.replace(tzinfo=timezone.utc)
+        except (KeyError, ValueError, json.JSONDecodeError, OSError) as exc:
+            logger.warning("Ignoring invalid SNCB APIM GTFS metadata: %s", exc)
+            return False
+
+        age = datetime.now(timezone.utc) - downloaded_at
+        return age.total_seconds() < _cache_duration_seconds()
+
+    async def _download_apim_static_gtfs(self) -> Optional[Path]:
+        url = provider_config.get("GTFS_STATIC_URL")
+        if not url:
+            logger.error("SNCB GTFS_STATIC_URL is not configured")
+            return None
+
+        headers = mobility_subscription_headers("sncb")
+        if not headers:
+            logger.error(
+                "MOBILITY_API_PRIMARY_KEY or MOBILITY_API_SECONDARY_KEY is required "
+                "for SNCB Belgian Mobility static GTFS"
             )
             return None
 
-        self.mobility_api = MobilityAPI(
-            data_dir=str(self.gtfs_dir),
-            refresh_token=refresh_token,
-        )
+        tmp_dir = self.apim_gtfs_dir.parent / f".{self.apim_gtfs_dir.name}.tmp"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True)
+
+        try:
+            timeout = httpx.Timeout(120.0, connect=10.0)
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+
+            with zipfile.ZipFile(io.BytesIO(response.content), "r") as zf:
+                _safe_extract_zip(zf, tmp_dir)
+
+            normalize_static_gtfs_dir(tmp_dir)
+
+            if not _gtfs_dir_has_required_files(tmp_dir):
+                missing = [
+                    filename
+                    for filename in _required_gtfs_files()
+                    if not (tmp_dir / filename).exists()
+                ]
+                logger.error("SNCB APIM GTFS download missing files: %s", missing)
+                shutil.rmtree(tmp_dir)
+                return None
+
+            if self.apim_gtfs_dir.exists():
+                shutil.rmtree(self.apim_gtfs_dir)
+            tmp_dir.rename(self.apim_gtfs_dir)
+
+            metadata = {
+                "downloaded_at": datetime.now(timezone.utc).isoformat(),
+                "source": "belgian_mobility",
+                "source_url": url,
+                "last_modified": response.headers.get("last-modified"),
+                "etag": response.headers.get("etag"),
+            }
+            self.apim_metadata_file.parent.mkdir(parents=True, exist_ok=True)
+            self.apim_metadata_file.write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8"
+            )
+
+            logger.info(
+                "Downloaded SNCB Belgian Mobility GTFS to %s (%.2f MB)",
+                self.apim_gtfs_dir,
+                get_directory_size(self.apim_gtfs_dir),
+            )
+            return self.apim_gtfs_dir
+        except Exception as exc:
+            logger.error("Error downloading SNCB Belgian Mobility GTFS: %s", exc)
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            return None
+
+    async def _ensure_apim_gtfs_data(self) -> Optional[Path]:
+        if self._apim_cache_is_valid():
+            return self.apim_gtfs_dir
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            if self._apim_cache_is_valid():
+                return self.apim_gtfs_dir
+            return await self._download_apim_static_gtfs()
 
     def _is_dataset_expired(self, dataset) -> bool:
         """Check if dataset needs updating"""
@@ -369,8 +525,20 @@ class GTFSManager:
         try:
             logger.info(f"Ensuring GTFS data in directory: {self.gtfs_dir}")
 
+            static_source = str(
+                provider_config.get("GTFS_STATIC_SOURCE", "belgian_mobility")
+            ).lower()
+            if static_source == "belgian_mobility":
+                apim_path = await self._ensure_apim_gtfs_data()
+                if apim_path:
+                    self.current_gtfs_path = apim_path
+                    return apim_path
+                logger.warning(
+                    "Falling back to Mobility Database for SNCB static GTFS"
+                )
+
             # Check if we have a refresh token
-            if not os.getenv("MOBILITY_API_REFRESH_TOKEN"):
+            if self.mobility_api is None:
                 logger.error(
                     "MOBILITY_API_REFRESH_TOKEN not found in environment variables. "
                     "GTFS data download from Mobility Database will not be available. "
@@ -390,9 +558,11 @@ class GTFSManager:
                 if not dataset_path:
                     logger.error("Failed to download GTFS data")
                     return None
-                return Path(dataset_path)
+                self.current_gtfs_path = Path(dataset_path)
+                return self.current_gtfs_path
 
-            return Path(current_dataset.download_path)
+            self.current_gtfs_path = Path(current_dataset.download_path)
+            return self.current_gtfs_path
 
         except Exception as e:
             logger.error(f"Error ensuring GTFS data: {e}")
@@ -425,23 +595,33 @@ def _load_stops_cache() -> None:
             return
 
         new_cache = {}
+        stop_aliases = {}
         with open(stops_file, "r", encoding="utf-8") as f:
             import csv
 
             reader = csv.DictReader(f)
 
             for row in reader:
-                stop_id = row["stop_id"].strip()
+                stop_id = strip_sncb_id_prefix(row["stop_id"].strip())
                 try:
-                    new_cache[stop_id] = {
+                    stop_info = {
                         "name": row["stop_name"].strip(),
                         "lat": float(row["stop_lat"].strip()),
                         "lon": float(row["stop_lon"].strip()),
                         "translations": translations.get(stop_id, {}),
                     }
+                    new_cache[stop_id] = stop_info
+                    if "_" in stop_id:
+                        base_stop_id = normalize_sncb_stop_id(
+                            stop_id, collapse_platform=True
+                        )
+                        stop_aliases.setdefault(base_stop_id, stop_info)
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error parsing stop data for {stop_id}: {e}")
                     continue
+
+        for stop_id, stop_info in stop_aliases.items():
+            new_cache.setdefault(stop_id, stop_info)
 
         _stops_cache = new_cache
         _stops_cache_update = datetime.now(timezone.utc)
@@ -466,35 +646,15 @@ def _load_routes_cache() -> None:
 
         new_cache = {}
         with open(routes_file, "r", encoding="utf-8") as f:
-            header = next(f).strip().split(",")
-            route_id_index = header.index("route_id")
-            route_short_name_index = header.index("route_short_name")
-            route_desc_index = (
-                header.index("route_desc") if "route_desc" in header else -1
-            )
-            route_long_name_index = (
-                header.index("route_long_name") if "route_long_name" in header else -1
-            )
-            route_type_index = (
-                header.index("route_type") if "route_type" in header else -1
-            )
-
-            for line in f:
-                fields = line.strip().split(",")
-                route_id = fields[route_id_index]
+            reader = csv.DictReader(f)
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
+                route_type = row.get("route_type")
                 new_cache[route_id] = {
-                    "route_short_name": fields[route_short_name_index],
-                    "route_desc": (
-                        fields[route_desc_index] if route_desc_index >= 0 else None
-                    ),
-                    "route_long_name": (
-                        fields[route_long_name_index]
-                        if route_long_name_index >= 0
-                        else None
-                    ),
-                    "route_type": (
-                        int(fields[route_type_index]) if route_type_index >= 0 else None
-                    ),
+                    "route_short_name": row["route_short_name"],
+                    "route_desc": row.get("route_desc"),
+                    "route_long_name": row.get("route_long_name"),
+                    "route_type": int(route_type) if route_type else None,
                 }
 
         _routes_cache = new_cache
@@ -661,6 +821,70 @@ def _get_trip_route(trip_id: str) -> List[Dict[str, str]]:
         return []
 
 
+def _normalize_realtime_feed_ids(feed: gtfs_realtime_pb2.FeedMessage) -> None:
+    """Normalize Belgian Mobility SNCB IDs in a parsed GTFS-RT message."""
+    for entity in feed.entity:
+        if entity.HasField("trip_update"):
+            trip_update = entity.trip_update
+            trip = trip_update.trip
+            if trip.trip_id:
+                trip.trip_id = strip_sncb_id_prefix(trip.trip_id)
+            if trip.route_id:
+                trip.route_id = strip_sncb_id_prefix(trip.route_id)
+            for stop_time in trip_update.stop_time_update:
+                if stop_time.stop_id:
+                    stop_time.stop_id = normalize_sncb_stop_id(
+                        stop_time.stop_id, collapse_platform=True
+                    )
+
+        if entity.HasField("vehicle"):
+            vehicle = entity.vehicle
+            if vehicle.HasField("trip"):
+                if vehicle.trip.trip_id:
+                    vehicle.trip.trip_id = strip_sncb_id_prefix(vehicle.trip.trip_id)
+                if vehicle.trip.route_id:
+                    vehicle.trip.route_id = strip_sncb_id_prefix(vehicle.trip.route_id)
+            if vehicle.stop_id:
+                vehicle.stop_id = normalize_sncb_stop_id(
+                    vehicle.stop_id, collapse_platform=True
+                )
+
+
+async def _fetch_trip_updates_feed(
+    client: httpx.AsyncClient,
+) -> gtfs_realtime_pb2.FeedMessage:
+    """Fetch SNCB trip updates from the configured realtime source."""
+    if REALTIME_SOURCE == "legacy":
+        if not LEGACY_TRIP_UPDATES_URL:
+            raise RuntimeError(
+                "SNCB_REALTIME_SOURCE=legacy requires "
+                "SNCB_LEGACY_GTFS_REALTIME_API_URL"
+            )
+        response = await client.get(LEGACY_TRIP_UPDATES_URL)
+        response.raise_for_status()
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(response.content)
+        _normalize_realtime_feed_ids(feed)
+        return feed
+
+    headers = mobility_subscription_headers("sncb")
+    if not headers:
+        raise RuntimeError(
+            "MOBILITY_API_PRIMARY_KEY or MOBILITY_API_SECONDARY_KEY is required "
+            "for SNCB Belgian Mobility realtime"
+        )
+    if not APIM_TRIP_UPDATES_URL:
+        raise RuntimeError("SNCB APIM_TRIP_UPDATES_URL is not configured")
+    response = await client.get(APIM_TRIP_UPDATES_URL, headers=headers)
+    response.raise_for_status()
+    feed = gtfs_realtime_pb2.FeedMessage()
+    json_format.ParseDict(
+        unwrap_gtfs_json_ints(response.json()), feed, ignore_unknown_fields=True
+    )
+    _normalize_realtime_feed_ids(feed)
+    return feed
+
+
 async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
     """Get waiting times for stops.
 
@@ -699,6 +923,9 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
                 stop_ids = stop_id
         else:
             stop_ids = config.get("STOP_IDS", [])
+        stop_ids = [
+            normalize_sncb_stop_id(str(s), collapse_platform=True) for s in stop_ids
+        ]
 
         perf_data["config_time"] = time.time() - config_start
 
@@ -785,14 +1012,12 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
             # Make API request
             api_request_start = time.time()
             async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-                response = await client.get(TRIP_UPDATES_URL)
-                response.raise_for_status()
+                feed = await _fetch_trip_updates_feed(client)
             perf_data["api_request_time"] = time.time() - api_request_start
+            perf_data["realtime_source"] = REALTIME_SOURCE
 
             # Parse feed
             feed_parse_start = time.time()
-            feed = gtfs_realtime_pb2.FeedMessage()
-            feed.ParseFromString(response.content)
             perf_data["feed_parse_time"] = time.time() - feed_parse_start
 
             # Pre-load route info for all monitored lines to avoid repeated cache checks
@@ -1047,6 +1272,15 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict:
 def _get_current_gtfs_path() -> Optional[Path]:
     """Get the path to the current GTFS dataset"""
     try:
+        if gtfs_manager is not None:
+            current_path = getattr(gtfs_manager, "current_gtfs_path", None)
+            if current_path and Path(current_path).exists():
+                return Path(current_path)
+
+            apim_path = getattr(gtfs_manager, "apim_gtfs_dir", None)
+            if apim_path and _gtfs_dir_has_required_files(Path(apim_path)):
+                return Path(apim_path)
+
         # First try reading from metadata file
         metadata_file = GTFS_DIR / "datasets_metadata.json"
         if metadata_file.exists():
@@ -1070,7 +1304,7 @@ def _get_current_gtfs_path() -> Optional[Path]:
                     return Path(latest[1]["download_path"])
 
         # Fallback to using MobilityAPI
-        if gtfs_manager is None:
+        if gtfs_manager is None or gtfs_manager.mobility_api is None:
             logger.error("GTFSManager not initialized")
             return None
 
@@ -1089,6 +1323,7 @@ def _get_current_gtfs_path() -> Optional[Path]:
 
 def _get_line_id_from_trip(route_id: str) -> str:
     """Extract line ID from route ID based on GTFS data structure"""
+    route_id = strip_sncb_id_prefix(route_id)
     try:
         # First try direct route ID to route short name mapping from routes.txt
         gtfs_dir = GTFS_DIR
@@ -1102,17 +1337,9 @@ def _get_line_id_from_trip(route_id: str) -> str:
         routes_file = gtfs_path / "routes.txt"
         if routes_file.exists():
             with open(routes_file, "r", encoding="utf-8") as rf:
-                # Skip header line
-                header = next(rf).strip().split(",")
-                route_id_index = header.index("route_id")
-                route_short_name_index = header.index("route_short_name")
-
-                for route_line in rf:
-                    fields = route_line.strip().split(",")
-                    if (
-                        len(fields) > max(route_id_index, route_short_name_index)
-                        and fields[route_id_index] == route_id
-                    ):
+                reader = csv.DictReader(rf)
+                for row in reader:
+                    if strip_sncb_id_prefix(row["route_id"]) == route_id:
                         # Found the route, return the route_id as is since it's already in the correct format
                         return route_id
 
@@ -1199,43 +1426,9 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
             return {}
 
         with open(routes_file, "r", encoding="utf-8") as f:
-            # Read header
-            header = f.readline().strip().split(",")
-            route_id_index = header.index("route_id")
-            route_short_name_index = header.index("route_short_name")
-            route_long_name_index = (
-                header.index("route_long_name") if "route_long_name" in header else -1
-            )
-            route_type_index = (
-                header.index("route_type") if "route_type" in header else -1
-            )
-            route_color_index = (
-                header.index("route_color") if "route_color" in header else -1
-            )
-            route_text_color_index = (
-                header.index("route_text_color") if "route_text_color" in header else -1
-            )
-
-            # Read routes
-            for line in f:
-                # Split by comma but preserve quoted fields
-                fields = []
-                current_field = []
-                in_quotes = False
-                for char in line.strip():
-                    if char == '"':
-                        in_quotes = not in_quotes
-                    elif char == "," and not in_quotes:
-                        fields.append("".join(current_field))
-                        current_field = []
-                    else:
-                        current_field.append(char)
-                fields.append("".join(current_field))
-
-                # Remove quotes from fields
-                fields = [f.strip('"') for f in fields]
-
-                route_id = fields[route_id_index]
+            reader = csv.DictReader(f)
+            for row in reader:
+                route_id = strip_sncb_id_prefix(row["route_id"])
 
                 # Only include monitored lines
                 if route_id not in MONITORED_LINES:
@@ -1243,23 +1436,21 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
 
                 info = {
                     "route_id": route_id,
-                    "display_name": fields[route_short_name_index],
+                    "display_name": row["route_short_name"],
                     "provider": "sncb",
                 }
 
                 # Add optional fields if available
-                if route_long_name_index >= 0:
-                    info["long_name"] = fields[route_long_name_index]
-                if route_type_index >= 0:
-                    info["route_type"] = int(fields[route_type_index])
-                if route_color_index >= 0 and len(fields) > route_color_index:
-                    color = fields[route_color_index].strip()
-                    if color:
-                        info["color"] = f"#{color}"
-                if route_text_color_index >= 0 and len(fields) > route_text_color_index:
-                    text_color = fields[route_text_color_index].strip()
-                    if text_color:
-                        info["text_color"] = f"#{text_color}"
+                if row.get("route_long_name"):
+                    info["long_name"] = row["route_long_name"]
+                if row.get("route_type"):
+                    info["route_type"] = int(row["route_type"])
+                color = (row.get("route_color") or "").strip()
+                if color:
+                    info["color"] = f"#{color}"
+                text_color = (row.get("route_text_color") or "").strip()
+                if text_color:
+                    info["text_color"] = f"#{text_color}"
 
                 line_info[route_id] = info
 
@@ -1267,10 +1458,6 @@ async def get_line_info() -> Dict[str, Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error getting line information: {e}")
         return {}
-
-
-# Initialize GTFSManager
-gtfs_manager = GTFSManager()
 
 
 # Initialize caches at module load
@@ -1356,5 +1543,3 @@ except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 loop.run_until_complete(_ensure_caches_initialized())
-
-
