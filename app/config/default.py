@@ -115,7 +115,10 @@ API_CONFIG = {
     "STIB_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets",
     "STIB_STOPS_API_URL": "https://data.stib-mivb.brussels/api/explore/v2.1/catalog/datasets/stop-details-production/records",
     "DELIJN_API_URL": "https://api.delijn.be/DLKernOpenData/api/v1",
-    "DELIJN_GTFS_URL": "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip",
+    "DELIJN_GTFS_URL": os.getenv(
+        "DELIJN_BELGIAN_MOBILITY_GTFS_STATIC_URL",
+        "https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static",
+    ),
 }
 
 # Cache Configuration
@@ -214,7 +217,14 @@ PROVIDER_CONFIG = {
         "provider_specific": {
             "API_URL": "https://api.delijn.be/DLKernOpenData/api/v1",
             "_AVAILABLE_LANGUAGES": ["nl"],
-            "GTFS_URL": "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip",
+            "GTFS_STATIC_SOURCE": os.getenv(
+                "DELIJN_GTFS_STATIC_SOURCE", "belgian_mobility"
+            ),
+            "GTFS_URL": os.getenv(
+                "DELIJN_BELGIAN_MOBILITY_GTFS_STATIC_URL",
+                "https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static",
+            ),
+            "LEGACY_GTFS_URL": "https://api.delijn.be/gtfs/static/v3/gtfs_transit.zip",
             "GTFS_DIR": CACHE_DIR / "delijn/gtfs",
             "CACHE_DIR": CACHE_DIR / "delijn",
             "RATE_LIMIT_DELAY": 0.5,
@@ -222,6 +232,37 @@ PROVIDER_CONFIG = {
             "API_KEY": os.getenv("DELIJN_API_KEY"),
             "GTFS_STATIC_API_KEY": os.getenv("DELIJN_GTFS_STATIC_API_KEY"),
             "GTFS_REALTIME_API_KEY": os.getenv("DELIJN_GTFS_REALTIME_API_KEY"),
+            "MOBILITY_API_PRIMARY_KEY": os.getenv("MOBILITY_API_PRIMARY_KEY"),
+            "MOBILITY_API_SECONDARY_KEY": os.getenv("MOBILITY_API_SECONDARY_KEY"),
+            "SERVICE_ALERTS_SOURCE": os.getenv(
+                "DELIJN_SERVICE_ALERTS_SOURCE", "belgian_mobility"
+            ),
+            "BELGIAN_MOBILITY_ALERTS_URL": os.getenv(
+                "DELIJN_BELGIAN_MOBILITY_ALERTS_URL",
+                (
+                    os.getenv(
+                        "MOBILITY_APIM_BASE_URL",
+                        "https://api-management-opendata-production.azure-api.net",
+                    ).rstrip("/")
+                    + "/api/gtfs/feed/delijn/rt/alert"
+                ),
+            ),
+            "BELGIAN_MOBILITY_TRIP_UPDATES_URL": os.getenv(
+                "DELIJN_BELGIAN_MOBILITY_TRIP_UPDATES_URL",
+                (
+                    os.getenv(
+                        "MOBILITY_APIM_BASE_URL",
+                        "https://api-management-opendata-production.azure-api.net",
+                    ).rstrip("/")
+                    + "/api/gtfs/feed/delijn/rt/trip-update"
+                ),
+            ),
+            "VEHICLE_POSITIONS_SOURCE": os.getenv(
+                "DELIJN_VEHICLE_POSITIONS_SOURCE", "legacy"
+            ),
+            "BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL": os.getenv(
+                "DELIJN_BELGIAN_MOBILITY_VEHICLE_POSITIONS_URL"
+            ),
             "GTFS_USED_FILES": ["stops.txt", "routes.txt", "trips.txt", "shapes.txt"],
         },
         "stops": [

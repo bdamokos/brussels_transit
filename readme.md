@@ -117,14 +117,28 @@ Alternatively, you can run individual components:
 
 ### De Lijn API (Belgium)
 
-1. Visit the [De Lijn Developer Portal](https://data.delijn.be/)
-2. Create an account
-3. Subscribe to both:
-   - "Open Data Free Subscribe Here" 
-   - "De Lijn GTFS Realtime"
-   - "De Lijn GTFS Static"
-4. Add the keys to your `.env` file (as DELIJN_API_KEY, DELIJN_GTFS_STATIC_API_KEY, and 
-DELIJN_GTFS_REALTIME_API_KEY)
+De Lijn static GTFS and service alerts use Belgian Mobility by default. Static GTFS is downloaded from the Belgian Mobility GTFS static endpoint and normalized back to the existing De Lijn stop, route, trip, and shape ID format used by the app.
+
+1. Visit https://api-management-opendata-production.developer.azure-api.net/
+2. Create an account and subscribe to the Standard product.
+3. Add the primary or secondary key to `.env` as `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY`.
+4. Keep the De Lijn Developer Portal keys for legacy fallback and vehicle positions:
+   - `DELIJN_API_KEY`
+   - `DELIJN_GTFS_STATIC_API_KEY`
+   - `DELIJN_GTFS_REALTIME_API_KEY`
+
+Vehicle positions remain on De Lijn's legacy GTFS realtime endpoint. Belgian Mobility De Lijn TripUpdates and ServiceAlerts are not a replacement for vehicle positions unless a dedicated VehiclePositions endpoint is configured later.
+
+Optional overrides:
+
+```env
+DELIJN_GTFS_STATIC_SOURCE=belgian_mobility
+DELIJN_SERVICE_ALERTS_SOURCE=belgian_mobility
+DELIJN_VEHICLE_POSITIONS_SOURCE=legacy
+DELIJN_BELGIAN_MOBILITY_GTFS_STATIC_URL=https://opendata-discovery-gtfs-static.api.production.belgianmobility.io/api/gtfs/feed/delijn/static
+DELIJN_BELGIAN_MOBILITY_ALERTS_URL=https://api-management-opendata-production.azure-api.net/api/gtfs/feed/delijn/rt/alert
+DELIJN_BELGIAN_MOBILITY_TRIP_UPDATES_URL=https://api-management-opendata-production.azure-api.net/api/gtfs/feed/delijn/rt/trip-update
+```
 
 ### SNCB (Belgium)
 

@@ -153,6 +153,9 @@ STIB_API_KEY=your_stib_api_key
 DELIJN_API_KEY=your_delijn_api_key
 DELIJN_GTFS_STATIC_API_KEY=your_delijn_gtfs_static_key
 DELIJN_GTFS_REALTIME_API_KEY=your_delijn_gtfs_realtime_key
+DELIJN_GTFS_STATIC_SOURCE=belgian_mobility
+DELIJN_SERVICE_ALERTS_SOURCE=belgian_mobility
+DELIJN_VEHICLE_POSITIONS_SOURCE=legacy
 BKK_API_KEY=your_bkk_api_key
 MOBILITY_API_REFRESH_TOKEN=your_mobility_api_refresh_token # optional static GTFS fallback
 
