@@ -17,7 +17,17 @@ Set `MOBILITY_API_PRIMARY_KEY` or `MOBILITY_API_SECONDARY_KEY` in `.env`. The
 app sends the key as both `Ocp-Apim-Subscription-Key` and `bmc-partner-key` for
 compatibility with Belgian Mobility APIM products.
 
-Static GTFS falls back to the historical Le TEC static ZIPs when APIM static
+Belgian Mobility GTFS-RT IDs are normalized before joining to static GTFS:
+
+- `gs:tec:*` stop IDs map to static `stop_id`
+- `gr:tec:*` route IDs map to static `route_id`
+- `gt:tec:*` trip IDs map to static `trip_id`
+
+Le TEC trip updates may provide stop-level delays without absolute event times.
+When that happens, the provider combines the GTFS-RT delay with the static
+`stop_times.txt` schedule for the matching trip/stop/sequence.
+
+Static GTFS falls back to the official HTTPS Le TEC static ZIP when APIM static
 GTFS is unavailable. Realtime fallbacks are not configured; the legacy Le TEC
 realtime APIs are not wired into this app.
 

@@ -147,6 +147,10 @@ Le TEC publishes static GTFS, GTFS-RT trip updates, and GTFS-RT service alerts t
 
 Use `letec` as the provider ID in this app. Belgian Mobility APIM still uses the feed slug `tec`, so the default URLs are `/api/gtfs/feed/tec/static`, `/api/gtfs/feed/tec/rt/trip-update`, and `/api/gtfs/feed/tec/rt/alert`.
 
+Le TEC GTFS-RT trip updates can use Belgian Mobility-prefixed IDs such as `gs:tec:*`, `gr:tec:*`, and `gt:tec:*`, and may publish delay-only stop updates. The provider normalizes those IDs and joins realtime delays to static GTFS `stop_times.txt` schedules before returning waiting times.
+
+Static GTFS falls back to the official HTTPS Le TEC ZIP at `https://opendata.tec-wl.be/Current%20GTFS/TEC-GTFS.zip` if APIM static GTFS is unavailable.
+
 The app does not consume Le TEC NeTEx data yet; this provider is wired for GTFS static data and GTFS-RT realtime feeds.
 
 ### BKK (Budapest)
