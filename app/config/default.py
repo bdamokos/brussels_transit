@@ -34,6 +34,7 @@ def _parse_enabled_providers():
 
 # Provider Configuration
 ENABLED_PROVIDERS = _parse_enabled_providers()  # List of enabled transit providers
+LETEC_APIM_FEED_SLUG = os.getenv("LETEC_APIM_FEED_SLUG", "tec")
 
 # Language Configuration
 LANGUAGE_PRECEDENCE = ["en", "hu", "fr", "nl", "de"]  # Default language fallback chain
@@ -253,7 +254,7 @@ PROVIDER_CONFIG = {
     "letec": {
         "provider_specific": {
             "PROVIDER_ID": "f-u0g-tec",
-            "APIM_FEED_SLUG": os.getenv("LETEC_APIM_FEED_SLUG", "tec"),
+            "APIM_FEED_SLUG": LETEC_APIM_FEED_SLUG,
             "MOBILITY_API_PRIMARY_KEY": os.getenv("MOBILITY_API_PRIMARY_KEY"),
             "MOBILITY_API_SECONDARY_KEY": os.getenv("MOBILITY_API_SECONDARY_KEY"),
             "GTFS_STATIC_URL": os.getenv("LETEC_GTFS_STATIC_URL")
@@ -262,7 +263,7 @@ PROVIDER_CONFIG = {
                     "MOBILITY_APIM_BASE_URL",
                     "https://api-management-opendata-production.azure-api.net",
                 ).rstrip("/")
-                + "/api/gtfs/feed/tec/static"
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/static"
             ),
             "TRIP_UPDATES_URL": os.getenv("LETEC_GTFS_RT_TRIP_UPDATES_URL")
             or (
@@ -270,7 +271,7 @@ PROVIDER_CONFIG = {
                     "MOBILITY_APIM_BASE_URL",
                     "https://api-management-opendata-production.azure-api.net",
                 ).rstrip("/")
-                + "/api/gtfs/feed/tec/rt/trip-update"
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/rt/trip-update"
             ),
             "SERVICE_ALERTS_URL": os.getenv("LETEC_GTFS_RT_SERVICE_ALERTS_URL")
             or (
@@ -278,14 +279,13 @@ PROVIDER_CONFIG = {
                     "MOBILITY_APIM_BASE_URL",
                     "https://api-management-opendata-production.azure-api.net",
                 ).rstrip("/")
-                + "/api/gtfs/feed/tec/rt/alert"
+                + f"/api/gtfs/feed/{LETEC_APIM_FEED_SLUG}/rt/alert"
             ),
             "GTFS_STATIC_FALLBACK_URLS": [
                 os.getenv(
                     "LETEC_GTFS_STATIC_FALLBACK_URL",
                     "https://opendata.tec-wl.be/Current%20GTFS/TEC-GTFS.zip",
                 ),
-                "http://gtfs.irail.be/tec/tec-gtfs.zip",
             ],
             "GTFS_STATIC_DIR": CACHE_DIR / "letec/gtfs",
             "CACHE_DIR": CACHE_DIR / "letec",

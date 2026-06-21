@@ -49,6 +49,7 @@ _caches_initialized = False
 _init_lock: Optional[asyncio.Lock] = None
 _last_waiting_times_result: Optional[Dict[str, Any]] = None
 _last_waiting_times_update: Optional[float] = None
+_last_waiting_times_key: Optional[tuple[str, ...]] = None
 _WAITING_TIMES_CACHE_DURATION = 2.0
 
 
@@ -142,14 +143,28 @@ async def _download_static_gtfs_from_url(
             shutil.rmtree(tmp_dir)
             return None
 
-        if GTFS_STATIC_DIR.exists():
-            shutil.rmtree(GTFS_STATIC_DIR)
         GTFS_STATIC_DIR.parent.mkdir(parents=True, exist_ok=True)
+        new_dir = GTFS_STATIC_DIR.parent / f".{GTFS_STATIC_DIR.name}.new"
+        if new_dir.exists():
+            shutil.rmtree(new_dir, ignore_errors=True)
         if gtfs_root == tmp_dir:
-            tmp_dir.rename(GTFS_STATIC_DIR)
+            tmp_dir.rename(new_dir)
         else:
-            shutil.move(str(gtfs_root), str(GTFS_STATIC_DIR))
+            shutil.move(str(gtfs_root), str(new_dir))
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        backup_dir = GTFS_STATIC_DIR.parent / f".{GTFS_STATIC_DIR.name}.bak"
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        if GTFS_STATIC_DIR.exists():
+            GTFS_STATIC_DIR.rename(backup_dir)
+        try:
+            new_dir.rename(GTFS_STATIC_DIR)
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        except Exception:
+            if backup_dir.exists() and not GTFS_STATIC_DIR.exists():
+                backup_dir.rename(GTFS_STATIC_DIR)
+            raise
 
         GTFS_STATIC_METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
         GTFS_STATIC_METADATA_FILE.write_text(
@@ -491,6 +506,7 @@ def _line_is_monitored(route_id: str, monitored_lines: List[str]) -> bool:
 async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, Any]:
     await _ensure_caches_initialized()
     global _last_waiting_times_result, _last_waiting_times_update
+    global _last_waiting_times_key
 
     if isinstance(stop_id, str):
         stop_ids = [
@@ -526,12 +542,13 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
     if not stop_ids:
         return formatted_data
 
+    cache_key = tuple(sorted(stop_ids))
     now = time.time()
     if (
         _last_waiting_times_result
         and _last_waiting_times_update
         and now - _last_waiting_times_update < _WAITING_TIMES_CACHE_DURATION
-        and all(sid in _last_waiting_times_result["stops_data"] for sid in stop_ids)
+        and _last_waiting_times_key == cache_key
     ):
         return _last_waiting_times_result
 
@@ -651,6 +668,7 @@ async def get_waiting_times(stop_id: Union[str, List[str]] = None) -> Dict[str, 
 
         _last_waiting_times_result = formatted_data
         _last_waiting_times_update = time.time()
+        _last_waiting_times_key = cache_key
         return formatted_data
     except Exception as exc:
         logger.error("Error getting Le TEC waiting times: %s", exc)

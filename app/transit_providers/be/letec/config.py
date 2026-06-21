@@ -27,7 +27,6 @@ DEFAULT_CONFIG = {
         for url in [
             os.getenv("LETEC_GTFS_STATIC_FALLBACK_URL"),
             "https://opendata.tec-wl.be/Current%20GTFS/TEC-GTFS.zip",
-            "http://gtfs.irail.be/tec/tec-gtfs.zip",
         ]
         if url
     ],

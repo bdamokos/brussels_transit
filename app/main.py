@@ -846,9 +846,12 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
                 result = func()
 
         if original_provider != provider and isinstance(result, dict):
-            result.setdefault("_metadata", {})
-            result["_metadata"]["deprecated_provider"] = original_provider
-            result["_metadata"]["canonical_provider"] = provider
+            metadata = result.get("_metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                result["_metadata"] = metadata
+            metadata["deprecated_provider"] = original_provider
+            metadata["canonical_provider"] = provider
 
         return jsonify(result)
 
