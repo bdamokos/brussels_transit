@@ -23,7 +23,7 @@ numpy==2.2.6
     # via pandas
 pandas==2.3.3
     # via -r requirements.in
-python-dotenv>=1.2.1
+python-dotenv>=1.2.2
     # via -r requirements.in
 pytz==2026.2
     # via
