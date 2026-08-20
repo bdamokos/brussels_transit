@@ -44,7 +44,7 @@ async function fetchWithRetry(url, options = {}, retries = 3) {
             console.log(`Successful response from ${url}`);
             return response;
         } catch (error) {
-            console.error(`Error fetching ${url}:`, error);
+            console.error('Error fetching URL: %s', url, error);
             if (i === retries - 1) throw error;
             // Wait before retrying (exponential backoff)
             const delay = Math.pow(2, i) * 1000;
