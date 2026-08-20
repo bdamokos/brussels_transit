@@ -34,7 +34,7 @@ function getStopColor(stopId) {
 
 // Function to escape HTML special characters
 function escapeHtml(unsafe) {
-    return unsafe
+    return String(unsafe)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
@@ -359,6 +359,8 @@ async function loadAllRoutes() {
     }
 
     try {
+        const safeProviderId = escapeHtml(encodeURIComponent(providerSelect.value));
+
         // Get routes for each stop, reusing data if available
         const results = Array.from(selectedStops.entries()).map(([stopId, stopData]) => {
             return {
@@ -432,11 +434,11 @@ async function loadAllRoutes() {
                                                 ).join(', ')}
                                             </div>
                                             <div class="mt-2">
-                                                <a href="${API_BASE_URL}/api/${providerSelect.value}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
+                                                <a href="${API_BASE_URL}/api/${safeProviderId}/stops/${stopId}/waiting_times?route_id=${route.route_id}&limit=10"
                                                    target="_blank" class="btn btn-sm btn-outline-primary me-2">
                                                     View waiting times (json)
                                                 </a>
-                                                <a href="index.html?from=${stopId}&to=${route.terminus_stop_id}&provider=${providerSelect.value}&condensed_view=true&show_stop_ids=true"
+                                                <a href="index.html?from=${stopId}&to=${route.terminus_stop_id}&provider=${safeProviderId}&condensed_view=true&show_stop_ids=true"
                                                    target="_blank" class="btn btn-sm btn-outline-secondary">
                                                     View full route
                                                 </a>

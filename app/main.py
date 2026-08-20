@@ -21,9 +21,15 @@ from inspect import signature, Parameter
 import inspect
 import logging
 from flask import jsonify
-from transit_providers import PROVIDERS, get_provider_from_path
+from transit_providers import PROVIDERS, get_provider_path
 from transit_providers.config import canonical_provider_name
 from config import get_config
+from security_utils import (
+    PROVIDER_ID_PATTERN,
+    build_schedule_explorer_redirect_url,
+    has_allowed_static_extension,
+    resolve_provider_asset_directory,
+)
 from dataclasses import asdict
 import os
 from pathlib import Path
@@ -33,7 +39,6 @@ from functools import wraps
 from transit_providers.config import get_provider_config
 from functools import lru_cache
 import niquests as requests
-import re
 import socket
 import psutil
 
@@ -59,9 +64,6 @@ CORS(
 # Proxy configuration - place at the start to handle matching routes before legacy endpoints
 SCHEDULE_EXPLORER_PORT = get_config("SCHEDULE_EXPLORER_PORT", "8000")
 SCHEDULE_EXPLORER_HOST = get_config("SCHEDULE_EXPLORER_HOST", "localhost")
-
-# Regular expression to match provider-id format (e.g., "abc-1234")
-PROVIDER_ID_PATTERN = re.compile(r"^[a-zA-Z]+-\d+$")
 
 FILTER_VEHICLES = True
 
@@ -548,68 +550,17 @@ def get_provider_assets(provider):
     return jsonify(provider_instance.get_assets())
 
 
-def validate_static_path(base_dir: str, filename: str, allowed_extensions: set) -> bool:
-    """Validate a static file path for security.
+def validate_static_filename(filename: str, allowed_extensions: set) -> bool:
+    """Validate a static filename extension before Flask serves it.
 
     Args:
-        base_dir: The base directory to serve files from
         filename: The requested filename
         allowed_extensions: Set of allowed file extensions
 
     Returns:
-        bool: True if path is valid, False otherwise
+        bool: True if the extension is allowed, False otherwise
     """
-    if not filename or ".." in filename:
-        return False
-
-    # Get file extension
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in allowed_extensions:
-        return False
-
-    # Construct absolute paths
-    base_path = os.path.abspath(base_dir)
-    file_path = os.path.abspath(os.path.join(base_dir, filename))
-
-    # Check if the file path is within the base directory
-    if not file_path.startswith(base_path):
-        return False
-
-    # Check if file exists
-    if not os.path.isfile(file_path):
-        return False
-
-    return True
-
-
-def is_valid_provider_path(provider_path: str) -> bool:
-    """Validate provider path structure.
-
-    Args:
-        provider_path: The provider path to validate (e.g. 'be/stib')
-
-    Returns:
-        bool: True if path is valid, False otherwise
-    """
-    # Only allow alphanumeric characters, forward slashes, and underscores
-    import re
-
-    if not re.match(r"^[a-zA-Z0-9/_-]+$", provider_path):
-        return False
-
-    # No double slashes or leading/trailing slashes
-    if (
-        "//" in provider_path
-        or provider_path.startswith("/")
-        or provider_path.endswith("/")
-    ):
-        return False
-
-    # Maximum two path components (e.g. 'be/stib')
-    if len(provider_path.split("/")) > 2:
-        return False
-
-    return True
+    return has_allowed_static_extension(filename, allowed_extensions)
 
 
 def get_static_provider_dir(provider_path: str, asset_type: str) -> str:
@@ -622,30 +573,24 @@ def get_static_provider_dir(provider_path: str, asset_type: str) -> str:
     Returns:
         str: The absolute path to the static provider directory
     """
-    # Validate provider path structure
-    if not is_valid_provider_path(provider_path):
-        abort(403)
-
-    # Get and validate provider
-    provider = get_provider_from_path(provider_path)
-    if not provider or provider not in PROVIDERS:
+    registered_paths = {
+        path: path
+        for provider_name in PROVIDERS
+        if (path := get_provider_path(provider_name))
+    }
+    try:
+        return str(
+            resolve_provider_asset_directory(
+                Path(app.root_path) / "transit_providers",
+                provider_path,
+                asset_type,
+                registered_paths,
+            )
+        )
+    except KeyError:
         abort(404)
-
-    # Only allow js and css directories
-    if asset_type not in {"js", "css"}:
+    except ValueError:
         abort(403)
-
-    # Construct and validate the absolute provider directory path
-    provider_dir = os.path.abspath(
-        os.path.join("transit_providers", provider_path, asset_type)
-    )
-    base_dir = os.path.abspath("transit_providers")
-
-    # Ensure the provider directory is within the base directory
-    if not provider_dir.startswith(base_dir):
-        abort(403)
-
-    return provider_dir
 
 
 @app.route("/transit_providers/<path:provider_path>/js/<path:filename>")
@@ -654,7 +599,7 @@ def serve_provider_js(provider_path, filename):
     provider_dir = get_static_provider_dir(provider_path, "js")
 
     # Validate file path
-    if not validate_static_path(provider_dir, filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(
@@ -668,7 +613,7 @@ def serve_provider_css(provider_path, filename):
     provider_dir = get_static_provider_dir(provider_path, "css")
 
     # Validate file path
-    if not validate_static_path(provider_dir, filename, {".css"}):
+    if not validate_static_filename(filename, {".css"}):
         abort(403)
 
     return send_from_directory(provider_dir, filename, mimetype="text/css")
@@ -677,7 +622,7 @@ def serve_provider_css(provider_path, filename):
 @app.route("/static/css/<path:filename>")
 def serve_static_css(filename):
     # Validate file path
-    if not validate_static_path("static/css", filename, {".css"}):
+    if not validate_static_filename(filename, {".css"}):
         abort(403)
 
     return send_from_directory("static/css", filename, mimetype="text/css")
@@ -687,7 +632,7 @@ def serve_static_css(filename):
 def serve_static_core_js(filename):
     """Serve core JavaScript files"""
     # Validate file path
-    if not validate_static_path("templates/js/core", filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(
@@ -699,7 +644,7 @@ def serve_static_core_js(filename):
 def serve_static_config_js(filename):
     """Serve config JavaScript files"""
     # Validate file path
-    if not validate_static_path("templates/js/config", filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(
@@ -725,23 +670,19 @@ async def provider_endpoint(provider, endpoint, param1=None, param2=None):
     )
 
     try:
-        # First check if this is a provider with a dash (e.g., mdb-1234)
-        if "-" in provider:
-            # Build the redirect URL
-            schedule_explorer_url = f"http://{SCHEDULE_EXPLORER_HOST}:{SCHEDULE_EXPLORER_PORT}"
-            subpath = endpoint
-            if param1:
-                subpath = f"{subpath}/{param1}"
-            if param2:
-                subpath = f"{subpath}/{param2}"
-            url = f"{schedule_explorer_url}/api/{provider}/{subpath}"
-            
-            # Add query parameters
-            params = request.args.to_dict()
-            if params:
-                url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-            
-            # Redirect to the schedule explorer
+        # Mobility Database provider IDs are handled by the Schedule Explorer.
+        if PROVIDER_ID_PATTERN.fullmatch(provider):
+            path_parameters = tuple(
+                value for value in (param1, param2) if value is not None
+            )
+            url = build_schedule_explorer_redirect_url(
+                SCHEDULE_EXPLORER_HOST,
+                SCHEDULE_EXPLORER_PORT,
+                provider,
+                endpoint,
+                path_parameters,
+                request.args.to_dict(),
+            )
             return redirect(url)
 
         original_provider = provider
