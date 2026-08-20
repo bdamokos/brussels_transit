@@ -27,7 +27,7 @@ from config import get_config
 from security_utils import (
     PROVIDER_ID_PATTERN,
     build_schedule_explorer_redirect_url,
-    is_safe_static_path,
+    has_allowed_static_extension,
     resolve_provider_asset_directory,
 )
 from dataclasses import asdict
@@ -550,18 +550,17 @@ def get_provider_assets(provider):
     return jsonify(provider_instance.get_assets())
 
 
-def validate_static_path(base_dir: str, filename: str, allowed_extensions: set) -> bool:
-    """Validate a static file path for security.
+def validate_static_filename(filename: str, allowed_extensions: set) -> bool:
+    """Validate a static filename extension before Flask serves it.
 
     Args:
-        base_dir: The base directory to serve files from
         filename: The requested filename
         allowed_extensions: Set of allowed file extensions
 
     Returns:
-        bool: True if path is valid, False otherwise
+        bool: True if the extension is allowed, False otherwise
     """
-    return is_safe_static_path(base_dir, filename, allowed_extensions)
+    return has_allowed_static_extension(filename, allowed_extensions)
 
 
 def get_static_provider_dir(provider_path: str, asset_type: str) -> str:
@@ -600,7 +599,7 @@ def serve_provider_js(provider_path, filename):
     provider_dir = get_static_provider_dir(provider_path, "js")
 
     # Validate file path
-    if not validate_static_path(provider_dir, filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(
@@ -614,7 +613,7 @@ def serve_provider_css(provider_path, filename):
     provider_dir = get_static_provider_dir(provider_path, "css")
 
     # Validate file path
-    if not validate_static_path(provider_dir, filename, {".css"}):
+    if not validate_static_filename(filename, {".css"}):
         abort(403)
 
     return send_from_directory(provider_dir, filename, mimetype="text/css")
@@ -623,7 +622,7 @@ def serve_provider_css(provider_path, filename):
 @app.route("/static/css/<path:filename>")
 def serve_static_css(filename):
     # Validate file path
-    if not validate_static_path("static/css", filename, {".css"}):
+    if not validate_static_filename(filename, {".css"}):
         abort(403)
 
     return send_from_directory("static/css", filename, mimetype="text/css")
@@ -633,7 +632,7 @@ def serve_static_css(filename):
 def serve_static_core_js(filename):
     """Serve core JavaScript files"""
     # Validate file path
-    if not validate_static_path("templates/js/core", filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(
@@ -645,7 +644,7 @@ def serve_static_core_js(filename):
 def serve_static_config_js(filename):
     """Serve config JavaScript files"""
     # Validate file path
-    if not validate_static_path("templates/js/config", filename, {".js"}):
+    if not validate_static_filename(filename, {".js"}):
         abort(403)
 
     return send_from_directory(

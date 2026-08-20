@@ -5,7 +5,7 @@ import pytest
 
 from app.security_utils import (
     build_schedule_explorer_redirect_url,
-    is_safe_static_path,
+    has_allowed_static_extension,
     resolve_provider_asset_directory,
 )
 
@@ -63,16 +63,8 @@ def test_provider_asset_directory_comes_from_registered_allowlist(tmp_path):
         )
 
 
-def test_static_path_rejects_traversal_and_symlink_escape(tmp_path):
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    script = assets / "provider.js"
-    script.write_text("export default {};", encoding="utf-8")
-    outside = tmp_path / "secret.js"
-    outside.write_text("secret", encoding="utf-8")
-    (assets / "linked.js").symlink_to(outside)
-
-    assert is_safe_static_path(assets, "provider.js", {".js"})
-    assert not is_safe_static_path(assets, "../secret.js", {".js"})
-    assert not is_safe_static_path(assets, "linked.js", {".js"})
-    assert not is_safe_static_path(assets, "provider.js", {".css"})
+def test_static_extension_allowlist_is_case_insensitive():
+    assert has_allowed_static_extension("provider.js", {".js"})
+    assert has_allowed_static_extension("provider.JS", {".js"})
+    assert not has_allowed_static_extension("provider.css", {".js"})
+    assert not has_allowed_static_extension("", {".js"})

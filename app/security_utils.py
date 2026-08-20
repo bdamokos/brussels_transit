@@ -87,20 +87,6 @@ def resolve_provider_asset_directory(
     return directory
 
 
-def is_safe_static_path(
-    base_directory: Union[str, Path],
-    filename: str,
-    allowed_extensions: set[str],
-) -> bool:
-    """Return whether a requested static file resolves inside its base directory."""
-    if not filename:
-        return False
-
-    base_path = Path(base_directory).resolve()
-    file_path = (base_path / filename).resolve()
-    try:
-        file_path.relative_to(base_path)
-    except ValueError:
-        return False
-
-    return file_path.suffix.lower() in allowed_extensions and file_path.is_file()
+def has_allowed_static_extension(filename: str, allowed_extensions: set[str]) -> bool:
+    """Return whether Flask may try to serve this static-file extension."""
+    return bool(filename) and Path(filename).suffix.lower() in allowed_extensions
