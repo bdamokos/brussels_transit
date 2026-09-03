@@ -35,7 +35,7 @@ gtfs-realtime-bindings>=2.1.0
 protobuf>=7.36.0,<8
 uvicorn ==0.49.0
 fastapi >=0.140.13
-msgpack>=1.2.1
+msgpack>=1.2.2
 psutil==7.2.2
 pydantic==2.13.4
 pytest==9.1.1
