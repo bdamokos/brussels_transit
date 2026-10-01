@@ -41,4 +41,4 @@ pydantic==2.13.5
 pytest==9.1.1
 niquests ==3.20.1
 pyarrow ==24.0.0
-werkzeug>=3.1.8
+werkzeug>=3.1.9
