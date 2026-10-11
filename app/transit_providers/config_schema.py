@@ -84,12 +84,13 @@ def validate_provider_config(config: Dict) -> Dict:
         'provider_specific': {}
     }
     
+    # Treat unset legacy stop lists like missing lists.
     # Handle STIB-style configuration
-    if 'STIB_STOPS' in config:
+    if config.get('STIB_STOPS') is not None:
         standard_config['stops'].extend(config['STIB_STOPS'])
     
     # Handle De Lijn/BKK-style configuration
-    if 'STOP_IDS' in config:
+    if config.get('STOP_IDS') is not None:
         for stop_id in config['STOP_IDS']:
             standard_config['stops'].append({'id': stop_id})
     
@@ -100,4 +101,4 @@ def validate_provider_config(config: Dict) -> Dict:
     
     # Validate using Pydantic model
     validated = ProviderConfig(**standard_config)
-    return validated.model_dump(exclude_none=True)  # Using model_dump instead of dict 
+    return validated.model_dump(exclude_none=True)

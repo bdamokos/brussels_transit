@@ -56,22 +56,24 @@ def convert_to_provider_format(provider_name: str, config: Dict[str, Any]) -> Di
 
 def convert_to_stib_format(config: Dict[str, Any]) -> Dict[str, Any]:
     """Convert configuration to STIB format"""
+    provider_specific = config.get('provider_specific') or {}
     result = {
+        **provider_specific,
         'STIB_STOPS': [],
-        'provider_specific': config.get('provider_specific', {})
+        'provider_specific': provider_specific
     }
     
     # Convert stops to legacy format
     for stop in config.get('stops', []):
         legacy_stop = {
             'id': stop['id'],
-            'name': stop['name'],
+            'name': stop.get('name'),
             'lines': {},
             'direction': stop.get('direction', 'City')  # Default to 'City' if not specified
         }
         
         # Convert lines to legacy format
-        for line_id, destinations in stop.get('lines', {}).items():
+        for line_id, destinations in (stop.get('lines') or {}).items():
             legacy_stop['lines'][line_id] = []
             for dest in destinations:
                 if isinstance(dest, dict):
@@ -163,4 +165,4 @@ def convert_to_bkk_format(config: Dict[str, Any]) -> Dict[str, Any]:
     }
     
     logger.debug(f"Final BKK config - MONITORED_LINES: {result['MONITORED_LINES']}, STOP_IDS: {result['STOP_IDS']}")
-    return result 
+    return result

@@ -59,6 +59,13 @@ jobs:
             app/test_security_utils.py \
             app/schedule_explorer/backend/test_memory_regressions.py \
             app/schedule_explorer/frontend/test_security_regressions.py
+          docker run --rm --network none \
+            -e PYTHONPATH=/app/app:/app \
+            -e PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python \
+            --entrypoint python brussels_transit-web:test \
+            -m pytest -q \
+            app/transit_providers/test_config_schema.py \
+            app/transit_providers/test_config_integration.py
 
       - name: Move cache
         run: |

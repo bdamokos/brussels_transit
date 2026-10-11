@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+from pydantic import ValidationError
 from .config_schema import (
     DirectionType,
     LineDestination,
@@ -123,6 +124,32 @@ def test_stib_config_validation():
     # Check that provider-specific fields were preserved
     assert validated['provider_specific']['API_KEY'] == 'dummy_key'
     assert validated['provider_specific']['API_URL'] == 'https://example.com/api'
+
+
+@pytest.mark.parametrize('config', [
+    {},
+    {'STIB_STOPS': None},
+    {'STIB_STOPS': []},
+    {'STOP_IDS': None},
+    {'STOP_IDS': []},
+    {'STIB_STOPS': None, 'STOP_IDS': None},
+])
+def test_unset_stops_config(config):
+    assert validate_provider_config(config)['stops'] == []
+
+
+@pytest.mark.parametrize('config', [
+    {'STIB_STOPS': None, 'STOP_IDS': ['1234']},
+    {'STIB_STOPS': [{'id': '1234'}], 'STOP_IDS': None},
+])
+def test_unset_stops_preserve_other_stop_format(config):
+    assert validate_provider_config(config)['stops'] == [{'id': '1234'}]
+
+
+@pytest.mark.parametrize('stops', [[{}], [{'id': '1234', 'lines': {'1': [None]}}]])
+def test_invalid_stib_stops_are_rejected(stops):
+    with pytest.raises(ValidationError):
+        validate_provider_config({'STIB_STOPS': stops})
 
 def test_delijn_config_validation():
     """Test validating De Lijn configuration"""
