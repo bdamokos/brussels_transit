@@ -13,6 +13,7 @@ from .memory_util import check_memory_for_file
 import subprocess
 from threading import Thread
 from queue import Queue, Empty
+from collections.abc import Mapping
 
 
 def bytes_to_mb(bytes: int, precision: int = 2) -> int:
@@ -70,8 +71,8 @@ class Shape:
     points: List[List[float]]
 
 
-@dataclass
-class StopTime:
+@dataclass(slots=True)
+class StopTime(Mapping):
     """
     Represents a stop time from stop_times.txt
     STIB: trip_id, arrival_time, departure_time, stop_id, stop_sequence
@@ -83,6 +84,53 @@ class StopTime:
     arrival_time: str
     departure_time: str
     stop_sequence: int
+
+    # Preserve keyed access and the cache schema without a dictionary per row.
+    _fields = ("trip_id", "stop_id", "arrival_time", "departure_time", "stop_sequence")
+
+    def __getitem__(self, key):
+        if key not in self._fields:
+            raise KeyError(key)
+        return getattr(self, key)
+
+    def __iter__(self):
+        return iter(self._fields)
+
+    def __len__(self):
+        return len(self._fields)
+
+
+class _StopTimeBuilder:
+    """Share repeated strings only while loading one feed.
+
+    The msgpack object hook prevents expanded row dictionaries and repeated
+    strings accumulating in memory. Its temporary pool is released after the
+    load, so it cannot retain values from previously selected feeds.
+    """
+
+    def __init__(self):
+        self.strings = {}
+
+    def __call__(self, row):
+        if len(row) != len(StopTime._fields) or not all(
+            k in row for k in StopTime._fields
+        ):
+            return row
+        values = {}
+        for key in StopTime._fields:
+            value = row[key]
+            values[key] = (
+                self.strings.setdefault(value, value)
+                if isinstance(value, str) else value
+            )
+        return StopTime(**values)
+
+
+def _pack_stop_time(value):
+    """Write the existing msgpack schema, including for old cache readers."""
+    if isinstance(value, StopTime):
+        return dict(value)
+    raise TypeError(f"Cannot serialize {type(value).__name__}")
 
 
 @dataclass
@@ -659,7 +707,7 @@ class FlixbusFeed:
     calendars: Dict[str, Calendar] = field(default_factory=dict)
     calendar_dates: List[CalendarDate] = field(default_factory=list)
     trips: Dict[str, Trip] = field(default_factory=dict)
-    stop_times_dict: Dict[str, List[Dict]] = field(
+    stop_times_dict: Dict[str, List[Mapping]] = field(
         default_factory=dict
     )  # trip_id -> list of stop times
     agencies: Dict[str, Agency] = field(default_factory=dict)  # agency_id -> Agency
@@ -786,7 +834,7 @@ class FlixbusFeed:
                     not stop_times
                 ):  # If no stop times in trip object, get from dictionary
                     stop_times = [
-                        StopTime(
+                        st if isinstance(st, StopTime) else StopTime(
                             trip_id=trip.id,
                             stop_id=st["stop_id"],
                             arrival_time=st["arrival_time"],
@@ -1179,7 +1227,7 @@ def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
         # Pack with msgpack
         logger.info("Packing data with msgpack")
         t0 = time.time()
-        packed_data = msgpack.packb(data, use_bin_type=True)
+        packed_data = msgpack.packb(data, use_bin_type=True, default=_pack_stop_time)
         logger.info(
             f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s"
         )
@@ -1203,7 +1251,7 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         # Unpack with msgpack
         logger.info("Unpacking data with msgpack")
         t0 = time.time()
-        raw_data = msgpack.unpackb(data, raw=False)
+        raw_data = msgpack.unpackb(data, raw=False, object_hook=_StopTimeBuilder())
         logger.info(f"Msgpack unpacking took {time.time() - t0:.2f} seconds")
 
         # Convert back to objects
@@ -1237,6 +1285,7 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
                 # Convert stop times
                 stop_times = []
                 for stop_time_data in trip_data.get("stop_times", []):
+                    stop_time_data = dict(stop_time_data)
                     stop_time_data["trip_id"] = trip_id  # Add trip_id to the data
                     stop_times.append(StopTime(**stop_time_data))
                 trip_data["stop_times"] = stop_times
@@ -1315,7 +1364,7 @@ def deserialize_gtfs_data(data: bytes) -> "FlixbusFeed":
         raise
 
 
-def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]:
+def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Mapping]]:
     """
     Load stop times from stop_times.txt using the C implementation.
     Falls back to Python implementation if C implementation fails.
@@ -1453,7 +1502,7 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
                     raise RuntimeError("Temporary msgpack file is empty")
                     
                 with open(temp_msgpack_path, 'rb') as f:
-                    data = msgpack.unpackb(f.read(), raw=False)
+                    data = msgpack.unpackb(f.read(), raw=False, object_hook=_StopTimeBuilder())
                 
                 # Verify data structure
                 logger.debug(f"Msgpack data type: {type(data)}")
@@ -1519,6 +1568,7 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
         logger.info(f"Using chunk size of {optimal_chunk_size} based on available memory")
 
         result = {}
+        make_stop_time = _StopTimeBuilder()
         total_rows = 0
         for chunk in pd.read_csv(
             txt_path,
@@ -1535,13 +1585,13 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Dict]]
                 trip_id = str(row["trip_id"])
                 if trip_id not in result:
                     result[trip_id] = []
-                result[trip_id].append({
+                result[trip_id].append(make_stop_time({
                     "trip_id": trip_id,
                     "arrival_time": row["arrival_time"],
                     "departure_time": row["departure_time"],
                     "stop_id": str(row["stop_id"]),
                     "stop_sequence": int(row["stop_sequence"]),
-                })
+                }))
                 total_rows += 1
 
                 if cpu_check_fn and total_rows % 10000 == 0:
