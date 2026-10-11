@@ -1,6 +1,7 @@
 """Integration tests for the configuration system"""
 
 import pytest
+import asyncio
 import types
 from config import get_config
 from .config_schema import ProviderConfig, validate_provider_config
@@ -75,9 +76,8 @@ def test_config_loading_and_merging(mock_config):
     assert len(converted['STIB_STOPS']) == 1
     assert len(converted['STIB_STOPS'][0]['lines']['5']) == 2
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('config_format', ['legacy', 'standard'])
-async def test_stib_provider_integration(mock_config, monkeypatch, config_format):
+def test_stib_provider_integration(mock_config, monkeypatch, config_format):
     """Test that STIB provider works with the new config format"""
     if config_format == 'legacy':
         validated = validate_provider_config({
@@ -102,13 +102,12 @@ async def test_stib_provider_integration(mock_config, monkeypatch, config_format
     assert provider.stop_ids == {'8122'}
     assert provider.monitored_lines == {'1', '5'}
     assert provider.config['API_KEY'] == 'test_key'
-    frontend_config = await provider.endpoints['config']()
+    frontend_config = asyncio.run(provider.endpoints['config']())
     assert frontend_config['stops'] == mock_config.STIB_STOPS
     assert set(frontend_config['stop_ids']) == {'8122'}
     assert set(frontend_config['monitored_lines']) == {'1', '5'}
 
-@pytest.mark.asyncio
-async def test_delijn_provider_integration():
+def test_delijn_provider_integration():
     """Test that De Lijn provider works with the new config format"""
     # Get De Lijn config with defaults
     delijn_config = {
@@ -128,8 +127,7 @@ async def test_delijn_provider_integration():
     assert isinstance(provider.stop_ids, (list, set))
     assert isinstance(provider.monitored_lines, (list, set))
 
-@pytest.mark.asyncio
-async def test_bkk_provider_integration():
+def test_bkk_provider_integration():
     """Test that BKK provider works with the new config format"""
     # Get BKK config from PROVIDER_CONFIG with defaults
     bkk_config = get_config('PROVIDER_CONFIG', {}).get('bkk', {
@@ -146,7 +144,7 @@ async def test_bkk_provider_integration():
     provider.config = old_format
     
     # Test that we can get real-time data using the API function
-    times = await bkk_get_waiting_times()
+    times = asyncio.run(bkk_get_waiting_times())
     assert isinstance(times, dict)
 
 def test_frontend_data_structure(mock_config):
