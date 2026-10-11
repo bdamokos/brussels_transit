@@ -7,12 +7,14 @@ permissions:
 on:
   push:
     paths:
+      - '.github/workflows/build-gtfs-precache.yml'
       - 'app/schedule_explorer/backend/gtfs_precache.c'
       - 'app/schedule_explorer/backend/gtfs_precache_version.h'
       - 'app/schedule_explorer/backend/CMakeLists.txt'
       - 'app/schedule_explorer/backend/Makefile'
   pull_request:
     paths:
+      - '.github/workflows/build-gtfs-precache.yml'
       - 'app/schedule_explorer/backend/gtfs_precache.c'
       - 'app/schedule_explorer/backend/gtfs_precache_version.h'
       - 'app/schedule_explorer/backend/CMakeLists.txt'
@@ -33,7 +35,7 @@ jobs:
 
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install dependencies (Unix)
       if: matrix.os != 'windows-latest'
@@ -58,4 +60,4 @@ jobs:
     - name: Test version output (Windows)
       if: matrix.os == 'windows-latest'
       working-directory: app/schedule_explorer/backend/build/Release
-      run: ./gtfs_precache.exe --version 
+      run: ./gtfs_precache.exe --version
