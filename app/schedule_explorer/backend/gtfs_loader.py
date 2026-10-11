@@ -1144,7 +1144,7 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "4.0.0.1"
+CACHE_VERSION = "4.0.0.2"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -1573,6 +1573,7 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Mappin
         for chunk in pd.read_csv(
             txt_path,
             chunksize=optimal_chunk_size,
+            keep_default_na=False,
             dtype={
                 "trip_id": str,
                 "arrival_time": str,
@@ -1800,6 +1801,11 @@ def load_feed(
             "continuous_drop_off": "Int64",  # Nullable integer enum (0-3)
         },
     )
+
+    # GTFS permits either route name to be empty or omitted. Keep missing text
+    # out of the route model and persisted cache instead of retaining pandas NaN.
+    for column in ("route_long_name", "route_short_name", "route_color", "route_text_color"):
+        routes_df[column] = routes_df[column].fillna("") if column in routes_df else ""
 
     # Convert routes to dictionary early to free memory
     routes_dict = {
