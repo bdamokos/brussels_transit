@@ -24,6 +24,15 @@ def bytes_to_mb(bytes: int, precision: int = 2) -> int:
 logger = logging.getLogger("schedule_explorer.gtfs_loader")
 
 
+def _optional_gtfs_id(value: str) -> Optional[str]:
+    """Preserve literal IDs such as NA and 0007; only an empty field is unset.
+
+    Use CSV converters for identifiers: dtype=str alone still applies pandas'
+    missing-value coercion. Other columns retain their usual nullable parsing.
+    """
+    return value or None
+
+
 @dataclass
 class Translation:
     """
@@ -941,24 +950,24 @@ def calculate_gtfs_hash(data_path: Path) -> str:
     """Calculate a hash of the GTFS files to determine if cache is valid."""
     hasher = hashlib.sha256()
 
-    # List of files to include in the hash
-    files_to_hash = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
-    calendar_files = ["calendar.txt", "calendar_dates.txt"]
-
-    # Add whichever calendar file exists
-    for cal_file in calendar_files:
-        if (data_path / cal_file).exists():
-            files_to_hash.append(cal_file)
-            break
-
-    # Optional files
-    if (data_path / "shapes.txt").exists():
-        files_to_hash.append("shapes.txt")
+    # Include every consumed table, including both regular service and exceptions.
+    files_to_hash = [
+        "agency.txt",
+        "stops.txt",
+        "routes.txt",
+        "trips.txt",
+        "stop_times.txt",
+        "calendar.txt",
+        "calendar_dates.txt",
+        "shapes.txt",
+        "translations.txt",
+    ]
 
     # Calculate hash
     for filename in sorted(files_to_hash):
         file_path = data_path / filename
         if file_path.exists():
+            hasher.update(filename.encode("utf-8") + b"\0")
             hasher.update(file_path.read_bytes())
 
     return hasher.hexdigest()
@@ -1086,7 +1095,9 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
         ]
 
         # Load stops.txt to get the mapping between stop_id and stop_name
-        stops_df = pd.read_csv(os.path.join(gtfs_dir, "stops.txt"))
+        stops_df = pd.read_csv(
+            os.path.join(gtfs_dir, "stops.txt"), converters={"stop_id": str}
+        )
 
         # Create a mapping of stop_name to stop_id
         # Some stops might share the same name, so we need to handle that
@@ -1123,7 +1134,9 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
         df = pd.read_csv(translations_file)
 
         # Load stops.txt to get the mapping between stop_id and stop_name
-        stops_df = pd.read_csv(os.path.join(gtfs_dir, "stops.txt"))
+        stops_df = pd.read_csv(
+            os.path.join(gtfs_dir, "stops.txt"), converters={"stop_id": str}
+        )
 
         # Create a mapping of stop names to translations
         name_translations = {}
@@ -1144,7 +1157,8 @@ def load_translations(gtfs_dir: str) -> dict[str, dict[str, str]]:
     return translations
 
 
-CACHE_VERSION = "4.0.0.1"
+# Rebuild caches written before identifier and parent-station preservation.
+CACHE_VERSION = "4.0.0.3"
 
 
 def serialize_gtfs_data(feed: "FlixbusFeed") -> bytes:
@@ -1573,6 +1587,7 @@ def load_stop_times(data_path: Path, cpu_check_fn=None) -> Dict[str, List[Mappin
         for chunk in pd.read_csv(
             txt_path,
             chunksize=optimal_chunk_size,
+            keep_default_na=False,
             dtype={
                 "trip_id": str,
                 "arrival_time": str,
@@ -1669,8 +1684,8 @@ def load_feed(
     try:
         agencies_df = pd.read_csv(
             data_path / "agency.txt",
+            converters={"agency_id": str},
             dtype={
-                "agency_id": str,
                 "agency_name": str,
                 "agency_url": str,
                 "agency_timezone": str,
@@ -1736,7 +1751,8 @@ def load_feed(
     for chunk in pd.read_csv(
         data_path / "stops.txt",
         chunksize=optimal_chunk_size,
-        dtype={"stop_id": str, "stop_name": str, "stop_lat": float, "stop_lon": float},
+        converters={"stop_id": str, "parent_station": _optional_gtfs_id},
+        dtype={"stop_name": str, "stop_lat": float, "stop_lon": float},
     ):
         for _, row in chunk.iterrows():
             stop = Stop(
@@ -1745,6 +1761,7 @@ def load_feed(
                 lat=row["stop_lat"],
                 lon=row["stop_lon"],
                 translations=translations.get(str(row["stop_id"]), {}),
+                parent_station=row.get("parent_station"),
             )
             stops[stop.id] = stop
             # if stop.translations:
@@ -1760,8 +1777,8 @@ def load_feed(
         logger.info("Loading shapes...")
         shapes_df = pd.read_csv(
             data_path / "shapes.txt",
+            converters={"shape_id": str},
             dtype={
-                "shape_id": str,
                 "shape_pt_lat": float,
                 "shape_pt_lon": float,
                 "shape_pt_sequence": int,
@@ -1784,15 +1801,14 @@ def load_feed(
     logger.info("Loading routes, trips, stop times, and calendar...")
     routes_df = pd.read_csv(
         data_path / "routes.txt",
+        converters={"route_id": str, "agency_id": _optional_gtfs_id},
         dtype={
-            "route_id": str,
             "route_long_name": str,
             "route_short_name": str,
             "route_color": str,
             "route_text_color": str,
             "route_type": int,
             # Optional fields
-            "agency_id": str,
             "route_desc": str,
             "route_url": str,
             "route_sort_order": "Int64",  # Nullable integer for route ordering
@@ -1800,6 +1816,11 @@ def load_feed(
             "continuous_drop_off": "Int64",  # Nullable integer enum (0-3)
         },
     )
+
+    # GTFS permits either route name to be empty or omitted. Keep missing text
+    # out of the route model and persisted cache instead of retaining pandas NaN.
+    for column in ("route_long_name", "route_short_name", "route_color", "route_text_color"):
+        routes_df[column] = routes_df[column].fillna("") if column in routes_df else ""
 
     # Convert routes to dictionary early to free memory
     routes_dict = {
@@ -1851,16 +1872,18 @@ def load_feed(
     # Load trips with correct dtypes
     trips_df = pd.read_csv(
         data_path / "trips.txt",
-        dtype={
+        converters={
             "route_id": str,
             "service_id": str,
             "trip_id": str,
+            "block_id": _optional_gtfs_id,
+            "shape_id": _optional_gtfs_id,
+        },
+        dtype={
             # Optional fields
             "trip_headsign": str,
             "trip_short_name": str,
             "direction_id": "Int64",  # Nullable integer (0 or 1)
-            "block_id": str,
-            "shape_id": str,
             "wheelchair_accessible": "Int64",  # Nullable integer enum (0-2)
             "bikes_allowed": "Int64",  # Nullable integer enum (0-2)
         },
@@ -1876,8 +1899,8 @@ def load_feed(
         logger.info("Loading calendar.txt...")
         calendar_df = pd.read_csv(
             data_path / "calendar.txt",
+            converters={"service_id": str},
             dtype={
-                "service_id": str,
                 "monday": int,
                 "tuesday": int,
                 "wednesday": int,
@@ -1917,7 +1940,8 @@ def load_feed(
         logger.info("calendar.txt not found, trying calendar_dates.txt...")
         calendar_df = pd.read_csv(
             data_path / "calendar_dates.txt",
-            dtype={"service_id": str, "date": str, "exception_type": int},
+            converters={"service_id": str},
+            dtype={"date": str, "exception_type": int},
         )
         use_calendar_dates = True
         calendars = {}
@@ -1949,7 +1973,8 @@ def load_feed(
             logger.info("Loading calendar_dates.txt for exceptions...")
             calendar_dates_df = pd.read_csv(
                 data_path / "calendar_dates.txt",
-                dtype={"service_id": str, "date": str, "exception_type": int},
+                converters={"service_id": str},
+                dtype={"date": str, "exception_type": int},
             )
             calendar_dates = []
             logger.info(f"Found {len(calendar_dates_df)} exception entries")

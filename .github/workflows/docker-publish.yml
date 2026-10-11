@@ -54,11 +54,17 @@ jobs:
 
       - name: Run offline regression tests
         run: |
-          docker run --rm --entrypoint python brussels_transit-web:test \
+          docker run --rm --network none --entrypoint python \
+            -e PYTHONPATH=/app/app:/app brussels_transit-web:test \
             -m pytest -q \
             app/test_security_utils.py \
             app/schedule_explorer/backend/test_memory_regressions.py \
             app/schedule_explorer/backend/test_waiting_reference.py \
+            app/schedule_explorer/backend/test_gtfs_precache.py \
+            app/schedule_explorer/backend/test_gtfs_identifiers.py \
+            app/schedule_explorer/backend/test_optional_route_names.py \
+            app/transit_providers/test_realtime_bindings.py \
+            app/transit_providers/be/letec/test_letec.py \
             app/schedule_explorer/frontend/test_security_regressions.py
 
       - name: Move cache

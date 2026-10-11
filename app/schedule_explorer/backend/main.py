@@ -1545,7 +1545,7 @@ async def get_line_info(
         else route_id
     )
     long_name = (
-        route.route_name if hasattr(route, "route_name") and route.route_name else ""
+        route.long_name if hasattr(route, "long_name") and route.long_name else ""
     )
     route_type = route.route_type if hasattr(route, "route_type") else None
 
