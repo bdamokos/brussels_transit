@@ -67,7 +67,7 @@ def convert_to_stib_format(config: Dict[str, Any]) -> Dict[str, Any]:
     for stop in config.get('stops', []):
         legacy_stop = {
             'id': stop['id'],
-            'name': stop.get('name'),
+            'name': stop['name'] if stop.get('name') is not None else stop['id'],
             'lines': {},
             'direction': stop.get('direction', 'City')  # Default to 'City' if not specified
         }

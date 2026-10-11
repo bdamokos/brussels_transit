@@ -203,7 +203,7 @@ def test_stib_minimal_config_roundtrip(stops):
     validated = validate_provider_config({'STIB_STOPS': stops})
     converted = convert_to_provider_format('stib', validated)
     expected = [] if not stops else [
-        {'id': '1234', 'name': None, 'lines': {}, 'direction': 'City'}
+        {'id': '1234', 'name': '1234', 'lines': {}, 'direction': 'City'}
     ]
     assert converted['STIB_STOPS'] == expected
 
@@ -213,6 +213,35 @@ def test_stib_optional_config_fields(exclude_none):
     validated = ProviderConfig(stops=[{'id': '1234'}]).model_dump(exclude_none=exclude_none)
     converted = convert_to_provider_format('stib', validated)
     assert converted['STIB_STOPS'][0]['id'] == '1234'
-    assert converted['STIB_STOPS'][0]['name'] is None
+    assert converted['STIB_STOPS'][0]['name'] == '1234'
     assert converted['STIB_STOPS'][0]['lines'] == {}
     assert converted['provider_specific'] == {}
+
+
+@pytest.mark.parametrize('stop, expected_name, expected_title', [
+    ({'id': '1234'}, '1234', '1234'),
+    ({'id': '1234', 'name': None}, '1234', '1234'),
+    ({'id': '1234', 'name': 'TEST STOP'}, 'TEST STOP', 'Test Stop'),
+])
+def test_stib_stop_names_render_in_legacy_frontend(stop, expected_name, expected_title):
+    from flask import render_template
+    from app.main import app as legacy_app
+
+    validated = validate_provider_config({'STIB_STOPS': [stop]})
+    converted = convert_to_provider_format('stib', validated)
+    with legacy_app.app_context():
+        rendered = render_template(
+            'index.html',
+            stops=converted['STIB_STOPS'],
+            DELIJN_STOP_IDS=[],
+            BKK_STOP_IDS=[],
+            map_config={},
+            route_colors={},
+            walking_speed=1.4,
+            location_update_interval=300,
+            refresh_interval=60,
+        )
+
+    assert converted['STIB_STOPS'][0]['name'] == expected_name
+    assert f'data-stop-name="{expected_name}"' in rendered
+    assert f'<h2>{expected_title}</h2>' in rendered
