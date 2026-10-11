@@ -164,9 +164,11 @@ def write_feed(directory, trip_id="t1", stop_id="s1", parent_station="0007"):
 
 
 @pytest.fixture(params=[False, True], ids=["python", "native"])
-def loader_path(request, tmp_path, monkeypatch, native_converter):
+def loader_path(request, tmp_path, monkeypatch):
     native = request.param
-    directory = native_converter.parent if native else tmp_path
+    directory = (
+        request.getfixturevalue("native_converter").parent if native else tmp_path
+    )
     monkeypatch.setattr(gtfs_loader, "__file__", str(directory / "gtfs_loader.py"))
     read_csv = gtfs_loader.pd.read_csv
 
