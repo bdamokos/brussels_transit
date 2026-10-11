@@ -1,12 +1,12 @@
 """HTTP regressions for bounding-box stop responses."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from . import main
+from . import gtfs_loader, main
 from .gtfs_loader import FlixbusFeed, Route, RouteStop, Stop
 
 
@@ -91,3 +91,51 @@ def test_bbox_unpaginated_count_and_empty_results(bbox_client):
     empty = bbox_client.get("/api/test/stops/bbox", params={**BBOX, "offset": 3})
     assert empty.status_code == 200
     assert empty.json() == []
+
+
+@pytest.mark.parametrize("warm_cache", [False, True], ids=["cold", "warm"])
+@pytest.mark.parametrize(
+    "parent_station", ["0007", "", None], ids=["child", "blank", "absent"]
+)
+def test_bbox_loaded_parent_station(
+    bbox_client, tmp_path, monkeypatch, warm_cache, parent_station
+):
+    parent_column = ",parent_station" if parent_station is not None else ""
+    child_parent = f",{parent_station}" if parent_station is not None else ""
+    empty_parent = "," if parent_station is not None else ""
+    files = {
+        "agency.txt": "agency_id,agency_name,agency_url,agency_timezone\n"
+        "A,Agency,https://example.test,Europe/Brussels\n",
+        "stops.txt": f"stop_id,stop_name,stop_lat,stop_lon,location_type{parent_column}\n"
+        f"001,First,50.0,4.0,0{child_parent}\n"
+        f"0007,Parent,50.1,4.1,1{empty_parent}\n"
+        f"002,Last,50.2,4.2,0{empty_parent}\n",
+        "routes.txt": "route_id,agency_id,route_short_name,route_long_name,route_type\n"
+        "R,A,1,Test route,3\n",
+        "trips.txt": "route_id,service_id,trip_id,direction_id\nR,S,T,0\n",
+        "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+        "T,12:00:00,12:00:00,001,1\nT,12:10:00,12:10:00,002,2\n",
+        "calendar.txt": "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n"
+        "S,1,1,1,1,1,1,1,20250101,20251231\n",
+    }
+    for name, contents in files.items():
+        (tmp_path / name).write_text(contents)
+
+    if warm_cache:
+        gtfs_loader.load_feed(tmp_path)
+        assert (tmp_path / ".gtfs_cache").exists()
+        monkeypatch.setattr(
+            gtfs_loader.pd,
+            "read_csv",
+            Mock(side_effect=AssertionError("Warm load must reuse the cache")),
+        )
+    monkeypatch.setattr(main, "feed", gtfs_loader.load_feed(tmp_path))
+
+    response = bbox_client.get("/api/test/stops/bbox", params=BBOX)
+    assert response.status_code == 200
+    stations = {station["id"]: station for station in response.json()}
+    assert set(stations) == {"0007", "001", "002"}
+    assert len(stations["001"]["routes"]) == 1
+    assert stations["001"]["routes"][0]["parent_station_id"] == (parent_station or None)
+    assert stations["002"]["routes"][0]["parent_station_id"] is None
+    assert stations["0007"]["routes"] == []
