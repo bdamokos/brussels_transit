@@ -556,7 +556,7 @@ async def set_provider(provider_id: str):
         )
 
     # If the requested provider is already loaded, return early
-    if feed is not None and current_provider == provider.raw_id:
+    if feed is not None and current_provider == provider.id:
         logger.info(f"Provider {provider.raw_id} already loaded, skipping reload")
         return {
             "status": "success",
@@ -609,7 +609,7 @@ async def set_provider(provider_id: str):
             )
 
         feed = load_feed(str(dataset_dir))
-        current_provider = provider.raw_id
+        current_provider = provider.id
         return {
             "status": "success",
             "message": f"Loaded GTFS data for {provider.raw_id}",

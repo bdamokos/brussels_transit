@@ -14,7 +14,9 @@ import msgpack
 from dataclasses import asdict
 import re
 import os
-from .gtfs_loader import load_feed, bytes_to_mb, CACHE_VERSION, calculate_gtfs_hash
+from .gtfs_loader import (
+    load_feed, bytes_to_mb, CACHE_VERSION, calculate_gtfs_hash, _pack_stop_time,
+)
 
 logger = logging.getLogger("schedule_explorer.precache_gtfs")
 
@@ -194,7 +196,7 @@ def precache_gtfs(data_dir: str | Path, max_cpu_percent: float = 85.0, check_int
     # Pack with msgpack
     logger.info("Packing data with msgpack...")
     t0 = time.time()
-    packed_data = msgpack.packb(data, use_bin_type=True)
+    packed_data = msgpack.packb(data, use_bin_type=True, default=_pack_stop_time)
     logger.info(f"Packed data size: {bytes_to_mb(len(packed_data))} MB in {time.time() - t0:.2f}s")
     check_cpu_usage()
     
@@ -260,4 +262,4 @@ def main():
         exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()
