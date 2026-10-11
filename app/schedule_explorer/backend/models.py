@@ -90,7 +90,7 @@ class RouteInfo(BaseModel):
     stops: List[str]  # List of stop names in order
     headsign: Optional[str]
     service_days: List[str]
-    parent_station_id: Optional[str] = (None,)
+    parent_station_id: Optional[str] = None
     terminus_stop_id: Optional[str] = None
     service_days_explicit: Optional[List[str]] = None  # Days from calendar.txt
     calendar_dates_additions: Optional[List[datetime]] = (
