@@ -57,6 +57,7 @@ jobs:
           docker run --rm --entrypoint python brussels_transit-web:test \
             -m pytest -q \
             app/test_security_utils.py \
+            app/schedule_explorer/backend/test_bbox_regressions.py \
             app/schedule_explorer/backend/test_memory_regressions.py \
             app/schedule_explorer/frontend/test_security_regressions.py
 

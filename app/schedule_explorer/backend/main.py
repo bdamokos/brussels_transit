@@ -1706,6 +1706,7 @@ async def get_stops_in_bbox(
 
         # Now process routes only for the paginated stops
         for stop in paginated_stops:
+            gtfs_stop = feed.stops[stop.id]
             routes_info = []
             seen_route_ids = set()
 
@@ -1767,7 +1768,7 @@ async def get_stops_in_bbox(
                             stops=stop_names,
                             headsign=route.stops[-1].stop.name,
                             service_days=route.service_days,
-                            parent_station_id=getattr(stop, "parent_station", None),
+                            parent_station_id=getattr(gtfs_stop, "parent_station", None),
                             terminus_stop_id=route.stops[-1].stop.id,
                             service_days_explicit=(
                                 route.service_days_explicit
