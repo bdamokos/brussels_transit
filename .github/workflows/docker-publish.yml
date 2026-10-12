@@ -59,6 +59,7 @@ jobs:
             -m pytest -q \
             app/test_security_utils.py \
             app/schedule_explorer/backend/test_memory_regressions.py \
+            app/schedule_explorer/backend/test_waiting_reference.py \
             app/schedule_explorer/backend/test_gtfs_precache.py \
             app/schedule_explorer/backend/test_gtfs_identifiers.py \
             app/schedule_explorer/backend/test_optional_route_names.py \
