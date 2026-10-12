@@ -1,7 +1,10 @@
 """Tests for the configuration schema and validation"""
 
 import pytest
+from collections import UserDict
+from copy import deepcopy
 from pathlib import Path
+from pydantic import ValidationError
 from .config_schema import (
     DirectionType,
     LineDestination,
@@ -123,6 +126,84 @@ def test_stib_config_validation():
     # Check that provider-specific fields were preserved
     assert validated['provider_specific']['API_KEY'] == 'dummy_key'
     assert validated['provider_specific']['API_URL'] == 'https://example.com/api'
+
+
+@pytest.mark.parametrize('config', [
+    {},
+    {'STIB_STOPS': None},
+    {'STIB_STOPS': []},
+    {'STOP_IDS': None},
+    {'STOP_IDS': []},
+    {'STIB_STOPS': None, 'STOP_IDS': None},
+])
+def test_unset_stops_config(config):
+    assert validate_provider_config(config)['stops'] == []
+
+
+@pytest.mark.parametrize('config', [
+    {'STIB_STOPS': None, 'STOP_IDS': ['1234']},
+    {'STIB_STOPS': [{'id': '1234'}], 'STOP_IDS': None},
+])
+def test_unset_stops_preserve_other_stop_format(config):
+    assert validate_provider_config(config)['stops'] == [{'id': '1234'}]
+
+
+@pytest.mark.parametrize('stops', [[{}], [{'id': '1234', 'lines': {'1': [None]}}]])
+def test_invalid_stib_stops_are_rejected(stops):
+    with pytest.raises(ValidationError):
+        validate_provider_config({'STIB_STOPS': stops})
+
+
+@pytest.mark.parametrize('config, expected', [
+    ({}, {}),
+    ({'API_KEY': 'test_key'}, {'API_KEY': 'test_key'}),
+    ({'provider_specific': {'API_KEY': 'test_key'}}, {'API_KEY': 'test_key'}),
+    ({'provider_specific': UserDict({'API_KEY': 'test_key'})}, {'API_KEY': 'test_key'}),
+    ({'provider_specific': None}, {}),
+    ({'provider_specific': {}}, {}),
+    ({'provider_specific': None, 'API_KEY': 'test_key'}, {'API_KEY': 'test_key'}),
+    ({'provider_specific': {}, 'API_KEY': 'test_key'}, {'API_KEY': 'test_key'}),
+    (
+        {'provider_specific': {'API_KEY': 'test_key'}, 'RATE_LIMIT_DELAY': 0.5},
+        {'API_KEY': 'test_key', 'RATE_LIMIT_DELAY': 0.5},
+    ),
+])
+def test_grouped_provider_settings(config, expected):
+    assert validate_provider_config(config)['provider_specific'] == expected
+
+
+@pytest.mark.parametrize('nested_first', [False, True])
+def test_top_level_provider_settings_take_precedence_without_mutating_input(nested_first):
+    grouped = {'provider_specific': {
+        'API_KEY': 'nested_test_key',
+        'OPTIONS': {'languages': ['fr', 'nl']},
+    }}
+    top_level = {'API_KEY': 'top_test_key'}
+    config = {**grouped, **top_level} if nested_first else {**top_level, **grouped}
+    original = deepcopy(config)
+
+    validated = validate_provider_config(config)
+
+    assert validated['provider_specific'] == {
+        'API_KEY': 'top_test_key',
+        'OPTIONS': {'languages': ['fr', 'nl']},
+    }
+    assert config == original
+    validated['provider_specific']['API_KEY'] = 'changed_test_key'
+    validated['provider_specific']['OPTIONS']['languages'].append('en')
+    assert config == original
+
+
+@pytest.mark.parametrize('settings', [[], [('API_KEY', 'test_key')], '', 'invalid', 0, 42, False])
+def test_malformed_grouped_provider_settings_are_rejected(settings):
+    with pytest.raises(ValidationError) as error:
+        validate_provider_config({'provider_specific': settings, 'API_KEY': 'test_key'})
+
+    assert any(
+        item['loc'] == ('provider_specific',) and item['type'] == 'dict_type'
+        for item in error.value.errors()
+    )
+
 
 def test_delijn_config_validation():
     """Test validating De Lijn configuration"""

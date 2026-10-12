@@ -1247,10 +1247,11 @@ async def get_waiting_times_with_path(
     ),
     limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
     time_local: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
+        None,
+        description="Reference time in HH:MM:SS format in the agency timezone; takes precedence over time_utc",
     ),
     time_utc: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
+        None, description="Reference time in HH:MM:SS format on today's UTC date"
     ),
 ):
     """Get the next scheduled arrivals at a stop."""
@@ -1269,10 +1270,11 @@ async def get_waiting_times_with_query(
     ),
     limit: Optional[int] = Query(2, description="Number of next arrivals to return"),
     time_local: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in local timezone"
+        None,
+        description="Reference time in HH:MM:SS format in the agency timezone; takes precedence over time_utc",
     ),
     time_utc: Optional[str] = Query(
-        None, description="Time in HH:MM:SS format, assumed to be in UTC timezone"
+        None, description="Reference time in HH:MM:SS format on today's UTC date"
     ),
 ):
     """Get the next scheduled arrivals at a stop."""
@@ -1333,14 +1335,19 @@ async def get_waiting_times_impl(
                 if getattr(stop, "parent_station", None) == stop_id:
                     stop_ids_to_check.append(child_id)
 
-        # Parse date or use current time (converted from UTC to local)
+        # Resolve the reference clock in the agency timezone.
         try:
             if time_local:
                 # If time is provided, assume it's in local timezone
                 target_time = datetime.strptime(time_local, "%H:%M:%S").time()
             elif time_utc:
-                # If UTC time is provided, convert it to local
-                utc_time = datetime.strptime(time_utc, "%H:%M:%S")
+                # Use today's UTC date so the agency's DST offset is correct.
+                utc_timezone = ZoneInfo("UTC")
+                utc_time = datetime.combine(
+                    datetime.now(utc_timezone).date(),
+                    datetime.strptime(time_utc, "%H:%M:%S").time(),
+                    tzinfo=utc_timezone,
+                )
                 target_time = utc_time.astimezone(ZoneInfo(agency_timezone)).time()
             else:
                 # If no time provided, use current local time
@@ -1350,8 +1357,7 @@ async def get_waiting_times_impl(
                 status_code=400, detail="Invalid time format. Use HH:MM:SS"
             )
 
-        # Get current time in local timezone
-        current_time = datetime.now(ZoneInfo(agency_timezone)).strftime("%H:%M:%S")
+        current_time = target_time.strftime("%H:%M:%S")
 
         # Initialize response structure with proper models
         next_arrivals: Dict[str, Dict[str, List[ArrivalInfo]]] = {}
@@ -1539,7 +1545,7 @@ async def get_line_info(
         else route_id
     )
     long_name = (
-        route.route_name if hasattr(route, "route_name") and route.route_name else ""
+        route.long_name if hasattr(route, "long_name") and route.long_name else ""
     )
     route_type = route.route_type if hasattr(route, "route_type") else None
 
@@ -1706,6 +1712,7 @@ async def get_stops_in_bbox(
 
         # Now process routes only for the paginated stops
         for stop in paginated_stops:
+            gtfs_stop = feed.stops[stop.id]
             routes_info = []
             seen_route_ids = set()
 
@@ -1767,7 +1774,7 @@ async def get_stops_in_bbox(
                             stops=stop_names,
                             headsign=route.stops[-1].stop.name,
                             service_days=route.service_days,
-                            parent_station_id=getattr(stop, "parent_station", None),
+                            parent_station_id=getattr(gtfs_stop, "parent_station", None),
                             terminus_stop_id=route.stops[-1].stop.id,
                             service_days_explicit=(
                                 route.service_days_explicit
