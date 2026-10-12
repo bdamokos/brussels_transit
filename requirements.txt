@@ -37,7 +37,7 @@ uvicorn ==0.54.0
 fastapi >=0.140.13
 msgpack>=1.2.2
 psutil==7.2.2
-pydantic==2.13.5
+pydantic==2.14.0
 pytest==9.1.1
 niquests ==3.21.2
 pyarrow ==25.0.1
