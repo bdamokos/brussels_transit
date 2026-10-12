@@ -3,6 +3,7 @@
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Changelog](#changelog)
+  - [v0.2.12 (2026-10-12)](#v0212-2026-10-12)
   - [v0.2.11 (2026-06-21)](#v0211-2026-06-21)
   - [v0.2.10 (2026-06-21)](#v0210-2026-06-21)
   - [v0.2.9 (2026-06-21)](#v029-2026-06-21)
@@ -16,6 +17,26 @@
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # Changelog
+
+## [v0.2.12](https://github.com/bdamokos/brussels_transit/tree/v0.2.12) (2026-10-12)
+
+[Full Changelog](https://github.com/bdamokos/brussels_transit/compare/v0.2.11...v0.2.12)
+
+**Schedule Explorer and feed discovery**
+
+- Reduce timetable memory use and correct GTFS parsing, literal identifiers, optional route names, derived-cache invalidation, and realtime provider bindings. [\#152](https://github.com/bdamokos/brussels_transit/pull/152) [\#154](https://github.com/bdamokos/brussels_transit/pull/154)
+- Use MobilityAPI 0.6.0 for the current Mobility Database catalog and feed discovery. [\#159](https://github.com/bdamokos/brussels_transit/pull/159)
+- Correct optional parent-station serialization and bounding-box parent IDs, and honor supplied local or UTC waiting-time reference clocks. [\#156](https://github.com/bdamokos/brussels_transit/pull/156) [\#157](https://github.com/bdamokos/brussels_transit/pull/157) [\#158](https://github.com/bdamokos/brussels_transit/pull/158)
+
+**Provider configuration and security**
+
+- Handle unset STIB stop lists and missing stop names, preserve provider settings, and keep repeated configuration round trips stable. [\#155](https://github.com/bdamokos/brussels_transit/pull/155)
+- Strengthen provider-asset, redirect, browser-rendering, and Docker build-context security boundaries. [\#141](https://github.com/bdamokos/brussels_transit/pull/141)
+
+**Build and dependency maintenance**
+
+- Pin CI actions, disable persisted checkout credentials, add monthly Actions dependency updates, and repair standalone Schedule Explorer dependency metadata. [\#153](https://github.com/bdamokos/brussels_transit/pull/153)
+- Update the HTTP, numerical, timezone, serialization, validation, and test dependencies. [\#130](https://github.com/bdamokos/brussels_transit/pull/130) [\#131](https://github.com/bdamokos/brussels_transit/pull/131) [\#132](https://github.com/bdamokos/brussels_transit/pull/132) [\#133](https://github.com/bdamokos/brussels_transit/pull/133) [\#134](https://github.com/bdamokos/brussels_transit/pull/134) [\#135](https://github.com/bdamokos/brussels_transit/pull/135) [\#136](https://github.com/bdamokos/brussels_transit/pull/136) [\#137](https://github.com/bdamokos/brussels_transit/pull/137) [\#138](https://github.com/bdamokos/brussels_transit/pull/138) [\#139](https://github.com/bdamokos/brussels_transit/pull/139) [\#142](https://github.com/bdamokos/brussels_transit/pull/142) [\#143](https://github.com/bdamokos/brussels_transit/pull/143) [\#144](https://github.com/bdamokos/brussels_transit/pull/144) [\#145](https://github.com/bdamokos/brussels_transit/pull/145) [\#146](https://github.com/bdamokos/brussels_transit/pull/146) [\#147](https://github.com/bdamokos/brussels_transit/pull/147) [\#148](https://github.com/bdamokos/brussels_transit/pull/148) [\#149](https://github.com/bdamokos/brussels_transit/pull/149) [\#150](https://github.com/bdamokos/brussels_transit/pull/150) [\#151](https://github.com/bdamokos/brussels_transit/pull/151)
 
 ## [v0.2.11](https://github.com/bdamokos/brussels_transit/tree/v0.2.11) (2026-06-21)
 
