@@ -31,7 +31,7 @@ pytz==2026.4
     #   apscheduler
     #   pandas
 mobility-db-api>=0.6.0
-gtfs-realtime-bindings>=2.1.0
+gtfs-realtime-bindings>=3.0.0
 protobuf>=7.36.0,<8
 uvicorn ==0.54.0
 fastapi >=0.140.13
