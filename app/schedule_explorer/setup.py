@@ -11,6 +11,6 @@ setup(
         "pytest",
         "pytest-asyncio",
         "httpx",
-        "mobility-db-api",
+        "mobility-db-api>=0.6.0",
     ],
 ) 
