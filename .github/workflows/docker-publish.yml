@@ -65,6 +65,8 @@ jobs:
             app/schedule_explorer/backend/test_optional_route_names.py \
             app/transit_providers/test_realtime_bindings.py \
             app/transit_providers/be/letec/test_letec.py \
+            app/schedule_explorer/backend/test_response_serialization.py \
+            app/schedule_explorer/backend/test_timezone.py \
             app/schedule_explorer/frontend/test_security_regressions.py
 
       - name: Move cache
