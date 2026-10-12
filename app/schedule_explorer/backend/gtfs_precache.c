@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <ctype.h>
 #include <time.h>
 #include <msgpack.h>
 #include <sys/stat.h>
@@ -25,15 +27,6 @@
 #define PROGRESS_INTERVAL 1000  // Show progress every 1k rows
 #define DEFAULT_CPU_LIMIT 50  // Default CPU limit in percentage
 
-// Structure to hold a stop time entry
-typedef struct {
-    char trip_id[64];
-    char stop_id[64];
-    char arrival_time[16];
-    char departure_time[16];
-    int stop_sequence;
-} StopTime;
-
 // Structure to hold progress statistics
 typedef struct {
     long total_rows;
@@ -44,95 +37,130 @@ typedef struct {
     long memory_usage;
 } Progress;
 
-// Function declarations
-int process_line(char* line, msgpack_packer* pk);
-int process_stop_times(const char* input_file, const char* output_file);
-int check_rebuild(const char* executable_path);
+static const char* column_names[] = {
+    "trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"
+};
 
-// Parse a CSV line into fields
-int parse_csv_line(char* line, char** fields, int max_fields) {
-    int field = 0;
-    char* start = line;
-    char* end;
+// Read a complete CSV record, including quoted newlines and long fields.
+// Returns 1 for a record, 0 for EOF, and -1 for malformed input or an I/O error.
+static int read_csv_record(FILE* fp, char** record, size_t* capacity) {
+    size_t length = 0;
     int in_quotes = 0;
-    
-    while (*start && field < max_fields) {
-        // Skip leading whitespace
-        while (*start == ' ' || *start == '\t') start++;
-        
-        // Handle quoted fields
-        if (*start == '"') {
-            in_quotes = 1;
-            start++;  // Skip opening quote
-            end = start;
-            
-            // Find closing quote
-            while (*end) {
-                if (*end == '"') {
-                    if (*(end + 1) == '"') {  // Double quote inside field
-                        end += 2;
-                    } else {  // End of quoted field
-                        break;
-                    }
-                } else {
-                    end++;
-                }
+    int c;
+    while ((c = fgetc(fp)) != EOF) {
+        if (!in_quotes && (c == '\n' || c == '\r')) {
+            if (c == '\r') {
+                int next = fgetc(fp);
+                if (next != '\n' && next != EOF) ungetc(next, fp);
             }
-            
-            // Store field
-            fields[field++] = start;
-            
-            if (*end == '"') {
-                *end = '\0';  // Terminate field at closing quote
-                start = end + 1;  // Move past closing quote
-            } else {
-                start = end;  // No closing quote found
-            }
-            
-            // Skip to next delimiter or end
-            while (*start && *start != ',') start++;
-            if (*start == ',') start++;
-            
-        } else {
-            // Unquoted field
-            fields[field++] = start;
-            
-            // Find next delimiter or end
-            end = start;
-            while (*end && *end != ',' && *end != '\n' && *end != '\r') end++;
-            
-            if (*end) {
-                *end = '\0';  // Terminate field
-                start = end + 1;  // Move to next field
-            } else {
-                start = end;  // End of line
-            }
+            break;
         }
+        if (c == '\0') return -1;
+        if (c == '"') in_quotes = !in_quotes;
+        if (length + 1 >= *capacity) {
+            size_t new_capacity = *capacity ? *capacity * 2 : MAX_LINE_LENGTH;
+            char* grown = realloc(*record, new_capacity);
+            if (!grown) return -1;
+            *record = grown;
+            *capacity = new_capacity;
+        }
+        (*record)[length++] = (char)c;
     }
-    
-    return field;
+    if (ferror(fp) || in_quotes) return -1;
+    if (c == EOF && length == 0) return 0;
+    if (!*record) {
+        *record = malloc(1);
+        if (!*record) return -1;
+        *capacity = 1;
+    }
+    (*record)[length] = '\0';
+    return 1;
 }
 
-// Process a single line of the CSV file
-int process_line(char* line, msgpack_packer* pk) {
-    char* fields[10];  // More than enough for our needs
-    int num_fields = parse_csv_line(line, fields, 10);
-    
-    if (num_fields < 5) {  // We need at least 5 fields
-        fprintf(stderr, "Error: Not enough fields in line: %s\n", line);
-        fflush(stderr);
-        return -1;
+// Decode in place without dropping empty fields or trimming field contents.
+static int parse_csv_record(char* record, char*** fields, size_t* capacity) {
+    char* read = record;
+    char* write = record;
+    int count = 0;
+    for (;;) {
+        if ((size_t)count == *capacity) {
+            size_t new_capacity = *capacity ? *capacity * 2 : 16;
+            char** grown = realloc(*fields, new_capacity * sizeof(char*));
+            if (!grown) return -1;
+            *fields = grown;
+            *capacity = new_capacity;
+        }
+        (*fields)[count++] = write;
+        if (*read == '"') {
+            read++;
+            for (;;) {
+                if (!*read) return -1;
+                if (*read == '"') {
+                    read++;
+                    if (*read != '"') break;
+                }
+                *write++ = *read++;
+            }
+            if (*read && *read != ',') return -1;
+        } else {
+            while (*read && *read != ',') {
+                if (*read == '"') return -1;
+                *write++ = *read++;
+            }
+        }
+        int more = *read == ',';
+        if (more) read++;
+        *write++ = '\0';
+        if (!more) return count;
     }
-    
-    // Convert stop_sequence to integer first to validate it
+}
+
+static int blank_record(const char* record) {
+    return record[strspn(record, " \t\r\n")] == '\0';
+}
+
+static int get_column_indices(char** fields, int count, int* indices) {
+    for (int i = 0; i < 5; i++) {
+        indices[i] = -1;
+        for (int column = 0; column < count; column++) {
+            if (strcmp(fields[column], column_names[i]) == 0) {
+                if (indices[i] != -1) {
+                    fprintf(stderr, "Duplicate required column: %s\n", column_names[i]);
+                    return -1;
+                }
+                indices[i] = column;
+            }
+        }
+        if (indices[i] == -1) {
+            fprintf(stderr, "Missing required column: %s\n", column_names[i]);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int process_record(char** columns, int count, const int* indices, msgpack_packer* pk) {
+    char* fields[5];
+    for (int i = 0; i < 5; i++) {
+        if (indices[i] >= count) {
+            fprintf(stderr, "Missing value for column: %s\n", column_names[i]);
+            return -1;
+        }
+        fields[i] = columns[indices[i]];
+    }
     char* endptr;
+    errno = 0;
     long seq = strtol(fields[4], &endptr, 10);
-    if (*endptr != '\0' || seq < 0 || seq > INT_MAX) {
-        fprintf(stderr, "Invalid stop_sequence: %s\n", fields[4]);
-        fflush(stderr);
+    if (endptr == fields[4] || errno == ERANGE || seq < 0 || seq > INT_MAX) {
+        fprintf(stderr, "Invalid stop_sequence\n");
         return -1;
     }
-    
+    while (isspace((unsigned char)*endptr)) endptr++;
+    if (*endptr) {
+        fprintf(stderr, "Invalid stop_sequence\n");
+        return -1;
+    }
+
     // Pack stop time as a dictionary
     if (msgpack_pack_map(pk, 5) != 0) {
         fprintf(stderr, "Error: Could not pack map header\n");
@@ -360,139 +388,6 @@ void limit_cpu(int cpu_limit) {
     last_cpu_time = cpu_time;
 }
 
-// Function to parse a CSV line into a StopTime struct
-int parse_line(char* line, StopTime* stop_time, int* column_indices) {
-    char* token;
-    char* rest = line;
-    int column = 0;
-    int found_columns = 0;
-    static int debug_counter = 0;
-    
-    // Initialize stop_time with empty strings
-    stop_time->trip_id[0] = '\0';
-    stop_time->stop_id[0] = '\0';
-    stop_time->arrival_time[0] = '\0';
-    stop_time->departure_time[0] = '\0';
-    stop_time->stop_sequence = -1;
-    
-    while ((token = strtok_r(rest, ",", &rest))) {
-        // Remove quotes and whitespace
-        while (*token == ' ' || *token == '"') token++;
-        char* end = token + strlen(token) - 1;
-        while (end > token && (*end == ' ' || *end == '"' || *end == '\n' || *end == '\r')) end--;
-        *(end + 1) = '\0';
-        
-        if (column == column_indices[0]) {  // trip_id
-            if (strlen(token) >= sizeof(stop_time->trip_id)) {
-                fprintf(stderr, "trip_id too long: %s\n", token);
-                fflush(stderr);
-                return -1;
-            }
-            strncpy(stop_time->trip_id, token, sizeof(stop_time->trip_id) - 1);
-            stop_time->trip_id[sizeof(stop_time->trip_id) - 1] = '\0';
-            found_columns++;
-        } else if (column == column_indices[1]) {  // stop_id
-            if (strlen(token) >= sizeof(stop_time->stop_id)) {
-                fprintf(stderr, "stop_id too long: %s\n", token);
-                fflush(stderr);
-                return -1;
-            }
-            strncpy(stop_time->stop_id, token, sizeof(stop_time->stop_id) - 1);
-            stop_time->stop_id[sizeof(stop_time->stop_id) - 1] = '\0';
-            found_columns++;
-        } else if (column == column_indices[2]) {  // arrival_time
-            if (strlen(token) >= sizeof(stop_time->arrival_time)) {
-                fprintf(stderr, "arrival_time too long: %s\n", token);
-                fflush(stderr);
-                return -1;
-            }
-            strncpy(stop_time->arrival_time, token, sizeof(stop_time->arrival_time) - 1);
-            stop_time->arrival_time[sizeof(stop_time->arrival_time) - 1] = '\0';
-            found_columns++;
-        } else if (column == column_indices[3]) {  // departure_time
-            if (strlen(token) >= sizeof(stop_time->departure_time)) {
-                fprintf(stderr, "departure_time too long: %s\n", token);
-                fflush(stderr);
-                return -1;
-            }
-            strncpy(stop_time->departure_time, token, sizeof(stop_time->departure_time) - 1);
-            stop_time->departure_time[sizeof(stop_time->departure_time) - 1] = '\0';
-            found_columns++;
-        } else if (column == column_indices[4]) {  // stop_sequence
-            char* endptr;
-            long seq = strtol(token, &endptr, 10);
-            if (*endptr != '\0' || seq < 0 || seq > INT_MAX) {
-                fprintf(stderr, "Invalid stop_sequence: %s\n", token);
-                fflush(stderr);
-                return -1;
-            }
-            stop_time->stop_sequence = (int)seq;
-            found_columns++;
-        }
-        column++;
-    }
-    
-    // Print debug info every 10000 rows
-    debug_counter++;
-    if (debug_counter >= 10000) {
-        printf("\nParsed row: trip_id=%s, stop_id=%s, arrival=%s, departure=%s, seq=%d\n",
-               stop_time->trip_id, stop_time->stop_id,
-               stop_time->arrival_time, stop_time->departure_time,
-               stop_time->stop_sequence);
-        fflush(stdout);
-        debug_counter = 0;
-    }
-    
-    // Verify all required columns were found
-    if (found_columns != 5) {
-        fprintf(stderr, "Missing columns in line: found %d/5\n", found_columns);
-        fflush(stderr);
-        return -1;
-    }
-    
-    return 0;
-}
-
-// Function to get column indices from header
-int get_column_indices(char* header, int* indices) {
-    char* token;
-    char* rest = header;
-    int column = 0;
-    
-    // Initialize indices to -1
-    for (int i = 0; i < 5; i++) {
-        indices[i] = -1;
-    }
-    
-    while ((token = strtok_r(rest, ",", &rest))) {
-        // Remove quotes and whitespace
-        while (*token == ' ' || *token == '"') token++;
-        char* end = token + strlen(token) - 1;
-        while (end > token && (*end == ' ' || *end == '"' || *end == '\n' || *end == '\r')) end--;
-        *(end + 1) = '\0';
-        
-        if (strcmp(token, "trip_id") == 0) indices[0] = column;
-        else if (strcmp(token, "stop_id") == 0) indices[1] = column;
-        else if (strcmp(token, "arrival_time") == 0) indices[2] = column;
-        else if (strcmp(token, "departure_time") == 0) indices[3] = column;
-        else if (strcmp(token, "stop_sequence") == 0) indices[4] = column;
-        
-        column++;
-    }
-    
-    // Verify all required columns were found
-    const char* column_names[] = {"trip_id", "stop_id", "arrival_time", "departure_time", "stop_sequence"};
-    for (int i = 0; i < 5; i++) {
-        if (indices[i] == -1) {
-            fprintf(stderr, "Missing required column: %s\n", column_names[i]);
-            fflush(stderr);
-            return -1;
-        }
-    }
-    
-    return 0;
-}
-
 // Function to get the current executable path
 int get_executable_path(char* path, size_t size) {
 #ifdef _WIN32
@@ -621,50 +516,45 @@ int process_stop_times(const char* input_file, const char* output_file) {
         return 1;
     }
 
-    // First count total lines
-    printf("Counting total lines...\n");
-    fflush(stdout);
+    char* line = NULL;
+    size_t line_capacity = 0;
+    char** fields = NULL;
+    size_t fields_capacity = 0;
+    int indices[5];
+    msgpack_sbuffer* buffer = NULL;
+    msgpack_packer* pk = NULL;
+    int status;
+
+    // Resolve the required columns once, using the same CSV decoder as the rows.
+    do {
+        status = read_csv_record(fp, &line, &line_capacity);
+    } while (status == 1 && blank_record(line));
+    if (status != 1) {
+        fprintf(stderr, "Error: Could not read CSV header\n");
+        goto cleanup;
+    }
+    if (strncmp(line, "\xef\xbb\xbf", 3) == 0) {
+        memmove(line, line + 3, strlen(line + 3) + 1);
+    }
+    int count = parse_csv_record(line, &fields, &fields_capacity);
+    if (count < 0 || get_column_indices(fields, count, indices) != 0) goto cleanup;
+    long data_start = ftell(fp);
+    if (data_start < 0) goto cleanup;
+
+    // MessagePack arrays need the number of logical records, not physical lines.
     size_t total_lines = 0;
-    char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        total_lines++;
+    while ((status = read_csv_record(fp, &line, &line_capacity)) == 1) {
+        if (!blank_record(line)) total_lines++;
     }
-    total_lines--; // Subtract header line
-    printf("Total lines to process: %zu\n", total_lines);
-    fflush(stdout);
-
-    // Reset file pointer
-    rewind(fp);
-
-    // Skip header line
-    if (!fgets(line, sizeof(line), fp)) {
-        fprintf(stderr, "Error: Could not read header line\n");
-        fflush(stderr);
-        fclose(fp);
-        return 1;
+    if (status < 0 || total_lines > UINT32_MAX || fseek(fp, data_start, SEEK_SET) != 0) {
+        fprintf(stderr, "Error: Could not read CSV records\n");
+        goto cleanup;
     }
-
-    // Initialize msgpack buffer
-    msgpack_sbuffer* buffer = msgpack_sbuffer_new();
-    if (!buffer) {
-        fprintf(stderr, "Error: Could not create msgpack buffer\n");
-        fflush(stderr);
-        fclose(fp);
-        return 1;
-    }
-    printf("Created msgpack buffer\n");
-    fflush(stdout);
-
-    msgpack_packer* pk = msgpack_packer_new(buffer, msgpack_sbuffer_write);
-    if (!pk) {
-        fprintf(stderr, "Error: Could not create msgpack packer\n");
-        fflush(stderr);
-        msgpack_sbuffer_free(buffer);
-        fclose(fp);
-        return 1;
-    }
-    printf("Created msgpack packer\n");
-    fflush(stdout);
+    printf("Total rows to process: %zu\n", total_lines);
+    buffer = msgpack_sbuffer_new();
+    if (!buffer) goto cleanup;
+    pk = msgpack_packer_new(buffer, msgpack_sbuffer_write);
+    if (!pk) goto cleanup;
 
     // Start root map
     if (msgpack_pack_map(pk, 1) != 0) {
@@ -685,7 +575,7 @@ int process_stop_times(const char* input_file, const char* output_file) {
     printf("Packed stop_times key\n");
     fflush(stdout);
 
-    // Start array with known size (total_lines - 1)
+    // Start array with the number of data records
     if (msgpack_pack_array(pk, total_lines) != 0) {
         fprintf(stderr, "Error: Could not pack array header\n");
         fflush(stderr);
@@ -699,10 +589,11 @@ int process_stop_times(const char* input_file, const char* output_file) {
     time_t start_time = time(NULL);
     time_t last_progress = start_time;
 
-    // Process each line
-    while (fgets(line, sizeof(line), fp)) {
-        // Process the line
-        if (process_line(line, pk) == 0) {
+    // Process each logical CSV record.
+    while ((status = read_csv_record(fp, &line, &line_capacity)) == 1) {
+        if (blank_record(line)) continue;
+        count = parse_csv_record(line, &fields, &fields_capacity);
+        if (count >= 0 && process_record(fields, count, indices, pk) == 0) {
             successful++;
         } else {
             fprintf(stderr, "Error: Could not process stop_times row %zu\n", processed + 1);
@@ -727,6 +618,11 @@ int process_stop_times(const char* input_file, const char* output_file) {
             fflush(stdout);
             last_progress = current_time;
         }
+    }
+
+    if (status < 0 || processed != total_lines) {
+        fprintf(stderr, "Error: Could not read all CSV records\n");
+        goto cleanup;
     }
 
     printf("Processing complete. Final buffer size: %zu bytes\n", buffer->size);
@@ -754,6 +650,9 @@ int process_stop_times(const char* input_file, const char* output_file) {
     fflush(out);
     fclose(out);
 
+    free(line);
+    free(fields);
+
     // Cleanup msgpack resources
     msgpack_packer_free(pk);
     msgpack_sbuffer_free(buffer);
@@ -765,16 +664,13 @@ int process_stop_times(const char* input_file, const char* output_file) {
     return 0;
 
 cleanup:
+    free(line);
+    free(fields);
     if (pk) msgpack_packer_free(pk);
     if (buffer) msgpack_sbuffer_free(buffer);
     if (fp) fclose(fp);
     return 1;
 }
-
-// Function declarations
-int process_line(char* line, msgpack_packer* pk);
-int process_stop_times(const char* input_file, const char* output_file);
-int check_rebuild(const char* executable_path);
 
 int main(int argc, char* argv[]) {
     // Get version
