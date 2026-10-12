@@ -5,7 +5,7 @@ setup(
     version="0.2.11",
     packages=find_packages(),
     install_requires=[
-        "mobility-db-api>=0.5.1",
+        "mobility-db-api>=0.6.0",
         "gtfs-realtime-bindings>=2.0.0",
         "protobuf>=5.29.6,<8",
         "httpx>=0.27.2",
