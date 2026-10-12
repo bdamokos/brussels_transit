@@ -198,6 +198,36 @@ def test_config_roundtrip():
         assert converted[key] == original[key]
 
 
+@pytest.mark.parametrize('settings', [
+    {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'},
+    {'provider_specific': {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'}},
+    {
+        'API_KEY': 'test_key',
+        'provider_specific': {'API_KEY': 'nested_test_key', 'API_URL': 'https://example.test/stib'},
+    },
+])
+def test_stib_repeated_config_roundtrip(settings):
+    stops = [{
+        'id': '8122',
+        'name': 'ROODEBEEK',
+        'lines': {'5': ['ERASME', 'HERRMANN-DEBROUX'], '1': ['STOCKEL']},
+        'direction': 'Suburb',
+    }]
+    expected_settings = {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'}
+    expected = {
+        **expected_settings,
+        'STIB_STOPS': stops,
+        'provider_specific': expected_settings,
+    }
+    config = {'STIB_STOPS': stops, **settings}
+
+    for _ in range(4):
+        config = convert_to_provider_format('stib', validate_provider_config(config))
+        assert config == expected
+        assert 'provider_specific' not in config['provider_specific']
+        assert list(config['STIB_STOPS'][0]['lines']) == ['5', '1']
+
+
 @pytest.mark.parametrize('stops', [None, [], [{'id': '1234'}]])
 def test_stib_minimal_config_roundtrip(stops):
     validated = validate_provider_config({'STIB_STOPS': stops})

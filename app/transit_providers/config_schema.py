@@ -81,7 +81,7 @@ def validate_provider_config(config: Dict) -> Dict:
     standard_config = {
         'stops': [],
         'monitored_lines': config.get('MONITORED_LINES', []),
-        'provider_specific': {}
+        'provider_specific': config.get('provider_specific')
     }
     
     # Treat unset legacy stop lists like missing lists.
@@ -94,11 +94,12 @@ def validate_provider_config(config: Dict) -> Dict:
         for stop_id in config['STOP_IDS']:
             standard_config['stops'].append({'id': stop_id})
     
-    # Move all other fields to provider_specific
-    for key, value in config.items():
-        if key not in ['STIB_STOPS', 'STOP_IDS', 'MONITORED_LINES']:
-            standard_config['provider_specific'][key] = value
-    
-    # Validate using Pydantic model
+    # Validate grouped settings before overlaying top-level provider options.
     validated = ProviderConfig(**standard_config)
+    provider_specific = dict(validated.provider_specific or {})
+    for key, value in config.items():
+        if key not in ['STIB_STOPS', 'STOP_IDS', 'MONITORED_LINES', 'provider_specific']:
+            provider_specific[key] = value
+    validated.provider_specific = provider_specific
+    
     return validated.model_dump(exclude_none=True)
