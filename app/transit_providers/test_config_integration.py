@@ -1,14 +1,13 @@
 """Integration tests for the configuration system"""
 
 import pytest
-from pathlib import Path
-import sys
+import asyncio
 import types
-from config import get_config, _import_config
-from .config_schema import validate_provider_config
+from config import get_config
+from .config_schema import ProviderConfig, validate_provider_config
 from .config_compat import convert_to_provider_format
+from .be import stib as stib_module
 from .be.stib import StibProvider
-from .be.stib.api import get_waiting_times as stib_get_waiting_times
 from .be.delijn import DelijnProvider
 from .hu.bkk import BKKProvider
 from .hu.bkk.api import get_waiting_times as bkk_get_waiting_times
@@ -33,6 +32,10 @@ def test_config():
     config.DELIJN_MONITORED_LINES = ['116', '117', '118', '144']
     
     config.PROVIDER_CONFIG = {
+        'stib': {
+            'stops': config.STIB_STOPS,
+            'provider_specific': {'API_KEY': 'test_key'}
+        },
         'bkk': {
             'STOP_IDS': ['F01111'],
             'MONITORED_LINES': ['3040']
@@ -73,26 +76,38 @@ def test_config_loading_and_merging(mock_config):
     assert len(converted['STIB_STOPS']) == 1
     assert len(converted['STIB_STOPS'][0]['lines']['5']) == 2
 
-@pytest.mark.asyncio
-async def test_stib_provider_integration():
+@pytest.mark.parametrize('config_format', ['legacy', 'standard'])
+def test_stib_provider_integration(mock_config, monkeypatch, config_format):
     """Test that STIB provider works with the new config format"""
-    # Get STIB config
-    stib_config = get_config('STIB_STOPS')
-    validated = validate_provider_config({'STIB_STOPS': stib_config})
+    if config_format == 'legacy':
+        validated = validate_provider_config({
+            'STIB_STOPS': get_config('STIB_STOPS'),
+            'API_KEY': 'test_key'
+        })
+    else:
+        validated = ProviderConfig(**get_config('PROVIDER_CONFIG')['stib']).model_dump(
+            exclude_none=True
+        )
     
     # Convert to old format
     old_format = convert_to_provider_format('stib', validated)
     
-    # Initialize STIB provider with old format
-    provider = StibProvider()
-    provider.config = old_format
-    
-    # Test that we can get real-time data using the API function
-    times = await stib_get_waiting_times()
-    assert isinstance(times, dict)
+    # Supply the converted configuration before the provider derives its stops/lines.
+    def provider_config(name):
+        assert name == 'stib'
+        return old_format
 
-@pytest.mark.asyncio
-async def test_delijn_provider_integration():
+    monkeypatch.setattr(stib_module, 'get_provider_config', provider_config)
+    provider = StibProvider()
+    assert provider.stop_ids == {'8122'}
+    assert provider.monitored_lines == {'1', '5'}
+    assert provider.config['API_KEY'] == 'test_key'
+    frontend_config = asyncio.run(provider.endpoints['config']())
+    assert frontend_config['stops'] == mock_config.STIB_STOPS
+    assert set(frontend_config['stop_ids']) == {'8122'}
+    assert set(frontend_config['monitored_lines']) == {'1', '5'}
+
+def test_delijn_provider_integration():
     """Test that De Lijn provider works with the new config format"""
     # Get De Lijn config with defaults
     delijn_config = {
@@ -112,8 +127,7 @@ async def test_delijn_provider_integration():
     assert isinstance(provider.stop_ids, (list, set))
     assert isinstance(provider.monitored_lines, (list, set))
 
-@pytest.mark.asyncio
-async def test_bkk_provider_integration():
+def test_bkk_provider_integration():
     """Test that BKK provider works with the new config format"""
     # Get BKK config from PROVIDER_CONFIG with defaults
     bkk_config = get_config('PROVIDER_CONFIG', {}).get('bkk', {
@@ -130,14 +144,15 @@ async def test_bkk_provider_integration():
     provider.config = old_format
     
     # Test that we can get real-time data using the API function
-    times = await bkk_get_waiting_times()
+    times = asyncio.run(bkk_get_waiting_times())
     assert isinstance(times, dict)
 
-def test_frontend_data_structure():
+def test_frontend_data_structure(mock_config):
     """Test that the frontend data structure remains compatible"""
     # Get STIB config as an example
     stib_config = get_config('STIB_STOPS')
     validated = validate_provider_config({'STIB_STOPS': stib_config})
+    assert len(validated['stops']) == 1
     
     # Check that the structure matches what frontend expects
     for stop in validated['stops']:
@@ -165,7 +180,10 @@ def test_config_roundtrip():
             },
             'direction': 'Suburb'
         }],
-        'API_KEY': 'test_key'
+        'API_KEY': 'test_key',
+        'API_URL': 'https://example.test/stib',
+        'MOBILITY_API_PRIMARY_KEY': 'test_mobility_key',
+        'RATE_LIMIT_DELAY': 0.5
     }
     
     # Convert to new format
@@ -175,7 +193,85 @@ def test_config_roundtrip():
     converted = convert_to_provider_format('stib', validated)
     
     # Check that the structure is preserved
-    assert len(converted['STIB_STOPS']) == len(original['STIB_STOPS'])
-    assert converted['STIB_STOPS'][0]['id'] == original['STIB_STOPS'][0]['id']
-    assert converted['STIB_STOPS'][0]['lines']['1'] == original['STIB_STOPS'][0]['lines']['1']
-    assert converted['API_KEY'] == original['API_KEY'] 
+    assert converted['STIB_STOPS'] == original['STIB_STOPS']
+    for key in ('API_KEY', 'API_URL', 'MOBILITY_API_PRIMARY_KEY', 'RATE_LIMIT_DELAY'):
+        assert converted[key] == original[key]
+
+
+@pytest.mark.parametrize('settings', [
+    {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'},
+    {'provider_specific': {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'}},
+    {
+        'API_KEY': 'test_key',
+        'provider_specific': {'API_KEY': 'nested_test_key', 'API_URL': 'https://example.test/stib'},
+    },
+])
+def test_stib_repeated_config_roundtrip(settings):
+    stops = [{
+        'id': '8122',
+        'name': 'ROODEBEEK',
+        'lines': {'5': ['ERASME', 'HERRMANN-DEBROUX'], '1': ['STOCKEL']},
+        'direction': 'Suburb',
+    }]
+    expected_settings = {'API_KEY': 'test_key', 'API_URL': 'https://example.test/stib'}
+    expected = {
+        **expected_settings,
+        'STIB_STOPS': stops,
+        'provider_specific': expected_settings,
+    }
+    config = {'STIB_STOPS': stops, **settings}
+
+    for _ in range(4):
+        config = convert_to_provider_format('stib', validate_provider_config(config))
+        assert config == expected
+        assert 'provider_specific' not in config['provider_specific']
+        assert list(config['STIB_STOPS'][0]['lines']) == ['5', '1']
+
+
+@pytest.mark.parametrize('stops', [None, [], [{'id': '1234'}]])
+def test_stib_minimal_config_roundtrip(stops):
+    validated = validate_provider_config({'STIB_STOPS': stops})
+    converted = convert_to_provider_format('stib', validated)
+    expected = [] if not stops else [
+        {'id': '1234', 'name': '1234', 'lines': {}, 'direction': 'City'}
+    ]
+    assert converted['STIB_STOPS'] == expected
+
+
+@pytest.mark.parametrize('exclude_none', [False, True])
+def test_stib_optional_config_fields(exclude_none):
+    validated = ProviderConfig(stops=[{'id': '1234'}]).model_dump(exclude_none=exclude_none)
+    converted = convert_to_provider_format('stib', validated)
+    assert converted['STIB_STOPS'][0]['id'] == '1234'
+    assert converted['STIB_STOPS'][0]['name'] == '1234'
+    assert converted['STIB_STOPS'][0]['lines'] == {}
+    assert converted['provider_specific'] == {}
+
+
+@pytest.mark.parametrize('stop, expected_name, expected_title', [
+    ({'id': '1234'}, '1234', '1234'),
+    ({'id': '1234', 'name': None}, '1234', '1234'),
+    ({'id': '1234', 'name': 'TEST STOP'}, 'TEST STOP', 'Test Stop'),
+])
+def test_stib_stop_names_render_in_legacy_frontend(stop, expected_name, expected_title):
+    from flask import render_template
+    from app.main import app as legacy_app
+
+    validated = validate_provider_config({'STIB_STOPS': [stop]})
+    converted = convert_to_provider_format('stib', validated)
+    with legacy_app.app_context():
+        rendered = render_template(
+            'index.html',
+            stops=converted['STIB_STOPS'],
+            DELIJN_STOP_IDS=[],
+            BKK_STOP_IDS=[],
+            map_config={},
+            route_colors={},
+            walking_speed=1.4,
+            location_update_interval=300,
+            refresh_interval=60,
+        )
+
+    assert converted['STIB_STOPS'][0]['name'] == expected_name
+    assert f'data-stop-name="{expected_name}"' in rendered
+    assert f'<h2>{expected_title}</h2>' in rendered

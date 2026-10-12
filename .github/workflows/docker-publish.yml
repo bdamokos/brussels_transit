@@ -65,10 +65,19 @@ jobs:
             app/schedule_explorer/backend/test_gtfs_identifiers.py \
             app/schedule_explorer/backend/test_optional_route_names.py \
             app/transit_providers/test_realtime_bindings.py \
+            app/transit_providers/test_config_schema.py \
+            app/transit_providers/test_config_integration.py \
             app/transit_providers/be/letec/test_letec.py \
             app/schedule_explorer/backend/test_response_serialization.py \
             app/schedule_explorer/backend/test_timezone.py \
             app/schedule_explorer/frontend/test_security_regressions.py
+          docker run --rm --network none \
+            -e PYTHONPATH=/app/app:/app \
+            -e PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python \
+            --entrypoint python brussels_transit-web:test \
+            -m pytest -q \
+            app/transit_providers/test_config_schema.py \
+            app/transit_providers/test_config_integration.py
 
       - name: Move cache
         run: |
