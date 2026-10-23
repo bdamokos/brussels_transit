@@ -60,6 +60,7 @@ jobs:
             -e PYTHONPATH=/app/app:/app brussels_transit-web:test \
             -m pytest -q \
             app/test_security_utils.py \
+            app/test_tls_trust.py \
             app/schedule_explorer/backend/test_bbox_regressions.py \
             app/schedule_explorer/backend/test_memory_regressions.py \
             app/schedule_explorer/backend/test_waiting_reference.py \
