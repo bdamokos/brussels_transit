@@ -208,6 +208,30 @@ The health endpoints return a JSON response:
 - Non-root user is used in the container
 - Minimal base image (python:3.13-slim) is used
 
+### Refreshing the TLS trust bundle
+
+All installation manifests require `certifi>=2026.10.19` for
+[GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2).
+HTTPX and Requests use this bundle by default. Updating source or pulling a
+mutable image tag does not update packages inside an already running container.
+
+For a security refresh, build a fresh candidate from the approved revision with
+`docker build --pull --no-cache -t brussels-transit:ca-refresh .`. Before release,
+record the resolved package versions and image digest, and run the offline trust
+check in that image:
+
+```bash
+docker run --rm --network none --entrypoint python brussels-transit:ca-refresh \
+  -m pytest -q app/test_tls_trust.py
+```
+
+Check configured provider HTTPS endpoints with certificate verification enabled.
+Also inspect any deployed `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`
+or `CURL_CA_BUNDLE` override: those stores need their own CA review. Niquests
+uses Wassima/system trust separately. Coordinate image publication and container
+replacement with the release owner; a successful build alone does not remediate
+a running image.
+
 ## Troubleshooting
 
 1. **Container fails to start**
