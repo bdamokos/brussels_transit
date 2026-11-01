@@ -32,7 +32,7 @@ pytz==2026.5
     #   -r requirements.in
     #   apscheduler
     #   pandas
-mobility-db-api>=0.6.0
+mobility-db-api>=0.6.1
 gtfs-realtime-bindings>=3.0.0
 protobuf>=7.36.0,<8
 uvicorn ==0.54.0
