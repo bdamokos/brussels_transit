@@ -18,7 +18,7 @@ httpx==0.28.1
     # via -r requirements.in
 # GHSA-6q48-6c7w-9gw2: exclude the compromised emSign ECC Root CA - G3.
 certifi>=2026.10.19
-hypercorn==0.17.3
+hypercorn==0.18.0
     # via -r requirements.in
 
 numpy==2.2.6
